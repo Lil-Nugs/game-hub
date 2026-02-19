@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Game Hub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a0f;
+    color: #e0e0e0;
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100vh;
+  }
+
+  header {
+    text-align: center;
+    padding: 3rem 1rem 2rem;
+    border-bottom: 1px solid rgba(108, 92, 231, 0.2);
+  }
+
+  header h1 {
+    font-family: 'Space Mono', monospace;
+    font-size: 2.5rem;
+    color: #fff;
+    letter-spacing: -1px;
+  }
+
+  header h1 span { color: #6c5ce7; }
+
+  header p {
+    margin-top: 0.5rem;
+    color: #888;
+    font-size: 1rem;
+  }
+
+  #gallery {
+    max-width: 1100px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1.5rem;
+  }
+
+  .card {
+    background: #12121a;
+    border: 1px solid #1e1e2e;
+    border-radius: 12px;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    transition: border-color 0.3s, box-shadow 0.3s;
+  }
+
+  .card:hover {
+    border-color: #6c5ce7;
+    box-shadow: 0 0 24px rgba(108, 92, 231, 0.15);
+  }
+
+  .card h2 {
+    font-family: 'Space Mono', monospace;
+    font-size: 1.2rem;
+    color: #fff;
+    margin-bottom: 0.5rem;
+  }
+
+  .card .desc {
+    color: #aaa;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    flex: 1;
+    margin-bottom: 1rem;
+  }
+
+  .card .meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.8rem;
+    color: #666;
+    margin-bottom: 1rem;
+  }
+
+  .card .play-btn {
+    display: inline-block;
+    text-align: center;
+    padding: 0.6rem 1.5rem;
+    background: #6c5ce7;
+    color: #fff;
+    text-decoration: none;
+    border-radius: 8px;
+    font-family: 'Space Mono', monospace;
+    font-weight: 700;
+    font-size: 0.9rem;
+    letter-spacing: 1px;
+    transition: background 0.2s, box-shadow 0.2s;
+  }
+
+  .card .play-btn:hover {
+    background: #7c6ff7;
+    box-shadow: 0 0 16px rgba(108, 92, 231, 0.4);
+  }
+
+  #empty {
+    text-align: center;
+    color: #555;
+    font-size: 1.1rem;
+    padding: 4rem 1rem;
+  }
+
+  #empty span { font-size: 2rem; display: block; margin-bottom: 0.5rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span>&gt;</span> Game Hub</h1>
+  <p>AI-generated games &mdash; play, compete, and climb the leaderboards</p>
+</header>
+<div id="gallery"></div>
+<script>
+(async () => {
+  const gallery = document.getElementById('gallery');
+  try {
+    const res = await fetch('games.json');
+    const data = await res.json();
+    const games = data.games || [];
+
+    if (games.length === 0) {
+      gallery.innerHTML = '<div id="empty"><span>🎮</span>No games yet. Ask the bot to make one!</div>';
+      return;
+    }
+
+    games.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    games.forEach(g => {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `
+        <h2>${escHtml(g.title)}</h2>
+        <p class="desc">${escHtml(g.description)}</p>
+        <div class="meta">
+          <span>by ${escHtml(g.creator || 'unknown')}</span>
+          <span>${formatDate(g.date)}</span>
+        </div>
+        <a class="play-btn" href="games/${encodeURIComponent(g.slug)}/index.html">PLAY</a>
+      `;
+      gallery.appendChild(card);
+    });
+  } catch (e) {
+    gallery.innerHTML = '<div id="empty"><span>⚠️</span>Failed to load games.</div>';
+  }
+})();
+
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+function formatDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+</script>
+</body>
+</html>
