@@ -2,5 +2,5 @@
   "GITHUB_REPO_OWNER": "Lil-Nugs",
   "GITHUB_REPO_NAME": "game-hub",
   "GITHUB_PAGES_URL": "https://lil-nugs.github.io/game-hub",
-  "LEADERBOARD_API_URL": "<fill after worker deployed>"
+  "LEADERBOARD_API_URL": "https://game-leaderboard.mattgames.workers.dev"
 }
