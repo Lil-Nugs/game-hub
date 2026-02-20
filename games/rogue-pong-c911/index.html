@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Rogue Pong</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a1a; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: 'Press Start 2P', monospace; }
+canvas { display: block; image-rendering: pixelated; }
+#ui-overlay {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  display: flex; justify-content: center; align-items: center;
+  pointer-events: none; z-index: 10;
+}
+#ui-overlay > div { pointer-events: auto; }
+.ui-panel {
+  background: rgba(10, 10, 30, 0.95); border: 2px solid #0ff; border-radius: 12px;
+  padding: 24px; text-align: center; color: #fff; max-width: 420px; width: 90vw;
+}
+.ui-panel h1 { font-size: 20px; color: #0ff; margin-bottom: 12px; text-shadow: 0 0 20px #0ff; }
+.ui-panel h2 { font-size: 14px; color: #f0f; margin-bottom: 10px; }
+.ui-panel p { font-size: 9px; line-height: 1.8; color: #aaa; margin-bottom: 8px; }
+.btn {
+  font-family: 'Press Start 2P', monospace; font-size: 10px; padding: 12px 20px;
+  border: 2px solid #0ff; background: transparent; color: #0ff; cursor: pointer;
+  border-radius: 6px; margin: 6px; transition: all 0.2s;
+}
+.btn:hover { background: #0ff; color: #000; }
+.btn-upgrade {
+  display: block; width: 100%; text-align: left; font-size: 8px; padding: 14px;
+  margin: 6px 0; border-color: #f0f; color: #f0f; line-height: 1.6;
+}
+.btn-upgrade:hover { background: #f0f; color: #000; }
+.btn-upgrade .upgrade-name { font-size: 10px; display: block; margin-bottom: 4px; }
+.btn-upgrade .upgrade-desc { font-size: 7px; color: #ccc; }
+.btn-upgrade:hover .upgrade-desc { color: #333; }
+input[type="text"] {
+  font-family: 'Press Start 2P', monospace; font-size: 10px; padding: 10px;
+  border: 2px solid #0ff; background: rgba(0,255,255,0.1); color: #0ff;
+  border-radius: 6px; width: 200px; text-align: center; outline: none;
+}
+.leaderboard { text-align: left; margin-top: 12px; }
+.leaderboard div { font-size: 8px; padding: 4px 0; color: #aaa; border-bottom: 1px solid #222; }
+.leaderboard .lb-rank { color: #f0f; }
+.leaderboard .lb-score { color: #0ff; float: right; }
+.stats { font-size: 8px; color: #888; margin: 8px 0; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui-overlay"><div id="ui-content"></div></div>
+
+<script>
+const GAME_ID = 'rogue-pong-c911';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch (e) { console.warn('Leaderboard unavailable:', e); return null; }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch (e) { console.warn('Leaderboard unavailable:', e); return []; }
+}
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const ui = document.getElementById('ui-content');
+
+let W, H;
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// Stars background
+const stars = Array.from({length: 120}, () => ({
+  x: Math.random() * 2000, y: Math.random() * 2000,
+  s: Math.random() * 2 + 0.5, b: Math.random()
+}));
+
+// Game state
+let state = 'menu'; // menu, playing, upgrade, gameover
+let score = 0;
+let wave = 0;
+let lives = 3;
+let ballsReturned = 0;
+let nextUpgrade = 5; // balls returned to trigger upgrade
+
+// Paddle
+let paddle = { w: 100, h: 14, speed: 8, x: 0, y: 0, color: '#0ff', multiball: false };
+// Balls
+let balls = [];
+// Particles
+let particles = [];
+// Enemy paddle (top)
+let enemy = { w: 120, h: 10, x: 0, y: 30, speed: 3, dx: 1 };
+
+// Upgrades system
+const allUpgrades = [
+  { id: 'wider', name: '🏓 Wide Paddle', desc: 'Paddle +25% wider', apply: () => { paddle.w *= 1.25; } },
+  { id: 'speed', name: '⚡ Quick Paddle', desc: 'Paddle moves 20% faster', apply: () => { paddle.speed *= 1.2; } },
+  { id: 'slow_ball', name: '🐌 Slow Ball', desc: 'Balls move 15% slower', apply: () => { balls.forEach(b => { b.dx *= 0.85; b.dy *= 0.85; }); ballBaseSpeed *= 0.85; } },
+  { id: 'extra_life', name: '❤️ Extra Life', desc: '+1 life', apply: () => { lives++; } },
+  { id: 'magnet', name: '🧲 Ball Magnet', desc: 'Balls curve toward paddle', apply: () => { magnetPower += 0.3; } },
+  { id: 'big_ball', name: '🔴 Big Ball', desc: 'Balls are 30% bigger', apply: () => { ballRadius *= 1.3; balls.forEach(b => b.r = ballRadius); } },
+  { id: 'multiball', name: '🎱 Multiball', desc: 'Extra ball each wave', apply: () => { extraBalls++; } },
+  { id: 'shield', name: '🛡️ Shield', desc: 'One-time save from losing a ball', apply: () => { shieldCount++; } },
+  { id: 'score_mult', name: '💰 Score x1.5', desc: 'Score multiplier +0.5x', apply: () => { scoreMult += 0.5; } },
+  { id: 'piercing', name: '💥 Power Hit', desc: 'Ball speeds up on paddle hit', apply: () => { powerHit += 0.1; } },
+  { id: 'enemy_shrink', name: '📏 Shrink Enemy', desc: 'Enemy paddle 20% smaller', apply: () => { enemy.w *= 0.8; } },
+  { id: 'enemy_slow', name: '🦥 Slow Enemy', desc: 'Enemy moves 20% slower', apply: () => { enemy.speed *= 0.8; } },
+];
+
+let ballBaseSpeed = 5;
+let ballRadius = 8;
+let magnetPower = 0;
+let extraBalls = 0;
+let shieldCount = 0;
+let scoreMult = 1;
+let powerHit = 0;
+let acquiredUpgrades = [];
+
+// Input
+let keys = {};
+let touchX = null;
+window.addEventListener('keydown', e => { keys[e.key] = true; });
+window.addEventListener('keyup', e => { keys[e.key] = false; });
+window.addEventListener('touchmove', e => { e.preventDefault(); touchX = e.touches[0].clientX; }, { passive: false });
+window.addEventListener('touchstart', e => { touchX = e.touches[0].clientX; }, { passive: false });
+window.addEventListener('touchend', () => { touchX = null; });
+window.addEventListener('mousemove', e => { if (state === 'playing') touchX = e.clientX; });
+
+function resetGame() {
+  score = 0; wave = 0; lives = 3; ballsReturned = 0; nextUpgrade = 5;
+  ballBaseSpeed = 5; ballRadius = 8; magnetPower = 0; extraBalls = 0;
+  shieldCount = 0; scoreMult = 1; powerHit = 0; acquiredUpgrades = [];
+  paddle.w = 100; paddle.speed = 8;
+  enemy.w = 120; enemy.speed = 3;
+  enemy.x = W / 2;
+  particles = [];
+  startWave();
+}
+
+function spawnBall() {
+  const angle = (Math.random() * 0.8 + 0.1) * Math.PI; // downward-ish
+  const speed = ballBaseSpeed + wave * 0.3;
+  balls.push({
+    x: W / 2 + (Math.random() - 0.5) * 200,
+    y: H * 0.3,
+    dx: Math.cos(angle) * speed * (Math.random() > 0.5 ? 1 : -1),
+    dy: Math.abs(Math.sin(angle)) * speed,
+    r: ballRadius,
+    trail: [],
+    hue: Math.random() * 360
+  });
+}
+
+function startWave() {
+  wave++;
+  balls = [];
+  const count = 1 + extraBalls;
+  for (let i = 0; i < count; i++) setTimeout(() => spawnBall(), i * 500);
+  enemy.speed = 3 + wave * 0.3;
+  enemy.dx = Math.random() > 0.5 ? 1 : -1;
+}
+
+function spawnParticles(x, y, color, count = 10) {
+  for (let i = 0; i < count; i++) {
+    particles.push({
+      x, y,
+      dx: (Math.random() - 0.5) * 8,
+      dy: (Math.random() - 0.5) * 8,
+      life: 1,
+      color,
+      size: Math.random() * 4 + 2
+    });
+  }
+}
+
+function pickUpgrades() {
+  const shuffled = [...allUpgrades].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, 3);
+}
+
+function showMenu() {
+  state = 'menu';
+  ui.innerHTML = `
+    <div class="ui-panel">
+      <h1>🏓 ROGUE PONG</h1>
+      <p>Endless pong with roguelite upgrades!<br>
+      Return the ball past the enemy.<br>
+      Every 5 returns, pick an upgrade.<br>
+      Don't let the ball past you!</p>
+      <p>⌨️ Arrow keys / Mouse / Touch</p>
+      <button class="btn" id="startBtn">START GAME</button>
+    </div>`;
+  document.getElementById('startBtn').onclick = () => {
+    ui.innerHTML = '';
+    state = 'playing';
+    resetGame();
+  };
+}
+
+function showUpgradeScreen() {
+  state = 'upgrade';
+  const choices = pickUpgrades();
+  ui.innerHTML = `
+    <div class="ui-panel">
+      <h2>⬆️ CHOOSE AN UPGRADE</h2>
+      <p class="stats">Wave ${wave} • Score ${score} • Lives ${'❤️'.repeat(lives)}${'🛡️'.repeat(shieldCount)}</p>
+      <div id="choices"></div>
+    </div>`;
+  const div = document.getElementById('choices');
+  choices.forEach((up, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-upgrade';
+    btn.innerHTML = `<span class="upgrade-name">${up.name}</span><span class="upgrade-desc">${up.desc}</span>`;
+    btn.onclick = () => {
+      up.apply();
+      acquiredUpgrades.push(up.name);
+      ui.innerHTML = '';
+      state = 'playing';
+      startWave();
+    };
+    div.appendChild(btn);
+  });
+}
+
+function showGameOver() {
+  state = 'gameover';
+  ui.innerHTML = `
+    <div class="ui-panel">
+      <h1>GAME OVER</h1>
+      <h2>Score: ${score}</h2>
+      <p class="stats">Wave ${wave} • Returns ${ballsReturned}<br>
+      Upgrades: ${acquiredUpgrades.join(', ') || 'None'}</p>
+      <input type="text" id="nameInput" placeholder="Your name" maxlength="16">
+      <br><button class="btn" id="submitBtn" style="margin-top:10px">SUBMIT SCORE</button>
+      <div id="lbArea"></div>
+      <button class="btn" id="replayBtn" style="margin-top:10px">PLAY AGAIN</button>
+    </div>`;
+  document.getElementById('submitBtn').onclick = async () => {
+    const name = document.getElementById('nameInput').value.trim() || 'Anonymous';
+    document.getElementById('submitBtn').textContent = '...';
+    await submitScore(name, score);
+    const scores = await getLeaderboard();
+    const lbDiv = document.getElementById('lbArea');
+    lbDiv.innerHTML = '<div class="leaderboard"><h2>🏆 TOP 10</h2>' +
+      scores.map((s, i) => `<div><span class="lb-rank">#${i+1}</span> ${s.playerName} <span class="lb-score">${s.score}</span></div>`).join('') +
+      '</div>';
+    document.getElementById('submitBtn').style.display = 'none';
+  };
+  document.getElementById('replayBtn').onclick = () => {
+    ui.innerHTML = '';
+    state = 'playing';
+    resetGame();
+  };
+}
+
+function update() {
+  if (state !== 'playing') return;
+
+  // Paddle movement
+  paddle.y = H - 50;
+  paddle.x = paddle.x || W / 2;
+  if (keys['ArrowLeft'] || keys['a']) paddle.x -= paddle.speed;
+  if (keys['ArrowRight'] || keys['d']) paddle.x += paddle.speed;
+  if (touchX !== null) {
+    const diff = touchX - paddle.x;
+    paddle.x += Math.sign(diff) * Math.min(Math.abs(diff), paddle.speed * 1.5);
+  }
+  paddle.x = Math.max(paddle.w / 2, Math.min(W - paddle.w / 2, paddle.x));
+
+  // Enemy movement
+  if (balls.length > 0) {
+    const targetBall = balls.reduce((a, b) => a.y < b.y ? a : b);
+    const diff = targetBall.x - enemy.x;
+    enemy.x += Math.sign(diff) * Math.min(Math.abs(diff), enemy.speed);
+  }
+  enemy.x = Math.max(enemy.w / 2, Math.min(W - enemy.w / 2, enemy.x));
+
+  // Ball physics
+  let ballsToRemove = [];
+  balls.forEach((b, i) => {
+    // Trail
+    b.trail.push({ x: b.x, y: b.y });
+    if (b.trail.length > 10) b.trail.shift();
+
+    // Magnet
+    if (magnetPower > 0 && b.dy > 0) {
+      const diff = paddle.x - b.x;
+      b.dx += Math.sign(diff) * magnetPower * 0.05;
+    }
+
+    b.x += b.dx;
+    b.y += b.dy;
+
+    // Wall bounce
+    if (b.x - b.r <= 0) { b.x = b.r; b.dx = Math.abs(b.dx); spawnParticles(b.x, b.y, '#0ff', 5); }
+    if (b.x + b.r >= W) { b.x = W - b.r; b.dx = -Math.abs(b.dx); spawnParticles(b.x, b.y, '#0ff', 5); }
+
+    // Paddle collision
+    if (b.dy > 0 && b.y + b.r >= paddle.y && b.y + b.r <= paddle.y + paddle.h + 10 &&
+        b.x >= paddle.x - paddle.w / 2 && b.x <= paddle.x + paddle.w / 2) {
+      const offset = (b.x - paddle.x) / (paddle.w / 2);
+      const speed = Math.sqrt(b.dx * b.dx + b.dy * b.dy) * (1 + powerHit);
+      const angle = offset * Math.PI * 0.35;
+      b.dx = Math.sin(angle) * speed;
+      b.dy = -Math.abs(Math.cos(angle) * speed);
+      b.y = paddle.y - b.r;
+      spawnParticles(b.x, b.y, '#0ff', 15);
+    }
+
+    // Enemy paddle collision
+    if (b.dy < 0 && b.y - b.r <= enemy.y + enemy.h && b.y - b.r >= enemy.y - 10 &&
+        b.x >= enemy.x - enemy.w / 2 && b.x <= enemy.x + enemy.w / 2) {
+      b.dy = Math.abs(b.dy);
+      b.y = enemy.y + enemy.h + b.r;
+      spawnParticles(b.x, b.y, '#f0f', 10);
+    }
+
+    // Scored past enemy (went off top)
+    if (b.y + b.r < 0) {
+      score += Math.round(10 * scoreMult);
+      ballsReturned++;
+      spawnParticles(b.x, 10, '#ff0', 25);
+      ballsToRemove.push(i);
+    }
+
+    // Lost (went off bottom)
+    if (b.y - b.r > H) {
+      if (shieldCount > 0) {
+        shieldCount--;
+        b.dy = -Math.abs(b.dy);
+        b.y = H - 20;
+        spawnParticles(b.x, H, '#0f0', 20);
+      } else {
+        lives--;
+        spawnParticles(b.x, H, '#f00', 25);
+        ballsToRemove.push(i);
+      }
+    }
+  });
+
+  // Remove balls (reverse order)
+  ballsToRemove.sort((a, b) => b - a).forEach(i => balls.splice(i, 1));
+
+  // Check for upgrade
+  if (balls.length === 0 && state === 'playing') {
+    if (lives <= 0) {
+      showGameOver();
+      return;
+    }
+    if (ballsReturned >= nextUpgrade) {
+      nextUpgrade += 5 + Math.floor(wave / 3);
+      showUpgradeScreen();
+    } else {
+      startWave();
+    }
+  }
+
+  // Particles
+  particles.forEach(p => {
+    p.x += p.dx;
+    p.y += p.dy;
+    p.life -= 0.03;
+    p.dx *= 0.96;
+    p.dy *= 0.96;
+  });
+  particles = particles.filter(p => p.life > 0);
+}
+
+function draw() {
+  ctx.fillStyle = '#0a0a1a';
+  ctx.fillRect(0, 0, W, H);
+
+  // Stars
+  stars.forEach(s => {
+    const blink = 0.5 + Math.sin(Date.now() * 0.001 + s.b * 10) * 0.5;
+    ctx.fillStyle = `rgba(255,255,255,${blink * 0.6})`;
+    ctx.fillRect(s.x % W, s.y % H, s.s, s.s);
+  });
+
+  if (state === 'menu' || state === 'gameover' || state === 'upgrade') {
+    // Draw faint game area behind UI
+    ctx.globalAlpha = 0.15;
+  }
+
+  // Center line
+  ctx.setLineDash([10, 10]);
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.beginPath();
+  ctx.moveTo(0, H / 2);
+  ctx.lineTo(W, H / 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Enemy paddle
+  const eg = ctx.createLinearGradient(enemy.x - enemy.w/2, enemy.y, enemy.x + enemy.w/2, enemy.y);
+  eg.addColorStop(0, '#f0f'); eg.addColorStop(1, '#f0a');
+  ctx.fillStyle = eg;
+  ctx.shadowColor = '#f0f'; ctx.shadowBlur = 15;
+  ctx.beginPath();
+  ctx.roundRect(enemy.x - enemy.w/2, enemy.y, enemy.w, enemy.h, 5);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Player paddle
+  const pg = ctx.createLinearGradient(paddle.x - paddle.w/2, paddle.y, paddle.x + paddle.w/2, paddle.y);
+  pg.addColorStop(0, '#0ff'); pg.addColorStop(1, '#0af');
+  ctx.fillStyle = pg;
+  ctx.shadowColor = '#0ff'; ctx.shadowBlur = 15;
+  ctx.beginPath();
+  ctx.roundRect(paddle.x - paddle.w/2, paddle.y, paddle.w, paddle.h, 5);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Shield indicator
+  if (shieldCount > 0) {
+    ctx.strokeStyle = `rgba(0,255,100,${0.3 + Math.sin(Date.now() * 0.005) * 0.2})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(0, H - 10);
+    ctx.lineTo(W, H - 10);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+  }
+
+  // Balls
+  balls.forEach(b => {
+    // Trail
+    b.trail.forEach((t, i) => {
+      const a = i / b.trail.length * 0.4;
+      ctx.fillStyle = `hsla(${b.hue}, 100%, 70%, ${a})`;
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, b.r * (i / b.trail.length), 0, Math.PI * 2);
+      ctx.fill();
+    });
+    // Ball
+    ctx.fillStyle = `hsl(${b.hue}, 100%, 70%)`;
+    ctx.shadowColor = `hsl(${b.hue}, 100%, 70%)`;
+    ctx.shadowBlur = 20;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  });
+
+  // Particles
+  particles.forEach(p => {
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
+  });
+  ctx.globalAlpha = 1;
+
+  // HUD
+  if (state === 'playing') {
+    ctx.font = '14px "Press Start 2P"';
+    ctx.fillStyle = '#0ff';
+    ctx.textAlign = 'left';
+    ctx.fillText(`SCORE ${score}`, 15, 25);
+    ctx.fillStyle = '#f0f';
+    ctx.textAlign = 'right';
+    ctx.fillText(`WAVE ${wave}`, W - 15, 25);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px "Press Start 2P"';
+    ctx.fillText('❤️'.repeat(lives) + '🛡️'.repeat(shieldCount), W / 2, H - 15);
+    // Next upgrade indicator
+    ctx.font = '8px "Press Start 2P"';
+    ctx.fillStyle = '#666';
+    ctx.fillText(`Next upgrade: ${nextUpgrade - ballsReturned} returns`, W / 2, 20);
+  }
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+showMenu();
+loop();
+</script>
+</body>
+</html>

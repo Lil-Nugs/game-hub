@@ -6,6 +6,13 @@
       "description": "Classic pong — you vs AI. First to 7 wins!",
       "creator": "lilnug",
       "date": "2025-02-17T00:00:00Z"
+    },
+    {
+      "slug": "rogue-pong-c911",
+      "title": "Rogue Pong",
+      "description": "Endless roguelite pong with pick-3 upgrades. Return the ball past the enemy, choose upgrades every 5 returns, compete for the highest score!",
+      "creator": "lilnug",
+      "date": "2026-02-20T04:21:20.042Z"
     }
   ]
 }
