@@ -28,6 +28,8 @@ input[type="text"]{font-family:'Fredoka',sans-serif;font-size:16px;padding:12px;
 <canvas id="c"></canvas>
 <div id="ui-overlay"><div id="ui-content"></div></div>
 <script>
+// roundRect polyfill
+if(!CanvasRenderingContext2D.prototype.roundRect){CanvasRenderingContext2D.prototype.roundRect=function(x,y,w,h,r){r=typeof r==="number"?r:0;this.moveTo(x+r,y);this.lineTo(x+w-r,y);this.quadraticCurveTo(x+w,y,x+w,y+r);this.lineTo(x+w,y+h-r);this.quadraticCurveTo(x+w,y+h,x+w-r,y+h);this.lineTo(x+r,y+h);this.quadraticCurveTo(x,y+h,x,y+h-r);this.lineTo(x,y+r);this.quadraticCurveTo(x,y,x+r,y);return this}}
 const GAME_ID='neon-surge-eb8d';
 const LEADERBOARD_API='https://game-leaderboard.mattgames.workers.dev';
 async function submitScore(n,s){try{const r=await fetch(`${LEADERBOARD_API}/api/scores`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gameId:GAME_ID,playerName:n,score:s})});return await r.json()}catch(e){return null}}
@@ -40,11 +42,11 @@ resize();window.addEventListener('resize',resize);
 
 const LANE_COUNT=5;
 let state='menu';
-let score,combo,maxCombo,gameTime,gameSpeed;
-let player,walls,coins,powerups,particles,floats,clouds;
-let hasShield,hasMagnet,hasDouble,hasSlow;
-let shieldT,magnetT,doubleT,slowT;
-let targetLane,spawnT,coinT,puT;
+let score=0,combo=0,maxCombo=0,gameTime=0,gameSpeed=2;
+let player={x:400,y:500,lane:2,r:16},walls=[],coins=[],powerups=[],particles=[],floats=[],clouds=[];
+let hasShield=false,hasMagnet=false,hasDouble=false,hasSlow=false;
+let shieldT=0,magnetT=0,doubleT=0,slowT=0;
+let targetLane=2,spawnT=0,coinT=0,puT=0;
 
 // Palette - warm sunset/sky theme
 const PAL={

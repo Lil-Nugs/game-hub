@@ -27,6 +27,8 @@ input[type="text"]{font-family:'Nunito',sans-serif;font-size:16px;font-weight:70
 <canvas id="c"></canvas>
 <div id="ui-overlay"><div id="ui-content"></div></div>
 <script>
+// roundRect polyfill
+if(!CanvasRenderingContext2D.prototype.roundRect){CanvasRenderingContext2D.prototype.roundRect=function(x,y,w,h,r){r=typeof r==="number"?r:0;this.moveTo(x+r,y);this.lineTo(x+w-r,y);this.quadraticCurveTo(x+w,y,x+w,y+r);this.lineTo(x+w,y+h-r);this.quadraticCurveTo(x+w,y+h,x+w-r,y+h);this.lineTo(x+r,y+h);this.quadraticCurveTo(x,y+h,x,y+h-r);this.lineTo(x,y+r);this.quadraticCurveTo(x,y,x+r,y);return this}}
 const GAME_ID='zombie-march-ab54';
 const LEADERBOARD_API='https://game-leaderboard.mattgames.workers.dev';
 async function submitScore(n,s){try{const r=await fetch(`${LEADERBOARD_API}/api/scores`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gameId:GAME_ID,playerName:n,score:s})});return await r.json()}catch(e){return null}}
@@ -46,12 +48,12 @@ function laneX(l){return roadL()+l*laneW()+laneW()/2}
 
 // State
 let state='menu';
-let score,distance,soldiers,lives,maxLives,weapon,shieldHP;
-let marchSpeed,scrollY,shootTimer;
-let playerLane,playerX;
-let zombies,bullets,gates,barriers,particles,floats;
-let gateCD,zombieCD,barrierCD;
-let combo,maxCombo;
+let score=0,distance=0,soldiers=5,lives=10,maxLives=10,weapon='pistol',shieldHP=0;
+let marchSpeed=1.2,scrollY=0,shootTimer=0;
+let playerLane=1,playerX=0;
+let zombies=[],bullets=[],gates=[],barriers=[],particles=[],floats=[];
+let gateCD=250,zombieCD=80,barrierCD=350;
+let combo=0,maxCombo=0;
 
 const WEAPONS={
   pistol:{name:'Pistol',emoji:'🔫',rate:12,dmg:2,count:1,spread:0,color:'#FFD700',size:3},
