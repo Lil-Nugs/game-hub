@@ -3,7 +3,7 @@
     {
       "slug": "pong-ba5d",
       "title": "Pong",
-      "description": "Classic pong \u2014 you vs AI. First to 7 wins!",
+      "description": "Classic pong — you vs AI. First to 7 wins!",
       "creator": "lilnug",
       "date": "2025-02-17T00:00:00Z",
       "model": "unknown"
@@ -134,6 +134,14 @@
       "description": "Fresh V3 survivors clone with pick-3 upgrades, integrated shop, random drops, and polished FE loop.",
       "creator": "lilnug",
       "date": "2026-02-20T08:24:49.716Z",
+      "model": "codex"
+    },
+    {
+      "slug": "bonk-parade-a1c3",
+      "title": "Bonk Parade",
+      "description": "SFW anime-parody chaos game: dodge drama clouds, collect hearts, bonk overacting NPCs for combo score.",
+      "creator": "billyhoho",
+      "date": "2026-02-20T14:20:26.208Z",
       "model": "codex"
     }
   ]
