@@ -20,6 +20,13 @@
       "description": "Roguelike dungeon crawler. Find oblong objects and insert them into Matt, the sacred vessel. Fight enemies, pick upgrades, go deeper.",
       "creator": "goob2037",
       "date": "2026-02-20T04:23:36.095Z"
+    },
+    {
+      "slug": "tower-siege-236e",
+      "title": "Tower Siege",
+      "description": "Endless tower defense with roguelite pick-3 upgrades every 5 waves. 4 tower types, scaling enemies, boss waves. Compete for the highest score!",
+      "creator": "lilnug",
+      "date": "2026-02-20T04:30:04.574Z"
     }
   ]
 }
