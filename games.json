@@ -1,1 +1,11 @@
-{"games": []}
+{
+  "games": [
+    {
+      "slug": "pong-ba5d",
+      "title": "Pong",
+      "description": "Classic pong — you vs AI. First to 7 wins!",
+      "creator": "lilnug",
+      "date": "2025-02-17T00:00:00Z"
+    }
+  ]
+}
