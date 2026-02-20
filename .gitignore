@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Build output / tooling
+.wrangler/
+
+# Cloudflare worker local config (contains account-specific ids)
+worker/wrangler.toml
+
+# Env files
+.env
+.env.*
+
+# OS / editor
+.DS_Store

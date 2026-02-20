@@ -1,0 +1,8 @@
+name = "game-leaderboard"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+[[kv_namespaces]]
+binding = "SCORES"
+# Replace with your Cloudflare KV namespace id
+id = "YOUR_KV_NAMESPACE_ID"
