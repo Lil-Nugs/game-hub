@@ -1,0 +1,350 @@
+<!doctype html>
+<html><head>
+<meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1,user-scalable=no'/>
+<title>Lane Surge Turbo</title>
+<link href="https://fonts.googleapis.com/css2?family=Bungee:wght@400&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#0d1020;overflow:hidden;font-family:Bungee}
+#ui{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.7);z-index:9}
+.panel{background:#11142a;border:2px solid #6bf;color:#fff;padding:14px;max-width:500px;width:92vw}
+button{font:28px VT323;background:#1e2244;color:#9df;border:1px solid #6bf;padding:8px 12px;cursor:pointer;margin:4px}
+input{width:100%;padding:8px;background:#0c1022;color:#fff;border:1px solid #445;font:20px VT323}
+.row{display:flex;justify-content:space-between;border-bottom:1px solid #233;padding:4px 0;font:13px Nunito}
+</style></head><body>
+<div id='ui'><div class='panel' id='panel'></div></div>
+<a href='../../index.html' style='position:fixed;top:8px;left:8px;z-index:10;color:#9df;text-decoration:none;border:1px solid #6bf;padding:2px 6px;background:#11142a;font:20px VT323'>← Hub</a>
+<script>
+const GAME_ID='lane-surge-v2-449e';
+const LEADERBOARD_API='https://game-leaderboard.mattgames.workers.dev';
+async function submitScore(playerName, score){try{const r=await fetch(`${LEADERBOARD_API}/api/scores`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gameId:GAME_ID,playerName,score})});return await r.json()}catch{return null}}
+async function getLeaderboard(limit=10){try{const r=await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);const d=await r.json();return d.scores||[]}catch{return[]}}
+
+const audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+function sfx(f=440,d=.08,v=.1,t='square'){if(audioCtx.state==='suspended')audioCtx.resume();const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type=t;o.frequency.value=f;o.connect(g);g.connect(audioCtx.destination);g.gain.setValueAtTime(v,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(.001,audioCtx.currentTime+d);o.start();o.stop(audioCtx.currentTime+d)}
+
+const FIGHTER={1:{hp:10,dmg:1,fr:1,type:'bullet'},2:{hp:20,dmg:2,fr:1.2,type:'burst'},3:{hp:40,dmg:5,fr:.8,type:'slug',armor:.2},4:{hp:25,dmg:3,fr:1.5,type:'chain',burn:1}};
+const ENEMY={runner:{hp:8,dmg:1,spd:110,color:0x7cff7c},defender:{hp:20,dmg:1,spd:80,color:0x6ba3ff,frontRed:.3},bomber:{hp:14,dmg:2,spd:95,color:0xff9d6b,bomber:true},elite:{hp:30,dmg:2,spd:90,color:0xd08dff,regen:.02,shieldHits:3},jugger:{hp:80,dmg:3,spd:55,color:0xff5c5c,jugger:true}};
+const SEG_TABLE=[['wave',40],['gate',25],['barrier',15],['weapon',10],['shrine',5],['empty',5]];
+const LANES=4;
+
+function mulberry32(a){return function(){let t=a+=0x6D2B79F5;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return ((t^t>>>14)>>>0)/4294967296}}
+function pickWeighted(rng,arr){let t=arr.reduce((a,b)=>a+b[1],0),x=rng()*t;for(const [k,w] of arr){x-=w;if(x<=0)return k}return arr[arr.length-1][0]}
+function laneX(scene,l){const m=scene.scale.width/2, spacing=120; return m-(LANES-1)*spacing/2 + l*spacing}
+
+const defaultMeta={runNumber:1,tech:0,up:{startUnits:0,startT2:0,dmg:0,fr:0,hp:0,gate:0}};
+function loadMeta(){try{return {...defaultMeta,...JSON.parse(localStorage.getItem('lane_surge_meta')||'{}')}}catch{return {...defaultMeta}}}
+function saveMeta(m){localStorage.setItem('lane_surge_meta',JSON.stringify(m))}
+
+class MenuScene extends Phaser.Scene{constructor(){super('Menu')} create(){
+  this.add.rectangle(640,360,1280,720,0x120a1f); this.add.rectangle(640,110,1280,220,0xff5ea8,.08);
+  this.add.text(640,90,'LANE SURGE TURBO',{fontFamily:'VT323',fontSize:96,color:'#9df'}).setOrigin(.5);
+  this.add.text(640,170,'Lane auto-shooter roguelite',{fontFamily:'Nunito',fontSize:18,color:'#cde'}).setOrigin(.5);
+  const meta=loadMeta();
+  this.add.text(640,230,`Run Level ${meta.runNumber} • Tech ${meta.tech}`,{fontFamily:'VT323',fontSize:40,color:'#ffd27d'}).setOrigin(.5);
+  const mk=(y,t,cb)=>{const b=this.add.rectangle(640,y,360,62,0x1d2446).setStrokeStyle(2,0x6bf).setInteractive();this.add.text(640,y,t,{fontFamily:'VT323',fontSize:42,color:'#9df'}).setOrigin(.5);b.on('pointerdown',()=>{sfx(600,.08,.11,'triangle');cb()})}
+  mk(350,'PLAY',()=>this.scene.start('Game'));
+  mk(430,'UPGRADES',()=>showUpgradeMenu(this));
+  mk(510,'RESET PROGRESS',()=>{localStorage.removeItem('lane_surge_meta');this.scene.restart()});
+}}
+
+class GameScene extends Phaser.Scene{constructor(){super('Game')} create(){
+  this.meta=loadMeta();
+  this.seed=Math.floor(Math.random()*1e9); this.rng=mulberry32(this.seed);
+  this.runLevel=this.meta.runNumber;
+  this.seg=1; this.segTime=0; this.segDur=6.2; this.segType='wave';
+
+  this.physics.world.setBounds(0,0,this.scale.width,this.scale.height);
+  // background
+  this.bg=this.add.rectangle(640,360,1280,720,0x12091f);
+  this.add.rectangle(640,80,1280,160,0xff5ea8,.12);
+  this.scan=this.add.tileSprite(640,360,1280,720,null).setAlpha(0.14);
+  const sg=this.add.graphics(); sg.fillStyle(0x9ad1ff,1); sg.fillRect(0,0,2,2); sg.generateTexture('starpx',2,2); sg.destroy();
+  for(let i=0;i<120;i++) this.add.image(Phaser.Math.Between(0,1280),Phaser.Math.Between(0,720),'starpx').setAlpha(Math.random()*0.5+0.2);
+  // lanes
+  for(let i=0;i<LANES;i++){const x=laneX(this,i); this.add.rectangle(x,360,112,720,0x1f1438,.9).setStrokeStyle(3,0xff6bb5)}
+
+  // player group abstraction
+  this.capacity=20+this.meta.up.startUnits*2;
+  this.fighters=[];
+  for(let i=0;i<Math.min(this.capacity,8+this.meta.up.startUnits);i++)this.fighters.push({tier:1,hp:10,cd:0,lane:i%LANES});
+  for(let i=0;i<this.meta.up.startT2;i++)this.fighters.push({tier:2,hp:20,cd:0,lane:(i+1)%LANES});
+  this.applyMerges();
+
+  this.playerLane=1;
+  this.playerY=this.scale.height-120;
+  this.unitCount=this.fighters.length;
+  this.globalDmg=1+this.meta.up.dmg*.08;
+  this.globalFR=1+this.meta.up.fr*.06;
+  this.globalHP=1+this.meta.up.hp*.1;
+  this.gateBonus=1+this.meta.up.gate*.08;
+
+  this.weaponMods={spread:false,laser:false,rocket:false,lightning:false,minigun:false,railgun:false};
+  // textures + fx
+  const tg=this.add.graphics();
+  tg.fillStyle(0xff5ea8,1); tg.fillRoundedRect(0,0,70,34,8); tg.fillStyle(0xffc8e6,1); tg.fillRect(10,8,50,6); tg.generateTexture('playerShip',70,34); tg.clear();
+  tg.fillStyle(0xfff36b,1); tg.fillCircle(5,5,5); tg.generateTexture('pBullet',10,10); tg.clear();
+  tg.fillStyle(0x6be8ff,1); tg.fillCircle(4,4,4); tg.generateTexture('eBullet',8,8); tg.clear();
+  const cols={runner:0x68ff9a,defender:0x6bd1ff,bomber:0xffb36b,elite:0xd68bff,jugger:0xff6b6b,boss:0xff4fd6};
+  for(const k in cols){tg.fillStyle(cols[k],1); tg.fillRoundedRect(0,0,k==='jugger'?78:(k==='boss'?170:44),k==='jugger'?44:(k==='boss'?110:28),6); tg.fillStyle(0x0a0f1f,1); tg.fillRect(8,8,10,4); tg.fillRect((k==='boss'?170:44)-18,8,10,4); tg.generateTexture('en_'+k,k==='jugger'?78:(k==='boss'?170:44),k==='jugger'?44:(k==='boss'?110:28)); tg.clear();}
+  tg.fillStyle(0xff6bb5,1); tg.fillRoundedRect(0,0,110,82,8); tg.fillStyle(0xffffff,1); tg.fillRect(8,8,94,6); tg.generateTexture('gate',110,82); tg.clear();
+  tg.fillStyle(0xfff36b,1); tg.fillCircle(22,22,22); tg.fillStyle(0x8b5,1); tg.fillRect(14,14,16,16); tg.generateTexture('pickup',44,44); tg.clear();
+  tg.fillStyle(0x6be8ff,1); tg.fillCircle(25,25,25); tg.fillStyle(0x30214f,1); tg.fillRect(14,14,22,22); tg.generateTexture('shrine',50,50); tg.clear();
+  tg.fillStyle(0xc08a4f,1); tg.fillRoundedRect(0,0,96,28,4); tg.generateTexture('barrierWood',96,28); tg.clear();
+  tg.fillStyle(0x808a99,1); tg.fillRoundedRect(0,0,96,28,4); tg.generateTexture('barrierSteel',96,28); tg.clear();
+  tg.fillStyle(0x6ec3ff,1); tg.fillRoundedRect(0,0,96,28,4); tg.generateTexture('barrierEnergy',96,28); tg.clear();
+  tg.fillStyle(0xffffff,1); tg.fillCircle(2,2,2); tg.generateTexture('spark',4,4); tg.destroy();
+  this.hitFx=this.add.particles(0,0,'spark',{speed:{min:30,max:220},lifespan:320,scale:{start:1,end:0},quantity:14,emitting:false});
+
+
+  // visuals
+  this.playerSprite=this.physics.add.sprite(laneX(this,this.playerLane),this.playerY,'playerShip'); this.playerSprite.body.setSize(54,24,true); this.playerSprite.setImmovable(true);
+  this.playerLabel=this.add.text(this.playerSprite.x,this.playerY-30,'SQUAD',{fontFamily:'VT323',fontSize:28,color:'#9ef'}).setOrigin(.5);
+
+  this.enemyG=this.physics.add.group(); this.bulletG=this.physics.add.group(); this.enemyBulletG=this.physics.add.group(); this.gateG=this.physics.add.group(); this.pickupG=this.physics.add.group(); this.barrierG=this.physics.add.group();
+
+  this.keys=this.input.keyboard.addKeys('A,D,LEFT,RIGHT,SPACE');
+  this.pointerDown=false;
+  this.input.on('pointerdown',p=>{this.pointerDown=true;this.pointerX=p.x});
+  this.input.on('pointermove',p=>{if(this.pointerDown)this.pointerX=p.x});
+  this.input.on('pointerup',()=>this.pointerDown=false);
+
+  this.score=0; this.kills=0; this.techGain=0; this.boss=false; this.bossHP=0; this.bossMax=0; this.bossTimer=90;
+  this.spawnWave();
+
+  this.hud=this.add.text(8,6,'',{fontFamily:'Bungee',fontSize:20,color:'#fff'}); this.hud.setShadow(2,2,'#000',4);
+  this.dpsHud=this.add.text(8,40,'',{fontFamily:'Bungee',fontSize:18,color:'#ffdf6b'}); this.dpsHud.setShadow(2,2,'#000',4);
+  this.seedHud=this.add.text(this.scale.width-8,6,'',{fontFamily:'Bungee',fontSize:14,color:'#8ecbff'}).setOrigin(1,0);
+
+  // collision
+  this.physics.add.overlap(this.bulletG,this.enemyG,(b,e)=>this.hitEnemy(b,e));
+  this.physics.add.overlap(this.playerSprite,this.enemyBulletG,()=>this.damageSquad(1));
+  this.physics.add.overlap(this.playerSprite,this.pickupG,(p,u)=>this.collectPickup(u));
+  this.physics.add.overlap(this.playerSprite,this.gateG,(p,g)=>this.applyGate(g));
+}
+
+  spawnWave(){
+    const lvl=this.runLevel;
+    const count=Math.min(20,4+lvl+Math.floor(this.seg/2));
+    for(let i=0;i<count;i++){
+      const cls=['runner','defender','bomber','elite','jugger'][Math.min(4,Math.floor(this.rng()*Math.min(5,1+lvl/2)))];
+      const d=ENEMY[cls];
+      const lane=Math.floor(this.rng()*LANES);
+      const hp=d.hp*Math.pow(1.18,lvl-1); const dmg=d.dmg*Math.pow(1.12,lvl-1); const sp=d.spd*Math.pow(1.03,lvl-1);
+      const e=this.enemyG.create(laneX(this,lane),-40-this.rng()*500,'en_'+cls);
+      e.body.setSize(e.displayWidth*0.8,e.displayHeight*0.8,true);
+      Object.assign(e,{lane,cls,hp,maxHp:hp,dmg,spd:sp,shield:d.shieldHits||0,regen:d.regen||0});
+    }
+  }
+
+  spawnGates(){
+    const vals={add:Math.round((3+2*(this.runLevel-1))*this.gateBonus),mul:Math.min(3,1.5+0.05*(this.runLevel-1)*this.gateBonus)};
+    const opts=[
+      {txt:`+${vals.add} FIGHTERS`,fn:()=>{for(let i=0;i<vals.add;i++)this.addFighter(1)}},
+      {txt:`-${Math.max(1,vals.add-2)} FIGHTERS`,fn:()=>this.removeFighters(Math.max(1,vals.add-2))},
+      {txt:`x${vals.mul.toFixed(2)} DAMAGE`,fn:()=>this.globalDmg*=vals.mul},
+      {txt:`x${vals.mul.toFixed(2)} FIRE RATE`,fn:()=>this.globalFR*=vals.mul},
+      {txt:`+${2+this.runLevel} CAPACITY`,fn:()=>this.capacity+=2+this.runLevel},
+      {txt:`UPGRADE RANDOM`,fn:()=>this.upgradeRandom()},
+      {txt:`EVOLVE RANDOM`,fn:()=>this.evolveRandom()},
+      {txt:`5 T1 -> 1 T3`,fn:()=>this.convertFiveToT3()},
+    ];
+    const a=opts[Math.floor(this.rng()*opts.length)], b=opts[Math.floor(this.rng()*opts.length)];
+    const mk=(lane,opt)=>{const g=this.gateG.create(laneX(this,lane),-120,'gate');g.setData('fn',opt.fn);g.setData('txt',opt.txt);g.body.allowGravity=false;const t=this.add.text(g.x,g.y,opt.txt,{fontFamily:'VT323',fontSize:18,color:'#fff',align:'center',wordWrap:{width:100}}).setOrigin(.5);g.setData('label',t)};
+    mk(1,a); mk(2,b);
+  }
+
+  spawnBarrier(){
+    const types=['wood','steel','energy','split'];
+    const type=types[Math.floor(this.rng()*types.length)];
+    const lanes= type==='split' ? [1,2] : [Math.floor(this.rng()*LANES)];
+    for(const lane of lanes){
+      const hp=100+30*(this.runLevel*this.runLevel);
+      const b=this.barrierG.create(laneX(this,lane),-70,type==='wood'?'barrierWood':type==='steel'?'barrierSteel':'barrierEnergy');
+      Object.assign(b,{hp,type});
+    }
+  }
+
+  spawnPickup(){
+    const arr=['spread','laser','rocket','lightning','minigun','railgun']; const id=arr[Math.floor(this.rng()*arr.length)];
+    const p=this.pickupG.create(laneX(this,Math.floor(this.rng()*LANES)),-60,'pickup'); p.setData('id',id);
+  }
+
+  spawnShrine(){
+    const p=this.pickupG.create(laneX(this,Math.floor(this.rng()*LANES)),-60,'shrine'); p.setData('id','shrine');
+  }
+
+  beginBoss(){
+    this.boss=true; this.bossTimer=90;
+    this.bossMax=500*Math.pow(1.25,this.runLevel-1); this.bossHP=this.bossMax;
+    this.bossEnt=this.enemyG.create(laneX(this,2),120,'en_boss');
+    Object.assign(this.bossEnt,{lane:2,cls:'boss',hp:this.bossHP,maxHp:this.bossMax,dmg:6,spd:30,shield:0,regen:0});
+    this.time.addEvent({delay:2800,loop:true,callback:()=>{if(!this.boss||!this.bossEnt?.active)return; this.spawnWave(); this.spawnWave();}});
+    this.time.addEvent({delay:2300,loop:true,callback:()=>{if(!this.boss||!this.bossEnt?.active)return; this.bossLaneAttack();}});
+  }
+
+  bossLaneAttack(){
+    const lane=Math.floor(this.rng()*LANES); const x=laneX(this,lane);
+    const warn=this.add.rectangle(x,this.scale.height/2,100,this.scale.height,0xff0000,0.18);
+    this.time.delayedCall(420,()=>{warn.destroy(); if(Math.abs(this.playerSprite.x-x)<55)this.damageSquad(2); for(let i=0;i<6;i++){const b=this.enemyBulletG.create(x,120+i*45,'eBullet').setScale(1.4);b.vy=260;}})
+  }
+
+  addFighter(t){if(this.fighters.length>=this.capacity)return; const base=FIGHTER[t]; this.fighters.push({tier:t,hp:base.hp*this.globalHP,cd:0,lane:Math.floor(this.rng()*LANES)}); this.applyMerges();}
+  removeFighters(n){for(let i=0;i<n&&this.fighters.length;i++){this.fighters.sort((a,b)=>a.tier-b.tier); this.fighters.shift();} this.recalc()}
+  upgradeRandom(){if(!this.fighters.length)return; const i=Math.floor(this.rng()*this.fighters.length); this.fighters[i].tier=Math.min(4,this.fighters[i].tier+1); this.recalc()}
+  evolveRandom(){const cand=this.fighters.filter(f=>f.tier<4); if(!cand.length)return; cand[Math.floor(this.rng()*cand.length)].tier++; this.recalc()}
+  convertFiveToT3(){const t1=this.fighters.filter(f=>f.tier===1); if(t1.length<5)return; let removed=0; this.fighters=this.fighters.filter(f=>f.tier!==1||removed++>=5); this.addFighter(3); this.recalc()}
+  applyMerges(){let changed=true; while(changed){changed=false; for(let t=1;t<4;t++){const idx=[]; for(let i=0;i<this.fighters.length;i++) if(this.fighters[i].tier===t) idx.push(i); if(idx.length>=3){this.fighters.splice(idx[2],1); this.fighters.splice(idx[1],1); this.fighters.splice(idx[0],1); this.addFighter(Math.min(4,t+1)); this.add.text(this.scale.width/2,220,`MERGE T${t}→T${t+1}`,{fontFamily:'Bungee',fontSize:26,color:'#ffdf6b',stroke:'#000',strokeThickness:4}).setOrigin(.5).setDepth(8).setAlpha(.95).setScrollFactor(0); changed=true; break;}}} this.recalc();}
+  recalc(){this.unitCount=this.fighters.length; if(this.unitCount<=0)this.lose();}
+
+  collectPickup(p){
+    const id=p.getData('id'); p.destroy(); sfx(760,.07,.11,'triangle');
+    if(id==='shrine'){this.upgradeRandom(); this.evolveRandom(); this.bonus+=120; return;}
+    this.weaponMods[id]=true; this.bonus+=80;
+  }
+
+  applyGate(g){if(!g.active)return; const fn=g.getData('fn'); this.gateG.getChildren().forEach(x=>{x.getData('label')?.destroy(); x.destroy()}); fn&&fn(); sfx(640,.08,.12,'triangle');}
+
+  damageSquad(hits){for(let i=0;i<hits;i++){if(!this.fighters.length){this.lose();return;} const front=[...this.fighters].sort((a,b)=>a.lane-b.lane)[0]||this.fighters[0]; const dmg=1/front.tier*(front.tier===3?0.8:1); front.hp-=dmg; if(front.hp<=0){const idx=this.fighters.indexOf(front); if(idx>=0)this.fighters.splice(idx,1);} } this.recalc();}
+
+  hitEnemy(b,e){
+    if(!b.active||!e.active)return;
+    if(e.cls==='defender'&&!this.weaponMods.railgun&&b.vy<0){e.hp-=b.dmg*0.7;} else e.hp-=b.dmg;
+    if(e.shield>0){e.shield--; e.hp+=b.dmg;}
+    if(this.weaponMods.lightning){const near=this.enemyG.getChildren().filter(x=>x.active&&x!==e).sort((a,c)=>Phaser.Math.Distance.Between(e.x,e.y,a.x,a.y)-Phaser.Math.Distance.Between(e.x,e.y,c.x,c.y)).slice(0,3); near.forEach(n=>n.hp-=b.dmg*0.45)}
+    if(this.weaponMods.rocket){this.enemyG.getChildren().forEach(n=>{if(!n.active||n===e)return; const d=Phaser.Math.Distance.Between(e.x,e.y,n.x,n.y); if(d<64)n.hp-=b.dmg*0.5;}); this.hitFx.emitParticleAt(e.x,e.y,20)}
+    if(!this.weaponMods.laser) b.destroy();
+    if(e.hp<=0){
+      if(e.cls==='bomber'){this.damageSquad(1);}
+      this.kills++; this.score+=25; this.bonus+=8;
+      this.hitFx.emitParticleAt(e.x,e.y,20);
+      const pop=this.add.text(e.x,e.y,'+25',{fontFamily:'Bungee',fontSize:16,color:'#ffdf6b',stroke:'#000',strokeThickness:3}).setOrigin(.5);
+      this.tweens.add({targets:pop,y:pop.y-24,alpha:0,duration:420,onComplete:()=>pop.destroy()});
+      if(e===this.bossEnt){this.bossHP=0;}
+      e.destroy();
+    }
+  }
+
+  update(time,delta){
+    const dt=delta/16.667;
+    // input lane switch
+    if(Phaser.Input.Keyboard.JustDown(this.keys.A)||Phaser.Input.Keyboard.JustDown(this.keys.LEFT)) this.playerLane=Math.max(0,this.playerLane-1);
+    if(Phaser.Input.Keyboard.JustDown(this.keys.D)||Phaser.Input.Keyboard.JustDown(this.keys.RIGHT)) this.playerLane=Math.min(LANES-1,this.playerLane+1);
+    if(this.pointerDown){let nearest=0,nd=1e9; for(let i=0;i<LANES;i++){const d=Math.abs(laneX(this,i)-this.pointerX); if(d<nd){nd=d;nearest=i}} this.playerLane=nearest;}
+    this.playerSprite.x += (laneX(this,this.playerLane)-this.playerSprite.x)*0.25;
+    this.playerSprite.y=this.playerY; this.playerSprite.setVelocity(0,0);
+    this.playerLabel.x=this.playerSprite.x;
+
+    // fighters fire
+    for(const f of this.fighters){
+      f.cd-=delta;
+      const base=FIGHTER[f.tier];
+      const fr=base.fr*this.globalFR*(this.weaponMods.minigun?2:1);
+      if(f.cd<=0){
+        f.cd=1000/fr;
+        const fromX=laneX(this,f.lane)+(Math.random()*16-8), fromY=this.playerY-10;
+        const target=this.findTarget(fromX,f.lane);
+        let vx=0,vy=-360; if(target){const a=Math.atan2(target.y-fromY,target.x-fromX);vx=Math.cos(a)*360;vy=Math.sin(a)*360;}
+        let shots=1; if(base.type==='burst') shots=2; if(this.weaponMods.spread) shots+=2;
+        for(let i=0;i<shots;i++){
+          const spread=(i-(shots-1)/2)*0.11; const a=Math.atan2(vy,vx)+spread;
+          const b=this.bulletG.create(fromX,fromY,'pBullet').setScale(base.type==='slug'?1.2:0.9);
+          b.body.setSize(6,8,true); b.vx=Math.cos(a)*420; b.vy=Math.sin(a)*420;
+          b.dmg=(base.dmg+this.meta.up.dmg*0.4)*this.globalDmg; b.burn=base.burn?1:0;
+        }
+      }
+    }
+
+    this.bulletG.getChildren().forEach(b=>{b.x+=b.vx*dt*0.06; b.y+=b.vy*dt*0.06; if(b.y<-40||b.x<0||b.x>this.scale.width+20)b.destroy();});
+
+    // segments
+    this.segTime+=delta/1000;
+    if(this.seg<25 && this.segTime>=this.segDur){
+      this.seg++; this.segTime=0; this.segType=pickWeighted(this.rng,SEG_TABLE);
+      if(this.segType==='wave') this.spawnWave();
+      if(this.segType==='gate') this.spawnGates();
+      if(this.segType==='barrier') this.spawnBarrier();
+      if(this.segType==='weapon') this.spawnPickup();
+      if(this.segType==='shrine') this.spawnShrine();
+    }
+    if(this.seg===25&&!this.boss){this.beginBoss();}
+
+    // move world entities down toward player line
+    const speed=120;
+    this.enemyG.getChildren().forEach(e=>{
+      if(e.regen) e.hp=Math.min(e.maxHp,e.hp+e.maxHp*e.regen*(delta/1000));
+      if(e!==this.bossEnt){e.y+=e.spd*dt*0.06;}
+      if(this.boss && e===this.bossEnt){ // boss phase/enrage
+        if(e.hp/e.maxHp<0.3) e.spd=90;
+      }
+      if(e.y>this.playerY+30){ this.damageSquad(1); e.destroy(); }
+    });
+
+    this.barrierG.getChildren().forEach(b=>{b.y+=speed*dt*0.06; if(b.y>this.playerY+10){b.destroy(); this.damageSquad(1)}});
+    this.pickupG.getChildren().forEach(p=>{p.y+=speed*dt*0.06; if(p.y>this.scale.height+40)p.destroy()});
+    this.gateG.getChildren().forEach(g=>{g.y+=speed*dt*0.06; const t=g.getData('label'); if(t){t.y=g.y;t.x=g.x;} if(g.y>this.scale.height+70){t?.destroy(); g.destroy();}});
+
+    this.enemyBulletG.getChildren().forEach(b=>{b.y+=b.vy?0:b.v?0:0; if(b.vy) b.y+=b.vy*dt*0.06; else b.y+=220*dt*0.06; if(b.y>this.scale.height+30)b.destroy()});
+
+    // enemy shoot occasionally
+    this.enemyG.getChildren().forEach(e=>{if(e.cls==='runner')return; if(!e.nextShot)e.nextShot=time+1200+this.rng()*1100; if(time>e.nextShot){e.nextShot=time+1300+this.rng()*1200; const b=this.enemyBulletG.create(e.x,e.y,'eBullet'); b.vy=260+this.runLevel*8; }});
+
+    // boss timer
+    if(this.boss){ this.bossTimer-=delta/1000; this.bossHP=this.bossEnt?.hp||this.bossHP; if(this.bossHP<=0){this.winRun();return;} if(this.bossTimer<=0){this.lose();return;} }
+
+    const elapsed=(time-(this.startTime|| (this.startTime=time)))/1000;
+    this.score=Math.floor(elapsed*10+this.bonus);
+
+    this.scan.tilePositionY += 0.9; const dps=this.calcDPS();
+    this.hud.setText(`Level ${this.runLevel}  Segment ${this.seg}/25  Units ${this.unitCount}/${this.capacity}\nWeapons: ${Object.entries(this.weaponMods).filter(x=>x[1]).map(x=>x[0]).join(', ')||'none'}`);
+    this.dpsHud.setText(`DPS ${dps.toFixed(1)}  Score ${this.score}  Boss ${this.boss?Math.max(0,Math.floor(this.bossHP))+'/'+Math.floor(this.bossMax)+'  '+this.bossTimer.toFixed(1)+'s':''}`);
+    this.seedHud.setText(`Seed ${this.seed}`);
+
+    if(this.unitCount<=0)this.lose();
+  }
+
+  findTarget(x,lane){
+    const same=this.enemyG.getChildren().filter(e=>e.active&&Math.abs(e.x-laneX(this,lane))<55);
+    if(same.length) return same.sort((a,b)=>a.y-b.y)[0];
+    const all=this.enemyG.getChildren().filter(e=>e.active);
+    if(!all.length) return null;
+    return all.sort((a,b)=>Phaser.Math.Distance.Between(x,this.playerY,a.x,a.y)-Phaser.Math.Distance.Between(x,this.playerY,b.x,b.y))[0];
+  }
+
+  calcDPS(){let s=0; for(const f of this.fighters){const b=FIGHTER[f.tier]; s+=b.dmg*b.fr*this.globalDmg*this.globalFR*(this.weaponMods.minigun?2:1);} return s;}
+
+  winRun(){
+    this.meta.tech += Math.floor(80 + this.kills*2 + this.score*0.05);
+    this.meta.runNumber += 1; saveMeta(this.meta);
+    this.scene.pause(); showEndUI(true,this.score,this.meta.tech,this.kills,this.seg);
+  }
+  lose(){
+    this.meta.tech += Math.floor(20 + this.kills + this.score*0.02);
+    this.meta.runNumber += 1; saveMeta(this.meta);
+    this.scene.pause(); showEndUI(false,this.score,this.meta.tech,this.kills,this.seg);
+  }
+}
+
+const game=new Phaser.Game({type:Phaser.AUTO,width:1280,height:720,backgroundColor:'#0d1020',physics:{default:'arcade',arcade:{gravity:{y:0},debug:false}},scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},scene:[MenuScene,GameScene]});
+
+function showUpgradeMenu(scene){
+  const ui=document.getElementById('ui'),p=document.getElementById('panel'); ui.style.display='flex';
+  const m=loadMeta();
+  const items=[['startUnits','+Starting Units',1],['startT2','+Starting T2',1],['dmg','+Damage %',1],['fr','+FireRate %',1],['hp','+HP %',1],['gate','+Gate Bonus %',1]];
+  const cost=k=>Math.floor(100*Math.pow(1.5,m.up[k]));
+  p.innerHTML=`<h2 style='font:46px VT323;color:#ffd27d'>UPGRADES</h2><p style='font:13px Nunito;color:#cde'>Tech Points: <b>${m.tech}</b></p><div id='u'></div><button id='back'>Back</button>`;
+  const u=document.getElementById('u');
+  items.forEach(([k,label])=>{const c=cost(k); const div=document.createElement('div'); div.className='row'; div.innerHTML=`<span>${label} Lv${m.up[k]}</span><span>${c} TP</span>`; const b=document.createElement('button'); b.textContent='BUY'; b.style.fontSize='22px'; b.onclick=()=>{if(m.tech>=c){m.tech-=c;m.up[k]++;saveMeta(m);showUpgradeMenu(scene)}}; div.appendChild(b); u.appendChild(div);});
+  document.getElementById('back').onclick=()=>{ui.style.display='none'; scene.scene.restart();};
+}
+
+function showEndUI(win,score,tech,kills,seg){
+  const ui=document.getElementById('ui'),p=document.getElementById('panel'); ui.style.display='flex';
+  p.innerHTML=`<h2 style='font:50px VT323;color:${win?'#8ff88f':'#ff8f8f'}'>${win?'BOSS DEFEATED':'RUN OVER'}</h2>
+  <p style='font:13px Nunito'>Score <b>${score}</b> • Kills ${kills} • Segment ${seg} • Tech ${tech}</p>
+  <input id='nm' maxlength='16' placeholder='name'><button id='sub'>Submit Score</button><div id='lb'></div><button id='menu'>Main Menu</button>`;
+  document.getElementById('sub').onclick=async()=>{const n=(document.getElementById('nm').value||'Anonymous').trim();await submitScore(n,score);const rows=await getLeaderboard();document.getElementById('lb').innerHTML=rows.map((r,i)=>`<div class='row'><span>#${i+1} ${r.playerName}</span><span>${r.score}</span></div>`).join('');document.getElementById('sub').style.display='none';};
+  document.getElementById('menu').onclick=()=>location.reload();
+}
+</script>
+</body></html>

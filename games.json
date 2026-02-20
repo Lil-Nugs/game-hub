@@ -90,6 +90,13 @@
       "description": "Island survival fighter with amphibious enemy landings, weapon unlock progression, and rally callouts.",
       "creator": "jgoodo",
       "date": "2026-02-20T07:08:04.795Z"
+    },
+    {
+      "slug": "lane-surge-v2-449e",
+      "title": "Lane Surge Turbo",
+      "description": "Arcade-juicy rebuild of Lane Surge with bold visuals, punchier FX, and improved readability.",
+      "creator": "vimgo",
+      "date": "2026-02-20T07:14:58.608Z"
     }
   ]
 }
