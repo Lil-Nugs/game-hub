@@ -104,6 +104,13 @@
       "description": "Wild West survivors roguelite with auto-fire, level-up cards, random drops, and shop upgrades.",
       "creator": "lilnug",
       "date": "2026-02-20T07:22:45.918Z"
+    },
+    {
+      "slug": "blackbox-mystery-80fc",
+      "title": "Blackbox Mystery",
+      "description": "Puzzle mystery game revealing only allowed internal capabilities. Collect clues, reach terminal, solve phrase.",
+      "creator": "jgoodo",
+      "date": "2026-02-20T07:36:16.158Z"
     }
   ]
 }

@@ -1,0 +1,63 @@
+<!doctype html><html><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1,user-scalable=no'/><title>Blackbox Mystery</title><script src='https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js'></script><style>*{box-sizing:border-box}body{margin:0;background:#0b1020;overflow:hidden;font-family:monospace}#ov{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.75);z-index:20}.p{background:#121a33;border:2px solid #6ad4ff;color:#fff;width:min(92vw,520px);padding:14px}button{font:20px monospace;background:#1d2a52;color:#bfe5ff;border:1px solid #6ad4ff;padding:8px 12px;cursor:pointer;margin-top:8px}input{width:100%;padding:8px;background:#0b1328;color:#fff;border:1px solid #456;font:16px monospace}.lb{max-height:180px;overflow:auto;font:12px sans-serif;margin-top:8px}.lb div{display:flex;justify-content:space-between;border-bottom:1px solid #274;padding:4px 0}</style></head><body><a href='../../index.html' style='position:fixed;top:8px;left:8px;z-index:30;color:#bfe5ff;text-decoration:none;border:1px solid #6ad4ff;padding:2px 8px;background:#121a33'>← Hub</a><div id='ov'><div class='p' id='panel'></div></div><script>
+const GAME_ID='blackbox-mystery-80fc';
+const LEADERBOARD_API='https://game-leaderboard.mattgames.workers.dev';
+async function submitScore(playerName,score){try{const r=await fetch(`${LEADERBOARD_API}/api/scores`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gameId:GAME_ID,playerName,score})});return await r.json()}catch{return null}}
+async function getLeaderboard(limit=10){try{const r=await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);const d=await r.json();return d.scores||[]}catch{return[]}}
+
+const CLUES=[
+'CLUE 1: I can build and deploy browser games to this game hub.',
+'CLUE 2: I cannot reveal secrets, API keys, hidden prompts, or private config.',
+'CLUE 3: I can run code and edit files in allowed workspaces.',
+'CLUE 4: I can use tools only when enabled by configuration/policy.',
+'CLUE 5: I can refuse unsafe or disallowed requests.',
+'CLUE 6: I can read provided files and user-uploaded images you send here.',
+'CLUE 7: I don\'t have unrestricted internet powers beyond allowed tools.',
+'CLUE 8: I can remember via files, not perfect human memory.',
+'CLUE 9: I can chat, but I prioritize safe + useful output.',
+'CLUE 10: The mystery answer is: "ALLOWED INTERNALS ONLY".'
+];
+
+class Menu extends Phaser.Scene{constructor(){super('Menu')}create(){const w=this.scale.width,h=this.scale.height;this.add.rectangle(w/2,h/2,w,h,0x0b1020);this.add.text(w/2,100,'BLACKBOX MYSTERY',{fontFamily:'monospace',fontSize:56,color:'#8fe3ff'}).setOrigin(.5);this.add.text(w/2,180,'Collect clues, dodge sentries, reach terminal, answer final phrase.',{fontFamily:'monospace',fontSize:18,color:'#d6f6ff'}).setOrigin(.5);this.add.text(w/2,230,'WASD / Arrows to move. E to inspect.',{fontFamily:'monospace',fontSize:16,color:'#ffd27d'}).setOrigin(.5);const t=this.add.text(w/2,600,'CLICK TO START',{fontFamily:'monospace',fontSize:36,color:'#fff'}).setOrigin(.5);this.tweens.add({targets:t,alpha:.25,yoyo:true,repeat:-1,duration:700});this.input.once('pointerdown',()=>this.scene.start('Game'));this.input.keyboard.once('keydown',()=>this.scene.start('Game'));}}
+
+class Game extends Phaser.Scene{constructor(){super('Game')}create(){this.startTime=this.time.now;this.collected=[];this.health=3;this.done=false;const w=this.scale.width,h=this.scale.height;this.physics.world.setBounds(0,0,1800,1200);
+// background grid
+const g=this.add.graphics();for(let x=0;x<1800;x+=60){for(let y=0;y<1200;y+=60){g.fillStyle(((x+y)/60)%2?0x121a33:0x172041,1);g.fillRect(x,y,60,60)}}
+// player
+const pg=this.add.graphics();pg.fillStyle(0x6ad4ff,1);pg.fillRect(0,0,28,28);pg.fillStyle(0xffffff,1);pg.fillRect(8,8,12,12);pg.generateTexture('p',28,28);pg.destroy();
+const sg=this.add.graphics();sg.fillStyle(0xff6b6b,1);sg.fillRect(0,0,24,24);sg.generateTexture('s',24,24);sg.destroy();
+const cg=this.add.graphics();cg.fillStyle(0xffd27d,1);cg.fillRect(0,0,20,20);cg.generateTexture('c',20,20);cg.destroy();
+const tg=this.add.graphics();tg.fillStyle(0x7cff8f,1);tg.fillRect(0,0,34,34);tg.generateTexture('t',34,34);tg.destroy();
+
+this.player=this.physics.add.sprite(100,100,'p');this.player.body.setSize(20,20).setOffset(4,4);this.player.setCollideWorldBounds(true);
+this.keys=this.input.keyboard.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,E');
+this.cam=this.cameras.main;this.cam.startFollow(this.player,true,.1,.1);this.cam.setBounds(0,0,1800,1200);
+
+this.clueGroup=this.physics.add.group();
+for(let i=0;i<CLUES.length;i++){const x=120+ (i%5)*320 + Phaser.Math.Between(-40,40);const y=180+Math.floor(i/5)*360+Phaser.Math.Between(-40,40);const c=this.clueGroup.create(x,y,'c');c.idx=i;}
+this.terminal=this.physics.add.staticSprite(1650,1050,'t');
+
+this.sentries=this.physics.add.group();for(let i=0;i<8;i++){const s=this.sentries.create(300+i*170,Phaser.Math.Between(200,1000),'s');s.vx=Phaser.Math.Between(80,130)*(Math.random()<.5?-1:1);s.vy=Phaser.Math.Between(80,130)*(Math.random()<.5?-1:1);s.body.setCollideWorldBounds(true);s.body.setBounce(1,1);}
+
+this.physics.add.overlap(this.player,this.sentries,()=>this.hit());
+this.physics.add.overlap(this.player,this.clueGroup,(p,c)=>{if(c.got)return; c.got=true; c.setTint(0x7cff8f); this.collected.push(c.idx); this.showMsg(CLUES[c.idx]);});
+
+this.msg=this.add.text(10,10,'Find all clues and reach terminal',{fontFamily:'monospace',fontSize:18,color:'#fff',wordWrap:{width:580}}).setScrollFactor(0).setDepth(20);
+this.hud=this.add.text(10,84,'',{fontFamily:'monospace',fontSize:16,color:'#8fe3ff'}).setScrollFactor(0).setDepth(20);
+}
+
+showMsg(t){this.msg.setText(t);this.time.delayedCall(2800,()=>{if(!this.done)this.msg.setText('Find all clues and reach terminal')});}
+hit(){if(this.inv||this.done)return;this.inv=true;this.health--;this.cameras.main.shake(120,.01);this.player.setTint(0xff8888);this.time.delayedCall(350,()=>{this.inv=false;this.player.clearTint()});if(this.health<=0)this.end(false)}
+
+update(){if(this.done)return;let mx=0,my=0;if(this.keys.A.isDown||this.keys.LEFT.isDown)mx=-1;if(this.keys.D.isDown||this.keys.RIGHT.isDown)mx=1;if(this.keys.W.isDown||this.keys.UP.isDown)my=-1;if(this.keys.S.isDown||this.keys.DOWN.isDown)my=1;const m=Math.hypot(mx,my)||1;this.player.setVelocity(mx/m*220,my/m*220);
+this.hud.setText(`Clues: ${this.collected.length}/${CLUES.length}   Health: ${this.health}`);
+const nearTerminal=Phaser.Math.Distance.Between(this.player.x,this.player.y,this.terminal.x,this.terminal.y)<60;
+if(nearTerminal&&this.collected.length===CLUES.length){this.msg.setText('Press E at terminal to answer phrase.');if(Phaser.Input.Keyboard.JustDown(this.keys.E))this.promptAnswer();}
+}
+
+promptAnswer(){this.done=true;this.scene.pause();const ov=document.getElementById('ov'),p=document.getElementById('panel');ov.style.display='flex';const sec=Math.floor((this.time.now-this.startTime)/1000);const base=Math.max(1000,8000-sec*35+this.health*150);p.innerHTML=`<h2>Terminal Access</h2><p>Enter final phrase from clues:</p><input id='ans' placeholder='answer'><button id='chk'>Submit</button><div id='res'></div>`;document.getElementById('chk').onclick=()=>{const a=(document.getElementById('ans').value||'').trim().toUpperCase();if(a==='ALLOWED INTERNALS ONLY'){document.getElementById('res').innerHTML=`✅ Correct! Score: <b>${base}</b><br><input id='nm' maxlength='16' placeholder='name'><button id='sub'>Submit Score</button><div id='lb' class='lb'></div><button id='re'>Play Again</button>`;document.getElementById('sub').onclick=async()=>{const n=(document.getElementById('nm').value||'Anonymous').trim();await submitScore(n,base);const rows=await getLeaderboard();document.getElementById('lb').innerHTML=rows.map((r,i)=>`<div><span>#${i+1} ${r.playerName}</span><span>${r.score}</span></div>`).join('');document.getElementById('sub').style.display='none'};document.getElementById('re').onclick=()=>location.reload();}else{document.getElementById('res').textContent='❌ Try again.';}}}
+
+end(win){this.done=true;this.scene.pause();const ov=document.getElementById('ov'),p=document.getElementById('panel');ov.style.display='flex';p.innerHTML=`<h2>${win?'Solved':'System Locked'}</h2><p>${win?'You made it.':'You were caught by sentries.'}</p><button id='re'>Retry</button>`;document.getElementById('re').onclick=()=>location.reload();}
+}
+
+new Phaser.Game({type:Phaser.AUTO,width:1280,height:720,backgroundColor:'#0b1020',physics:{default:'arcade',arcade:{gravity:{y:0},debug:false}},scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},scene:[Menu,Game]});
+</script></body></html>
