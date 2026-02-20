@@ -79,14 +79,20 @@ const TYPES={
 
 // Curses (enemies) - themed as cute toddler versions
 const CURSES=[
-  {name:'Baby Curse',emoji:'👶😈',hp:30,atk:5,desc:'A tiny tantrum spirit'},
-  {name:'Crayon Curse',emoji:'🖍️👻',hp:35,atk:6,desc:'Scribbles of malice'},
-  {name:'Nap Ghost',emoji:'😴💀',hp:40,atk:7,desc:'Refuses to sleep'},
-  {name:'Juice Box Fiend',emoji:'🧃👹',hp:45,atk:8,desc:'Sticky and angry'},
-  {name:'Diaper Demon',emoji:'👿💩',hp:50,atk:9,desc:'You can smell it'},
-  {name:'Pacifier King',emoji:'👑👶',hp:60,atk:10,desc:'Ruler of the playpen'},
-  {name:'Tantrum Titan',emoji:'😭🔥',hp:70,atk:11,desc:'MAXIMUM VOLUME'},
-  {name:'Sukuna Tot',emoji:'👁️👶',hp:100,atk:14,desc:'The King of Curses... in a diaper',boss:true},
+  {name:'Baby Curse',emoji:'👶😈',hp:30,atk:5,desc:'A tiny tantrum spirit',taunt:'WAAAAAH!'},
+  {name:'Crayon Curse',emoji:'🖍️👻',hp:35,atk:6,desc:'Scribbles of malice',taunt:'*scribbles menacingly*'},
+  {name:'Tiktik Tot',emoji:'🦇👶',hp:38,atk:7,desc:'A baby aswang that clicks its tongue',taunt:'tik...tik...tik...'},
+  {name:'Nap Ghost',emoji:'😴💀',hp:40,atk:7,desc:'Refuses to sleep',taunt:'five more minutes...'},
+  {name:'Tiyanak',emoji:'👶🌙',hp:45,atk:8,desc:'Cries in the forest to lure you in',taunt:'*cries from the bushes*',special:'drain',specialDesc:'Drains HP on neutral!'},
+  {name:'Duwende Kid',emoji:'🍄👹',hp:42,atk:8,desc:'Tiny earth spirit — kicked its mound',taunt:'tabi tabi po... TOO LATE'},
+  {name:'Juice Box Fiend',emoji:'🧃👹',hp:48,atk:8,desc:'Sticky and angry',taunt:'*aggressive sipping*'},
+  {name:'Manananggal Jr',emoji:'🧟‍♀️✂️',hp:55,atk:9,desc:'Detaches at the waist during naptime',taunt:'*splits in half, giggles*',special:'split',specialDesc:'Splits! Attacks twice!'},
+  {name:'Kapre Toddler',emoji:'🌳👀',hp:60,atk:9,desc:'Sits in a tree, smoking a tiny cigar',taunt:'pssst... up here, lil sorcerer'},
+  {name:'Pacifier King',emoji:'👑👶',hp:65,atk:10,desc:'Ruler of the playpen',taunt:'bow before the binky'},
+  {name:'White Lady',emoji:'👻🤍',hp:55,atk:11,desc:'Hitchhiking toddler ghost on EDSA',taunt:'...sakay po...',special:'fear',specialDesc:'Fear! Hides one technique!'},
+  {name:'Tantrum Titan',emoji:'😭🔥',hp:75,atk:12,desc:'MAXIMUM VOLUME',taunt:'AAAAAAAAAAA'},
+  {name:'Bathala Baby',emoji:'⚡👶',hp:85,atk:13,desc:'The supreme deity but smol',taunt:'I created everything... including ur L',special:'smite',specialDesc:'Smites wrong picks for 2x!'},
+  {name:'Sukuna Tot',emoji:'👁️👶',hp:120,atk:15,desc:'The King of Curses... in a diaper',boss:true,taunt:'you dare challenge ME in my playpen?!',special:'domain',specialDesc:'Domain Expansion: Malevolent Nursery!'},
 ];
 
 // Player sorcerers (cosmetic)
@@ -158,12 +164,19 @@ function renderBattle(){
   const eHpPct=Math.max(0,Math.round(curseHP/curseMaxHP*100));
   
   // Build technique buttons - show what each beats
+  // White Lady special: hide a random technique
+  let hiddenTech=null;
+  if(currentCurse.special==='fear'&&curseHP>0){
+    const keys=Object.keys(TYPES);
+    hiddenTech=keys[Math.floor(Math.random()*keys.length)];
+  }
   let techBtns='';
   for(const[key,t]of Object.entries(TYPES)){
     const beatsEmojis=t.beats.map(b=>TYPES[b].emoji).join(' ');
+    const hidden=hiddenTech===key;
     techBtns+=`<button class="btn-tech" data-tech="${key}" ${battleLocked?'disabled':''}>
-      <span class="emoji">${t.emoji}</span> <b>${t.name}</b>
-      <span class="weak">Strong vs ${beatsEmojis}</span>
+      <span class="emoji">${hidden?'❓':t.emoji}</span> <b>${hidden?'???':t.name}</b>
+      <span class="weak">${hidden?'Cursed by fear...':'Strong vs '+beatsEmojis}</span>
     </button>`;
   }
 
@@ -175,6 +188,8 @@ function renderBattle(){
         <div class="char-display" id="curse-char">${currentCurse.emoji}</div>
         <div class="char-name" style="color:${curseT.color}">${currentCurse.name}</div>
         <div class="stat-text">${currentCurse.desc} · ATK ${curseAtk}</div>
+        ${currentCurse.special?`<div style="font-size:10px;color:#FFD700;margin-top:2px">⚠️ ${currentCurse.specialDesc}</div>`:''}
+        <div style="font-size:11px;color:#E04C8A;font-style:italic;margin-top:4px">"${currentCurse.taunt||''}"</div>
         <div class="hp-bar"><div class="hp-fill enemy" style="width:${eHpPct}%"></div></div>
         <div class="stat-text">${curseHP}/${curseMaxHP}</div>
       </div>
@@ -229,7 +244,6 @@ function doTurn(playerTech){
   let result,dmgToCurse,dmgToPlayer,logText;
   
   if(pType.beats.includes(currentCurse.technique)){
-    // Super effective!
     result='win';
     dmgToCurse=Math.round(playerAtk*(1.5+streak*0.1));
     dmgToPlayer=Math.max(0,Math.round(curseAtk*0.3));
@@ -239,20 +253,40 @@ function doTurn(playerTech){
     spawnHitEffect('💥','enemy');
     spawnHitEffect('✨','enemy');
   }else if(pType.losesTo.includes(currentCurse.technique)){
-    // Weak!
     result='lose';
     dmgToCurse=Math.round(playerAtk*0.3);
-    dmgToPlayer=Math.round(curseAtk*1.5);
-    logText=`${cType.emoji} RESISTED! 😵`;
+    let loseMult=1.5;
+    // Bathala Baby smites wrong picks for 2x
+    if(currentCurse.special==='smite'){loseMult=2;spawnHitEffect('⚡','player')}
+    dmgToPlayer=Math.round(curseAtk*loseMult);
+    logText=currentCurse.special==='smite'?`⚡ DIVINE SMITE! 😵`:`${cType.emoji} RESISTED! 😵`;
     streak=0;
     spawnHitEffect('😵','player');
     spawnHitEffect('💢','player');
   }else{
-    // Neutral
     result='neutral';
     dmgToCurse=playerAtk;
     dmgToPlayer=curseAtk;
-    logText=`${pType.emoji} vs ${cType.emoji} — CLASH!`;
+    // Tiyanak drains HP on neutral
+    if(currentCurse.special==='drain'){
+      const drain=Math.round(curseAtk*0.5);
+      dmgToPlayer+=drain;
+      logText=`${pType.emoji} CLASH! 🩸 Tiyanak drains ${drain} HP!`;
+      spawnHitEffect('🩸','player');
+    // Manananggal attacks twice
+    }else if(currentCurse.special==='split'){
+      dmgToPlayer=Math.round(curseAtk*1.8);
+      logText=`${pType.emoji} CLASH! ✂️ Double strike!`;
+      spawnHitEffect('✂️','player');
+    // Sukuna domain expansion on neutral
+    }else if(currentCurse.special==='domain'&&Math.random()<0.3){
+      dmgToPlayer=Math.round(curseAtk*2);
+      logText=`🏯 DOMAIN EXPANSION: Malevolent Nursery!`;
+      spawnHitEffect('🏯','player');
+      spawnHitEffect('👁️','player');
+    }else{
+      logText=`${pType.emoji} vs ${cType.emoji} — CLASH!`;
+    }
     spawnHitEffect('⚔️','enemy');
   }
 
