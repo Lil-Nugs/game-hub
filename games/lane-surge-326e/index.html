@@ -55,9 +55,14 @@ class GameScene extends Phaser.Scene{constructor(){super('Game')} create(){
   this.seg=1; this.segTime=0; this.segDur=6.2; this.segType='wave';
 
   this.physics.world.setBounds(0,0,this.scale.width,this.scale.height);
-  this.add.rectangle(640,360,1280,720,0x0b0f1f);
+  // background
+  this.bg=this.add.rectangle(640,360,1280,720,0x0b0f1f);
+  this.add.rectangle(640,80,1280,160,0x13254d,.35);
+  this.scan=this.add.tileSprite(640,360,1280,720,null).setAlpha(0.08);
+  const sg=this.add.graphics(); sg.fillStyle(0x9ad1ff,1); sg.fillRect(0,0,2,2); sg.generateTexture('starpx',2,2); sg.destroy();
+  for(let i=0;i<120;i++) this.add.image(Phaser.Math.Between(0,1280),Phaser.Math.Between(0,720),'starpx').setAlpha(Math.random()*0.5+0.2);
   // lanes
-  for(let i=0;i<LANES;i++){const x=laneX(this,i); this.add.rectangle(x,360,112,720,0x121a34,.95).setStrokeStyle(1,0x26335f)}
+  for(let i=0;i<LANES;i++){const x=laneX(this,i); this.add.rectangle(x,360,112,720,0x121a34,.92).setStrokeStyle(2,0x3b4d85)}
 
   // player group abstraction
   this.capacity=20+this.meta.up.startUnits*2;
@@ -75,9 +80,25 @@ class GameScene extends Phaser.Scene{constructor(){super('Game')} create(){
   this.gateBonus=1+this.meta.up.gate*.08;
 
   this.weaponMods={spread:false,laser:false,rocket:false,lightning:false,minigun:false,railgun:false};
+  // textures + fx
+  const tg=this.add.graphics();
+  tg.fillStyle(0x56d3ff,1); tg.fillRoundedRect(0,0,70,34,8); tg.fillStyle(0xdff6ff,1); tg.fillRect(10,8,50,6); tg.generateTexture('playerShip',70,34); tg.clear();
+  tg.fillStyle(0x9fffd9,1); tg.fillCircle(5,5,5); tg.generateTexture('pBullet',10,10); tg.clear();
+  tg.fillStyle(0xff9b9b,1); tg.fillCircle(4,4,4); tg.generateTexture('eBullet',8,8); tg.clear();
+  const cols={runner:0x7cff7c,defender:0x6ba3ff,bomber:0xff9d6b,elite:0xd08dff,jugger:0xff5c5c,boss:0xff5a8a};
+  for(const k in cols){tg.fillStyle(cols[k],1); tg.fillRoundedRect(0,0,k==='jugger'?78:(k==='boss'?170:44),k==='jugger'?44:(k==='boss'?110:28),6); tg.fillStyle(0x0a0f1f,1); tg.fillRect(8,8,10,4); tg.fillRect((k==='boss'?170:44)-18,8,10,4); tg.generateTexture('en_'+k,k==='jugger'?78:(k==='boss'?170:44),k==='jugger'?44:(k==='boss'?110:28)); tg.clear();}
+  tg.fillStyle(0x43c6ff,1); tg.fillRoundedRect(0,0,110,82,8); tg.fillStyle(0xffffff,1); tg.fillRect(8,8,94,6); tg.generateTexture('gate',110,82); tg.clear();
+  tg.fillStyle(0xffd27d,1); tg.fillCircle(22,22,22); tg.fillStyle(0x8b5,1); tg.fillRect(14,14,16,16); tg.generateTexture('pickup',44,44); tg.clear();
+  tg.fillStyle(0xb58cff,1); tg.fillCircle(25,25,25); tg.fillStyle(0x30214f,1); tg.fillRect(14,14,22,22); tg.generateTexture('shrine',50,50); tg.clear();
+  tg.fillStyle(0xc08a4f,1); tg.fillRoundedRect(0,0,96,28,4); tg.generateTexture('barrierWood',96,28); tg.clear();
+  tg.fillStyle(0x808a99,1); tg.fillRoundedRect(0,0,96,28,4); tg.generateTexture('barrierSteel',96,28); tg.clear();
+  tg.fillStyle(0x6ec3ff,1); tg.fillRoundedRect(0,0,96,28,4); tg.generateTexture('barrierEnergy',96,28); tg.clear();
+  tg.fillStyle(0xffffff,1); tg.fillCircle(2,2,2); tg.generateTexture('spark',4,4); tg.destroy();
+  this.hitFx=this.add.particles(0,0,'spark',{speed:{min:30,max:220},lifespan:320,scale:{start:1,end:0},quantity:8,emitting:false});
+
 
   // visuals
-  this.playerSprite=this.add.rectangle(laneX(this,this.playerLane),this.playerY,70,34,0x56d3ff).setStrokeStyle(2,0x0ff);
+  this.playerSprite=this.physics.add.sprite(laneX(this,this.playerLane),this.playerY,'playerShip'); this.playerSprite.body.setSize(54,24,true); this.playerSprite.setImmovable(true);
   this.playerLabel=this.add.text(this.playerSprite.x,this.playerY-30,'SQUAD',{fontFamily:'VT323',fontSize:28,color:'#9ef'}).setOrigin(.5);
 
   this.enemyG=this.physics.add.group(); this.bulletG=this.physics.add.group(); this.enemyBulletG=this.physics.add.group(); this.gateG=this.physics.add.group(); this.pickupG=this.physics.add.group(); this.barrierG=this.physics.add.group();
@@ -110,7 +131,7 @@ class GameScene extends Phaser.Scene{constructor(){super('Game')} create(){
       const d=ENEMY[cls];
       const lane=Math.floor(this.rng()*LANES);
       const hp=d.hp*Math.pow(1.18,lvl-1); const dmg=d.dmg*Math.pow(1.12,lvl-1); const sp=d.spd*Math.pow(1.03,lvl-1);
-      const e=this.enemyG.create(laneX(this,lane),-40-this.rng()*500,null).setDisplaySize(cls==='jugger'?78:44,cls==='jugger'?44:28).setTint(d.color);
+      const e=this.enemyG.create(laneX(this,lane),-40-this.rng()*500,'en_'+cls);
       e.body.setSize(e.displayWidth*0.8,e.displayHeight*0.8,true);
       Object.assign(e,{lane,cls,hp,maxHp:hp,dmg,spd:sp,shield:d.shieldHits||0,regen:d.regen||0});
     }
@@ -129,7 +150,7 @@ class GameScene extends Phaser.Scene{constructor(){super('Game')} create(){
       {txt:`5 T1 -> 1 T3`,fn:()=>this.convertFiveToT3()},
     ];
     const a=opts[Math.floor(this.rng()*opts.length)], b=opts[Math.floor(this.rng()*opts.length)];
-    const mk=(lane,opt)=>{const g=this.gateG.create(laneX(this,lane),-120,null).setDisplaySize(110,82).setTint(0x43c6ff);g.setData('fn',opt.fn);g.setData('txt',opt.txt);g.body.allowGravity=false;const t=this.add.text(g.x,g.y,opt.txt,{fontFamily:'VT323',fontSize:18,color:'#fff',align:'center',wordWrap:{width:100}}).setOrigin(.5);g.setData('label',t)};
+    const mk=(lane,opt)=>{const g=this.gateG.create(laneX(this,lane),-120,'gate');g.setData('fn',opt.fn);g.setData('txt',opt.txt);g.body.allowGravity=false;const t=this.add.text(g.x,g.y,opt.txt,{fontFamily:'VT323',fontSize:18,color:'#fff',align:'center',wordWrap:{width:100}}).setOrigin(.5);g.setData('label',t)};
     mk(1,a); mk(2,b);
   }
 
@@ -139,24 +160,24 @@ class GameScene extends Phaser.Scene{constructor(){super('Game')} create(){
     const lanes= type==='split' ? [1,2] : [Math.floor(this.rng()*LANES)];
     for(const lane of lanes){
       const hp=100+30*(this.runLevel*this.runLevel);
-      const b=this.barrierG.create(laneX(this,lane),-70,null).setDisplaySize(96,28).setTint(type==='wood'?0xc08a4f:type==='steel'?0x808a99:0x6ec3ff);
+      const b=this.barrierG.create(laneX(this,lane),-70,type==='wood'?'barrierWood':type==='steel'?'barrierSteel':'barrierEnergy');
       Object.assign(b,{hp,type});
     }
   }
 
   spawnPickup(){
     const arr=['spread','laser','rocket','lightning','minigun','railgun']; const id=arr[Math.floor(this.rng()*arr.length)];
-    const p=this.pickupG.create(laneX(this,Math.floor(this.rng()*LANES)),-60,null).setDisplaySize(44,44).setTint(0xffd27d); p.setData('id',id);
+    const p=this.pickupG.create(laneX(this,Math.floor(this.rng()*LANES)),-60,'pickup'); p.setData('id',id);
   }
 
   spawnShrine(){
-    const p=this.pickupG.create(laneX(this,Math.floor(this.rng()*LANES)),-60,null).setDisplaySize(50,50).setTint(0xb58cff); p.setData('id','shrine');
+    const p=this.pickupG.create(laneX(this,Math.floor(this.rng()*LANES)),-60,'shrine'); p.setData('id','shrine');
   }
 
   beginBoss(){
     this.boss=true; this.bossTimer=90;
     this.bossMax=500*Math.pow(1.25,this.runLevel-1); this.bossHP=this.bossMax;
-    this.bossEnt=this.enemyG.create(laneX(this,2),120,null).setDisplaySize(170,110).setTint(0xff5a8a);
+    this.bossEnt=this.enemyG.create(laneX(this,2),120,'en_boss');
     Object.assign(this.bossEnt,{lane:2,cls:'boss',hp:this.bossHP,maxHp:this.bossMax,dmg:6,spd:30,shield:0,regen:0});
     this.time.addEvent({delay:2800,loop:true,callback:()=>{if(!this.boss||!this.bossEnt?.active)return; this.spawnWave(); this.spawnWave();}});
     this.time.addEvent({delay:2300,loop:true,callback:()=>{if(!this.boss||!this.bossEnt?.active)return; this.bossLaneAttack();}});
@@ -165,7 +186,7 @@ class GameScene extends Phaser.Scene{constructor(){super('Game')} create(){
   bossLaneAttack(){
     const lane=Math.floor(this.rng()*LANES); const x=laneX(this,lane);
     const warn=this.add.rectangle(x,this.scale.height/2,100,this.scale.height,0xff0000,0.18);
-    this.time.delayedCall(420,()=>{warn.destroy(); if(Math.abs(this.playerSprite.x-x)<55)this.damageSquad(2); for(let i=0;i<6;i++){const b=this.enemyBulletG.create(x,120+i*45,null).setDisplaySize(12,12).setTint(0xff9090);b.vy=260;}})
+    this.time.delayedCall(420,()=>{warn.destroy(); if(Math.abs(this.playerSprite.x-x)<55)this.damageSquad(2); for(let i=0;i<6;i++){const b=this.enemyBulletG.create(x,120+i*45,'eBullet').setScale(1.4);b.vy=260;}})
   }
 
   addFighter(t){if(this.fighters.length>=this.capacity)return; const base=FIGHTER[t]; this.fighters.push({tier:t,hp:base.hp*this.globalHP,cd:0,lane:Math.floor(this.rng()*LANES)}); this.applyMerges();}
@@ -191,11 +212,12 @@ class GameScene extends Phaser.Scene{constructor(){super('Game')} create(){
     if(e.cls==='defender'&&!this.weaponMods.railgun&&b.vy<0){e.hp-=b.dmg*0.7;} else e.hp-=b.dmg;
     if(e.shield>0){e.shield--; e.hp+=b.dmg;}
     if(this.weaponMods.lightning){const near=this.enemyG.getChildren().filter(x=>x.active&&x!==e).sort((a,c)=>Phaser.Math.Distance.Between(e.x,e.y,a.x,a.y)-Phaser.Math.Distance.Between(e.x,e.y,c.x,c.y)).slice(0,3); near.forEach(n=>n.hp-=b.dmg*0.45)}
-    if(this.weaponMods.rocket){this.enemyG.getChildren().forEach(n=>{if(!n.active||n===e)return; const d=Phaser.Math.Distance.Between(e.x,e.y,n.x,n.y); if(d<64)n.hp-=b.dmg*0.5;})}
+    if(this.weaponMods.rocket){this.enemyG.getChildren().forEach(n=>{if(!n.active||n===e)return; const d=Phaser.Math.Distance.Between(e.x,e.y,n.x,n.y); if(d<64)n.hp-=b.dmg*0.5;}); this.hitFx.emitParticleAt(e.x,e.y,20)}
     if(!this.weaponMods.laser) b.destroy();
     if(e.hp<=0){
       if(e.cls==='bomber'){this.damageSquad(1);}
       this.kills++; this.score+=25; this.bonus+=8;
+      this.hitFx.emitParticleAt(e.x,e.y,14);
       if(e===this.bossEnt){this.bossHP=0;}
       e.destroy();
     }
@@ -208,6 +230,7 @@ class GameScene extends Phaser.Scene{constructor(){super('Game')} create(){
     if(Phaser.Input.Keyboard.JustDown(this.keys.D)||Phaser.Input.Keyboard.JustDown(this.keys.RIGHT)) this.playerLane=Math.min(LANES-1,this.playerLane+1);
     if(this.pointerDown){let nearest=0,nd=1e9; for(let i=0;i<LANES;i++){const d=Math.abs(laneX(this,i)-this.pointerX); if(d<nd){nd=d;nearest=i}} this.playerLane=nearest;}
     this.playerSprite.x += (laneX(this,this.playerLane)-this.playerSprite.x)*0.25;
+    this.playerSprite.y=this.playerY; this.playerSprite.setVelocity(0,0);
     this.playerLabel.x=this.playerSprite.x;
 
     // fighters fire
@@ -223,7 +246,7 @@ class GameScene extends Phaser.Scene{constructor(){super('Game')} create(){
         let shots=1; if(base.type==='burst') shots=2; if(this.weaponMods.spread) shots+=2;
         for(let i=0;i<shots;i++){
           const spread=(i-(shots-1)/2)*0.11; const a=Math.atan2(vy,vx)+spread;
-          const b=this.bulletG.create(fromX,fromY,null).setDisplaySize(base.type==='slug'?10:6,10).setTint(0x9fffd9);
+          const b=this.bulletG.create(fromX,fromY,'pBullet').setScale(base.type==='slug'?1.2:0.9);
           b.body.setSize(6,8,true); b.vx=Math.cos(a)*420; b.vy=Math.sin(a)*420;
           b.dmg=(base.dmg+this.meta.up.dmg*0.4)*this.globalDmg; b.burn=base.burn?1:0;
         }
@@ -262,7 +285,7 @@ class GameScene extends Phaser.Scene{constructor(){super('Game')} create(){
     this.enemyBulletG.getChildren().forEach(b=>{b.y+=b.vy?0:b.v?0:0; if(b.vy) b.y+=b.vy*dt*0.06; else b.y+=220*dt*0.06; if(b.y>this.scale.height+30)b.destroy()});
 
     // enemy shoot occasionally
-    this.enemyG.getChildren().forEach(e=>{if(e.cls==='runner')return; if(!e.nextShot)e.nextShot=time+1200+this.rng()*1100; if(time>e.nextShot){e.nextShot=time+1300+this.rng()*1200; const b=this.enemyBulletG.create(e.x,e.y,null).setDisplaySize(8,8).setTint(0xff9b9b); b.vy=260+this.runLevel*8; }});
+    this.enemyG.getChildren().forEach(e=>{if(e.cls==='runner')return; if(!e.nextShot)e.nextShot=time+1200+this.rng()*1100; if(time>e.nextShot){e.nextShot=time+1300+this.rng()*1200; const b=this.enemyBulletG.create(e.x,e.y,'eBullet'); b.vy=260+this.runLevel*8; }});
 
     // boss timer
     if(this.boss){ this.bossTimer-=delta/1000; this.bossHP=this.bossEnt?.hp||this.bossHP; if(this.bossHP<=0){this.winRun();return;} if(this.bossTimer<=0){this.lose();return;} }
@@ -270,7 +293,7 @@ class GameScene extends Phaser.Scene{constructor(){super('Game')} create(){
     const elapsed=(time-(this.startTime|| (this.startTime=time)))/1000;
     this.score=Math.floor(elapsed*10+this.bonus);
 
-    const dps=this.calcDPS();
+    this.scan.tilePositionY += 0.3; const dps=this.calcDPS();
     this.hud.setText(`Level ${this.runLevel}  Segment ${this.seg}/25  Units ${this.unitCount}/${this.capacity}\nWeapons: ${Object.entries(this.weaponMods).filter(x=>x[1]).map(x=>x[0]).join(', ')||'none'}`);
     this.dpsHud.setText(`DPS ${dps.toFixed(1)}  Score ${this.score}  Boss ${this.boss?Math.max(0,Math.floor(this.bossHP))+'/'+Math.floor(this.bossMax)+'  '+this.bossTimer.toFixed(1)+'s':''}`);
     this.seedHud.setText(`Seed ${this.seed}`);
