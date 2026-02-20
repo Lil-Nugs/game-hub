@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Jujutsu Tots</title>
+<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#1a0a2e;display:flex;justify-content:center;align-items:center;height:100vh;overflow:hidden;font-family:'Nunito',sans-serif}
+canvas{display:none}
+#game{width:100%;height:100%;position:relative;overflow:hidden}
+#ui-overlay{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;justify-content:center;align-items:center;pointer-events:none;z-index:10}
+#ui-overlay>div{pointer-events:auto}
+.panel{background:rgba(255,255,255,.96);border:4px solid #6C3CE0;border-radius:24px;padding:28px;text-align:center;color:#333;max-width:440px;width:92vw;max-height:92vh;overflow-y:auto;box-shadow:0 10px 40px rgba(108,60,224,.3)}
+.panel h1{font-family:'Bangers',cursive;font-size:36px;color:#6C3CE0;margin-bottom:8px;letter-spacing:2px}
+.panel h2{font-size:18px;color:#E04C8A;margin-bottom:10px}
+.panel p{font-size:12px;line-height:1.8;color:#777;margin-bottom:10px}
+.btn{font-family:'Bangers',cursive;font-size:20px;letter-spacing:1px;padding:14px 32px;border:3px solid #6C3CE0;background:linear-gradient(135deg,#6C3CE0,#9B59B6);color:#fff;cursor:pointer;border-radius:50px;margin:8px;transition:all .2s;box-shadow:0 4px 15px rgba(108,60,224,.4)}
+.btn:hover{transform:scale(1.08);box-shadow:0 6px 20px rgba(108,60,224,.5)}
+.btn-tech{font-family:'Nunito',sans-serif;font-weight:900;font-size:13px;padding:16px;border:3px solid #6C3CE0;background:#fff;color:#333;cursor:pointer;border-radius:16px;margin:6px;transition:all .15s;width:100%;text-align:left;line-height:1.4;display:block}
+.btn-tech:hover{background:#6C3CE0;color:#fff;transform:scale(1.03)}
+.btn-tech:active{transform:scale(.97)}
+.btn-tech .emoji{font-size:22px;margin-right:6px}
+.btn-tech .weak{font-size:10px;color:#aaa;display:block;margin-top:2px}
+.btn-tech:hover .weak{color:#ddd}
+input[type="text"]{font-family:'Nunito',sans-serif;font-size:16px;font-weight:700;padding:12px;border:3px solid #6C3CE0;background:#F0E8FF;color:#6C3CE0;border-radius:50px;width:220px;text-align:center;outline:none}
+.lb{text-align:left;margin-top:14px}.lb div{font-size:13px;padding:6px 0;color:#666;border-bottom:1px solid #E8E0F0;display:flex;justify-content:space-between}
+.lr{color:#6C3CE0;font-weight:700}.ls{color:#E04C8A;font-weight:700}
+.battle-area{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:10px;position:relative}
+.enemy-zone{text-align:center;padding:10px}
+.player-zone{text-align:center;padding:10px;width:100%;max-width:400px}
+.hp-bar{width:200px;height:14px;background:#2a1a3e;border-radius:7px;margin:4px auto;overflow:hidden;border:2px solid #444}
+.hp-fill{height:100%;border-radius:5px;transition:width .4s ease}
+.hp-fill.player{background:linear-gradient(90deg,#4ECDC4,#44B09E)}
+.hp-fill.enemy{background:linear-gradient(90deg,#E04C8A,#C0392B)}
+.battle-log{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-family:'Bangers',cursive;font-size:28px;color:#fff;text-shadow:0 0 20px rgba(108,60,224,.8),2px 2px 0 #000;pointer-events:none;opacity:0;transition:opacity .3s}
+.battle-log.show{opacity:1}
+.char-display{font-size:64px;text-shadow:0 4px 20px rgba(0,0,0,.3)}
+.char-name{font-family:'Bangers',cursive;font-size:18px;color:#fff;text-shadow:1px 1px 0 #000;letter-spacing:1px}
+.stat-text{font-size:11px;color:#ccc}
+.round-counter{font-family:'Bangers',cursive;font-size:16px;color:#9B59B6;letter-spacing:1px}
+.score-display{font-family:'Bangers',cursive;font-size:20px;color:#FFD700;text-shadow:1px 1px 0 #000}
+.techniques{display:flex;flex-direction:column;gap:4px;margin-top:8px}
+.shake{animation:shake .4s ease}
+@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}}
+.flash{animation:flash .3s ease}
+@keyframes flash{0%,100%{opacity:1}50%{opacity:.2}}
+.hit-effect{position:absolute;font-size:32px;pointer-events:none;animation:hitFloat 1s ease forwards}
+@keyframes hitFloat{0%{opacity:1;transform:translateY(0) scale(1)}100%{opacity:0;transform:translateY(-60px) scale(1.5)}}
+</style>
+</head>
+<body>
+<a href="../../index.html" style="position:fixed;top:10px;left:10px;z-index:100;font-size:12px;color:#fff;text-decoration:none;background:rgba(108,60,224,0.6);padding:4px 12px;border-radius:20px;font-family:sans-serif;">← Hub</a>
+<div id="game">
+  <div id="ui-overlay"><div id="ui-content"></div></div>
+  <div id="battle-screen" style="display:none"></div>
+</div>
+<script>
+const GAME_ID='jjk-battle-d12b';
+const LEADERBOARD_API='https://game-leaderboard.mattgames.workers.dev';
+async function submitScore(n,s){try{const r=await fetch(`${LEADERBOARD_API}/api/scores`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gameId:GAME_ID,playerName:n,score:s})});return await r.json()}catch(e){return null}}
+async function getLeaderboard(l=10){try{const r=await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${l}`);const d=await r.json();return d.scores||[]}catch(e){return[]}}
+
+const ui=document.getElementById('ui-content');
+const battleEl=document.getElementById('battle-screen');
+
+// ===== GAME DATA =====
+
+// Cursed techniques - rock/paper/scissors/lizard/spock style with 5 types
+// Each type beats 2 others, loses to 2 others
+const TYPES={
+  reversal:{name:'Reversal Red',emoji:'🔴',color:'#E04C8A',beats:['domain','shikigami'],losesTo:['infinity','blood']},
+  infinity:{name:'Infinity',emoji:'♾️',color:'#4ECDC4',beats:['reversal','blood'],losesTo:['domain','shikigami']},
+  domain:{name:'Domain',emoji:'🏯',color:'#6C3CE0',beats:['infinity','shikigami'],losesTo:['reversal','blood']},
+  blood:{name:'Blood Art',emoji:'🩸',color:'#C0392B',beats:['reversal','domain'],losesTo:['infinity','shikigami']},
+  shikigami:{name:'Shikigami',emoji:'🐉',color:'#F39C12',beats:['infinity','blood'],losesTo:['reversal','domain']},
+};
+
+// Curses (enemies) - themed as cute toddler versions
+const CURSES=[
+  {name:'Baby Curse',emoji:'👶😈',hp:30,atk:5,desc:'A tiny tantrum spirit'},
+  {name:'Crayon Curse',emoji:'🖍️👻',hp:35,atk:6,desc:'Scribbles of malice'},
+  {name:'Nap Ghost',emoji:'😴💀',hp:40,atk:7,desc:'Refuses to sleep'},
+  {name:'Juice Box Fiend',emoji:'🧃👹',hp:45,atk:8,desc:'Sticky and angry'},
+  {name:'Diaper Demon',emoji:'👿💩',hp:50,atk:9,desc:'You can smell it'},
+  {name:'Pacifier King',emoji:'👑👶',hp:60,atk:10,desc:'Ruler of the playpen'},
+  {name:'Tantrum Titan',emoji:'😭🔥',hp:70,atk:11,desc:'MAXIMUM VOLUME'},
+  {name:'Sukuna Tot',emoji:'👁️👶',hp:100,atk:14,desc:'The King of Curses... in a diaper',boss:true},
+];
+
+// Player sorcerers (cosmetic)
+const SORCERERS=['👦','👧','🧒'];
+
+let state='menu';
+let score=0,round=0,streak=0,maxStreak=0;
+let playerHP=100,playerMaxHP=100,playerAtk=12;
+let curseHP=0,curseMaxHP=0,curseAtk=0;
+let currentCurse=null;
+let curseIndex=0;
+let playerChar='👦';
+let battleLocked=false;
+let hitEffects=[];
+
+function showMenu(){
+  state='menu';battleEl.style.display='none';
+  ui.innerHTML=`<div class="panel">
+    <h1>⛩️ JUJUTSU TOTS ⛩️</h1>
+    <h2>Toddler Sorcerer Battle Logic</h2>
+    <p>Battle cursed spirits using Jujutsu techniques!<br><br>
+    Each technique beats 2 others and loses to 2:<br>
+    🔴 <b>Reversal</b> beats 🏯🐉 · loses to ♾️🩸<br>
+    ♾️ <b>Infinity</b> beats 🔴🩸 · loses to 🏯🐉<br>
+    🏯 <b>Domain</b> beats ♾️🐉 · loses to 🔴🩸<br>
+    🩸 <b>Blood Art</b> beats 🔴🏯 · loses to ♾️🐉<br>
+    🐉 <b>Shikigami</b> beats ♾️🩸 · loses to 🔴🏯<br><br>
+    Pick the RIGHT technique to deal bonus damage!<br>
+    Wrong choice? The curse hits harder. Think fast!</p>
+    <button class="btn" id="go">Exorcise! ⛩️</button>
+  </div>`;
+  document.getElementById('go').onclick=()=>{
+    ui.innerHTML='';
+    state='playing';
+    score=0;round=0;streak=0;maxStreak=0;
+    playerHP=100;playerMaxHP=100;playerAtk=12;
+    curseIndex=0;
+    playerChar=SORCERERS[Math.floor(Math.random()*SORCERERS.length)];
+    nextCurse();
+  };
+}
+
+function nextCurse(){
+  round++;
+  // Cycle through curses, scaling HP/ATK each loop
+  const loopNum=Math.floor(curseIndex/CURSES.length);
+  const ci=curseIndex%CURSES.length;
+  const base=CURSES[ci];
+  const scale=1+loopNum*0.5;
+  currentCurse={...base,hp:Math.round(base.hp*scale),maxHp:Math.round(base.hp*scale),atk:Math.round(base.atk*scale)};
+  curseHP=currentCurse.hp;
+  curseMaxHP=currentCurse.maxHp;
+  curseAtk=currentCurse.atk;
+  curseIndex++;
+  // Pick the curse's preferred technique (what it will use)
+  const typeKeys=Object.keys(TYPES);
+  currentCurse.technique=typeKeys[Math.floor(Math.random()*typeKeys.length)];
+  // Heal player a bit between rounds
+  playerHP=Math.min(playerMaxHP,playerHP+Math.round(playerMaxHP*.2));
+  renderBattle();
+}
+
+function renderBattle(){
+  battleEl.style.display='flex';
+  battleEl.style.cssText='display:flex;width:100%;height:100%;position:absolute;top:0;left:0;';
+  
+  const curseT=TYPES[currentCurse.technique];
+  const pHpPct=Math.max(0,Math.round(playerHP/playerMaxHP*100));
+  const eHpPct=Math.max(0,Math.round(curseHP/curseMaxHP*100));
+  
+  // Build technique buttons - show what each beats
+  let techBtns='';
+  for(const[key,t]of Object.entries(TYPES)){
+    const beatsEmojis=t.beats.map(b=>TYPES[b].emoji).join(' ');
+    techBtns+=`<button class="btn-tech" data-tech="${key}" ${battleLocked?'disabled':''}>
+      <span class="emoji">${t.emoji}</span> <b>${t.name}</b>
+      <span class="weak">Strong vs ${beatsEmojis}</span>
+    </button>`;
+  }
+
+  battleEl.innerHTML=`
+    <div class="battle-area" style="background:linear-gradient(180deg,#1a0a2e 0%,#2d1b4e 50%,#1a0a2e 100%)">
+      <div class="enemy-zone">
+        <div class="round-counter">ROUND ${round} ${currentCurse.boss?'⚠️ BOSS':''}  </div>
+        <div class="score-display">✨ ${score}</div>
+        <div class="char-display" id="curse-char">${currentCurse.emoji}</div>
+        <div class="char-name" style="color:${curseT.color}">${currentCurse.name}</div>
+        <div class="stat-text">${currentCurse.desc} · ATK ${curseAtk}</div>
+        <div class="hp-bar"><div class="hp-fill enemy" style="width:${eHpPct}%"></div></div>
+        <div class="stat-text">${curseHP}/${curseMaxHP}</div>
+      </div>
+      
+      <div id="battle-log" class="battle-log"></div>
+      <div id="hit-container" style="position:absolute;width:100%;height:100%;pointer-events:none;overflow:hidden"></div>
+
+      <div class="player-zone">
+        <div class="char-display" id="player-char">${playerChar}</div>
+        <div class="char-name">Sorcerer Tot</div>
+        <div class="hp-bar"><div class="hp-fill player" style="width:${pHpPct}%"></div></div>
+        <div class="stat-text">${playerHP}/${playerMaxHP} HP · ATK ${playerAtk} · 🔥${streak} streak</div>
+        <div class="techniques" id="tech-btns">${techBtns}</div>
+      </div>
+    </div>`;
+
+  // Attach click handlers
+  if(!battleLocked){
+    document.querySelectorAll('.btn-tech').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        if(battleLocked)return;
+        battleLocked=true;
+        doTurn(btn.dataset.tech);
+      });
+    });
+  }
+}
+
+function showBattleLog(text){
+  const log=document.getElementById('battle-log');
+  if(log){log.textContent=text;log.classList.add('show');
+    setTimeout(()=>log.classList.remove('show'),1200);
+  }
+}
+
+function spawnHitEffect(emoji,zone){
+  const container=document.getElementById('hit-container');
+  if(!container)return;
+  const el=document.createElement('div');
+  el.className='hit-effect';
+  el.textContent=emoji;
+  el.style.left=Math.random()*60+20+'%';
+  el.style.top=zone==='enemy'?'20%':'65%';
+  container.appendChild(el);
+  setTimeout(()=>el.remove(),1000);
+}
+
+function doTurn(playerTech){
+  const pType=TYPES[playerTech];
+  const cType=TYPES[currentCurse.technique];
+  
+  let result,dmgToCurse,dmgToPlayer,logText;
+  
+  if(pType.beats.includes(currentCurse.technique)){
+    // Super effective!
+    result='win';
+    dmgToCurse=Math.round(playerAtk*(1.5+streak*0.1));
+    dmgToPlayer=Math.max(0,Math.round(curseAtk*0.3));
+    logText=`${pType.emoji} SUPER EFFECTIVE! 💥`;
+    streak++;
+    if(streak>maxStreak)maxStreak=streak;
+    spawnHitEffect('💥','enemy');
+    spawnHitEffect('✨','enemy');
+  }else if(pType.losesTo.includes(currentCurse.technique)){
+    // Weak!
+    result='lose';
+    dmgToCurse=Math.round(playerAtk*0.3);
+    dmgToPlayer=Math.round(curseAtk*1.5);
+    logText=`${cType.emoji} RESISTED! 😵`;
+    streak=0;
+    spawnHitEffect('😵','player');
+    spawnHitEffect('💢','player');
+  }else{
+    // Neutral
+    result='neutral';
+    dmgToCurse=playerAtk;
+    dmgToPlayer=curseAtk;
+    logText=`${pType.emoji} vs ${cType.emoji} — CLASH!`;
+    spawnHitEffect('⚔️','enemy');
+  }
+
+  curseHP-=dmgToCurse;
+  playerHP-=dmgToPlayer;
+  
+  showBattleLog(logText);
+  
+  // Shake effects
+  const curseEl=document.getElementById('curse-char');
+  const playerEl=document.getElementById('player-char');
+  if(result==='win'&&curseEl){curseEl.classList.add('shake');setTimeout(()=>curseEl.classList.remove('shake'),400)}
+  if(result==='lose'&&playerEl){playerEl.classList.add('shake');setTimeout(()=>playerEl.classList.remove('shake'),400)}
+
+  // Score from damage dealt
+  score+=dmgToCurse;
+  if(result==='win')score+=10; // bonus for correct pick
+
+  // Next curse picks new random technique
+  const typeKeys=Object.keys(TYPES);
+  currentCurse.technique=typeKeys[Math.floor(Math.random()*typeKeys.length)];
+
+  // Check outcomes after delay
+  setTimeout(()=>{
+    if(curseHP<=0){
+      // Curse exorcised!
+      score+=currentCurse.boss?200:50;
+      showBattleLog(`${currentCurse.name} EXORCISED! ⛩️`);
+      // Power up slightly
+      playerAtk+=1;
+      playerMaxHP+=5;
+      setTimeout(()=>{
+        battleLocked=false;
+        nextCurse();
+      },1000);
+    }else if(playerHP<=0){
+      // Game over
+      setTimeout(()=>showGameOver(),500);
+    }else{
+      battleLocked=false;
+      renderBattle();
+    }
+  },600);
+
+  // Update HP bars immediately
+  renderBattle();
+}
+
+function showGameOver(){
+  state='gameover';battleEl.style.display='none';
+  ui.innerHTML=`<div class="panel">
+    <h1>💀 EXORCISED!</h1>
+    <h2>Score: ${score}</h2>
+    <p>Rounds survived: ${round} · Best streak: ${maxStreak}x 🔥<br>
+    Defeated by: ${currentCurse?currentCurse.name:'Unknown'}</p>
+    <input type="text" id="ni" placeholder="Sorcerer name" maxlength="16">
+    <br><button class="btn" id="sub" style="margin-top:10px">Submit ⛩️</button>
+    <div id="lba"></div>
+    <button class="btn" id="rep" style="margin-top:10px">Retry! 🔄</button>
+  </div>`;
+  document.getElementById('sub').onclick=async()=>{
+    const n=document.getElementById('ni').value.trim()||'Anonymous';
+    document.getElementById('sub').textContent='...';
+    await submitScore(n,score);
+    const sc=await getLeaderboard();
+    document.getElementById('lba').innerHTML='<div class="lb"><h2>🏆 Top Sorcerers</h2>'+
+      sc.map((s,i)=>`<div><span class="lr">#${i+1} ${s.playerName}</span><span class="ls">${s.score}</span></div>`).join('')+'</div>';
+    document.getElementById('sub').style.display='none';
+  };
+  document.getElementById('rep').onclick=()=>{ui.innerHTML='';showMenu()};
+}
+
+showMenu();
+</script>
+</body>
+</html>
