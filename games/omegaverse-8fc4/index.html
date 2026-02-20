@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/>
+<title>OMEGAVERSE (SFW)</title>
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box} body{background:#1b0f14;height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden}
+#ui-overlay{position:fixed;inset:0;display:none;justify-content:center;align-items:center;background:rgba(0,0,0,.75);z-index:20;font-family:Silkscreen}
+.panel{width:min(92vw,470px);background:#20111a;border:2px solid #ff7aa8;color:#fff;padding:14px}
+.panel h2{font-size:36px;color:#ffd27d}.panel p{font-family:Nunito,sans-serif;font-size:13px;color:#ddd;margin:8px 0}
+input{width:100%;padding:8px;background:#120a10;border:1px solid #553347;color:#fff;font-size:16px}
+button{margin-top:8px;padding:8px 12px;background:#3a1e2f;border:1px solid #ff7aa8;color:#ffd6e7;font-family:Silkscreen;font-size:20px;cursor:pointer}
+.lb{margin-top:8px;max-height:180px;overflow:auto;font-family:Nunito,sans-serif;font-size:12px}.lb div{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #3d2735}
+</style></head><body>
+<a href="../../index.html" style="position:fixed;top:8px;left:8px;z-index:30;color:#ffd6e7;text-decoration:none;background:#20111a;padding:3px 8px;border:1px solid #ff7aa8;font-family:Silkscreen;font-size:14px">← Hub</a>
+<div id="ui-overlay"><div class="panel" id="panel"></div></div>
+<script>
+const GAME_ID='omegaverse-8fc4';
+const LEADERBOARD_API='https://game-leaderboard.mattgames.workers.dev';
+async function submitScore(playerName, score){try{const r=await fetch(`${LEADERBOARD_API}/api/scores`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gameId:GAME_ID,playerName,score})});return await r.json()}catch{return null}}
+async function getLeaderboard(limit=10){try{const r=await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);const d=await r.json();return d.scores||[]}catch{return[]}}
+
+const audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+function sfx(type='square',freq=440,dur=.07,vol=.12){if(audioCtx.state==='suspended')audioCtx.resume();const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type=type;o.frequency.value=freq;o.connect(g);g.connect(audioCtx.destination);g.gain.setValueAtTime(vol,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(.001,audioCtx.currentTime+dur);o.start();o.stop(audioCtx.currentTime+dur)}
+
+class MenuScene extends Phaser.Scene{constructor(){super('Menu')} create(){
+  const w=this.scale.width,h=this.scale.height;
+  const g=this.add.graphics(); g.fillGradientStyle(0x2a1220,0x2a1220,0x45182d,0x45182d,1); g.fillRect(0,0,w,h);
+  this.add.text(w/2,100,'OMEGAVERSE',{fontFamily:'Silkscreen',fontSize:56,color:'#ff8bb7'}).setOrigin(.5);
+  this.add.text(w/2,150,'(SFW HOTDOG CHAOS)',{fontFamily:'Silkscreen',fontSize:18,color:'#ffd27d'}).setOrigin(.5);
+  this.add.text(w/2,235,'Collect hotdogs 🌭 to fill belly meters.\nWhen full, a new runner spawns and belly resets.\nAvoid mustard blobs + grill hazards.\nSurvive as long as possible.',{fontFamily:'Nunito',fontSize:14,color:'#f3d9e7',align:'center'}).setOrigin(.5);
+  const t=this.add.text(w/2,540,'CLICK / TAP TO START',{fontFamily:'Silkscreen',fontSize:24,color:'#fff0f6'}).setOrigin(.5);
+  this.tweens.add({targets:t,alpha:.25,yoyo:true,repeat:-1,duration:650});
+  this.input.once('pointerdown',()=>{audioCtx.resume();sfx('triangle',700,.09,.14);this.scene.start('Game')});
+  this.input.keyboard.once('keydown',()=>{audioCtx.resume();sfx('triangle',700,.09,.14);this.scene.start('Game')});
+}}
+
+class GameScene extends Phaser.Scene{constructor(){super('Game')} create(){
+  this.score=0; this.bonus=0; this.timeStart=this.time.now;
+  this.maxRunners=24; this.runners=[]; this.foods=[]; this.hazards=[];
+  this.gameOvered=false;
+
+  this.makeTextures();
+
+  // arena
+  const w=this.scale.width,h=this.scale.height;
+  this.add.rectangle(w/2,h/2,w,h,0x1a0f17);
+  for(let x=0;x<w;x+=40){for(let y=0;y<h;y+=40){this.add.rectangle(x+20,y+20,38,38,((x+y)/40)%2?0x24131f:0x2b1624,0.45)}}
+
+  this.physics.world.setBounds(20,20,w-40,h-40);
+  this.border=this.add.rectangle(w/2,h/2,w-24,h-24).setStrokeStyle(3,0xff7aa8);
+
+  this.runnerGroup=this.physics.add.group();
+  this.foodGroup=this.physics.add.group();
+  this.hazardGroup=this.physics.add.group();
+
+  for(let i=0;i<3;i++) this.spawnRunner();
+  for(let i=0;i<10;i++) this.spawnFood();
+
+  this.hud=this.add.text(10,8,'',{fontFamily:'Silkscreen',fontSize:14,color:'#fff'}).setDepth(10);
+
+  this.physics.add.overlap(this.runnerGroup,this.foodGroup,(r,f)=>this.eatFood(r,f));
+  this.physics.add.overlap(this.runnerGroup,this.hazardGroup,(r,h)=>this.hitHazard(r,h));
+
+  this.spawnHazardEvent=this.time.addEvent({delay:1200,loop:true,callback:()=>this.spawnHazard()});
+  this.spawnFoodEvent=this.time.addEvent({delay:800,loop:true,callback:()=>{if(this.foodGroup.countActive(true)<14)this.spawnFood()}});
+}
+
+makeTextures(){
+  const g=this.add.graphics();
+  // runner
+  g.fillStyle(0xffd4b8,1); g.fillCircle(10,8,6); g.fillStyle(0x79b4ff,1); g.fillRect(4,14,12,12); g.generateTexture('runner',20,28); g.clear();
+  // hotdog
+  g.fillStyle(0xd08a52,1); g.fillRoundedRect(0,2,22,10,4); g.fillStyle(0x8f3f28,1); g.fillRoundedRect(3,0,16,14,5); g.fillStyle(0xf2d38a,1); g.fillRect(2,4,18,6); g.generateTexture('dog',22,14); g.clear();
+  // mustard blob
+  g.fillStyle(0xe9cf45,1); g.fillCircle(8,8,7); g.fillStyle(0xcdb235,1); g.fillCircle(10,6,3); g.generateTexture('mustard',16,16); g.clear();
+  // grill
+  g.fillStyle(0x5a2f2f,1); g.fillRect(0,0,28,12); g.fillStyle(0xff6b6b,1); g.fillRect(2,4,24,4); g.generateTexture('grill',28,12); g.destroy();
+}
+
+spawnRunner(){
+  if(this.runners.length>=this.maxRunners) return;
+  const w=this.scale.width,h=this.scale.height;
+  const r=this.runnerGroup.create(Phaser.Math.Between(60,w-60),Phaser.Math.Between(60,h-60),'runner');
+  r.setBounce(1,1).setCollideWorldBounds(true);
+  r.body.setSize(12,18).setOffset(4,8);
+  r.belly=0; r.maxBelly=100; r.spd=70+Math.random()*30; r.hp=3;
+  r.target=null; r.avoidTimer=0;
+  this.runners.push(r);
+}
+
+spawnFood(){
+  const w=this.scale.width,h=this.scale.height;
+  const f=this.foodGroup.create(Phaser.Math.Between(40,w-40),Phaser.Math.Between(40,h-40),'dog');
+  f.body.setCircle(6,5,1);
+  this.foods.push(f);
+}
+
+spawnHazard(){
+  const elapsed=(this.time.now-this.timeStart)/1000;
+  const difficulty=Math.min(elapsed/120,1);
+  const w=this.scale.width,h=this.scale.height;
+  const isGrill=Math.random()<0.25+difficulty*0.25;
+  const tex=isGrill?'grill':'mustard';
+  const hzd=this.hazardGroup.create(Phaser.Math.Between(30,w-30),-20,tex);
+  hzd.vy=Phaser.Math.Between(80,140)+difficulty*140;
+  hzd.vx=Phaser.Math.Between(-30,30);
+  hzd.kind=isGrill?'grill':'blob';
+  hzd.life=6000;
+  if(isGrill) hzd.body.setSize(24,8).setOffset(2,2); else hzd.body.setCircle(6,2,2);
+  this.hazards.push(hzd);
+}
+
+eatFood(r,f){
+  if(!f.active) return;
+  f.destroy();
+  r.belly=Math.min(r.maxBelly,r.belly+34);
+  this.bonus+=15; sfx('triangle',900,.05,.09);
+  if(r.belly>=r.maxBelly){
+    r.belly=0;
+    this.spawnRunner();
+    this.bonus+=80;
+    sfx('square',420,.12,.16);
+    const t=this.add.text(r.x,r.y-16,'+1 RUNNER',{fontFamily:'Silkscreen',fontSize:12,color:'#ffd27d'}).setOrigin(.5);
+    this.tweens.add({targets:t,y:t.y-20,alpha:0,duration:700,onComplete:()=>t.destroy()});
+  }
+}
+
+hitHazard(r,h){
+  if(!h.active||!r.active)return;
+  if(!r.hitCd || this.time.now-r.hitCd>260){
+    r.hitCd=this.time.now;
+    r.hp-= (h.kind==='grill'?2:1);
+    r.setTint(0xff7777); this.time.delayedCall(120,()=>r.clearTint());
+    sfx('sawtooth',140,.08,.11);
+    if(r.hp<=0){
+      const idx=this.runners.indexOf(r); if(idx>=0)this.runners.splice(idx,1);
+      r.destroy();
+      this.bonus+=10;
+      if(this.runners.length<=0) this.gameOver();
+    }
+  }
+  if(h.kind==='blob') h.destroy();
+}
+
+update(time,delta){
+  if(this.gameOvered) return;
+  const dt=delta/16.667;
+  const elapsed=(time-this.timeStart)/1000;
+  const difficulty=Math.min(elapsed/120,1);
+
+  // runner AI: seek nearest hotdog, avoid nearest hazard
+  this.runners.forEach(r=>{
+    if(!r.active)return;
+    let target=null,td=1e9;
+    this.foodGroup.getChildren().forEach(f=>{if(!f.active)return; const d=Phaser.Math.Distance.Between(r.x,r.y,f.x,f.y); if(d<td){td=d;target=f;}});
+    let ax=0,ay=0;
+    if(target){
+      const a=Math.atan2(target.y-r.y,target.x-r.x); ax=Math.cos(a); ay=Math.sin(a);
+    }
+    // avoid hazards
+    this.hazardGroup.getChildren().forEach(h=>{if(!h.active)return; const d=Phaser.Math.Distance.Between(r.x,r.y,h.x,h.y); if(d<80){ax+=(r.x-h.x)/80; ay+=(r.y-h.y)/80;}});
+    const m=Math.hypot(ax,ay)||1;
+    r.body.setVelocity(ax/m*r.spd,ay/m*r.spd);
+  });
+
+  // hazard movement + cleanup
+  this.hazardGroup.getChildren().forEach(h=>{
+    if(!h.active)return;
+    h.x+=h.vx*dt*0.06; h.y+=h.vy*dt*0.06;
+    h.life-=delta;
+    if(h.y>this.scale.height+30||h.x<-30||h.x>this.scale.width+30||h.life<=0) h.destroy();
+  });
+
+  // dynamic hazard spawn acceleration
+  this.spawnHazardEvent.delay=Phaser.Math.Linear(1200,320,difficulty);
+
+  // score
+  this.score=Math.floor(elapsed*10+this.bonus);
+
+  // draw belly rings + labels
+  this.runners.forEach(r=>{
+    if(!r.active)return;
+    if(!r.bellyRing||!r.bellyRing.active){
+      r.bellyRing=this.add.graphics();
+      r.hpTxt=this.add.text(r.x,r.y-22,'',{fontFamily:'Silkscreen',fontSize:10,color:'#fff'}).setOrigin(.5);
+    }
+    r.bellyRing.clear();
+    const pct=r.belly/r.maxBelly;
+    r.bellyRing.lineStyle(2,Phaser.Display.Color.GetColor(255,120+Math.floor(100*pct),160),0.9);
+    r.bellyRing.strokeCircle(r.x,r.y+2,9+pct*8);
+    r.hpTxt.setPosition(r.x,r.y-22).setText(`HP${r.hp}`);
+  });
+
+  this.hud.setText(`Score ${this.score}   Runners ${this.runners.length}/${this.maxRunners}   Time ${Math.floor(elapsed)}s`);
+}
+
+gameOver(){
+  if(this.gameOvered) return; this.gameOvered=true;
+  sfx('sawtooth',100,.4,.16);
+  this.cameras.main.shake(220,.01);
+  this.time.delayedCall(500,()=>{this.scene.pause(); showGameOverUI(this.score,Math.floor((this.time.now-this.timeStart)/1000),this.runners.length);});
+}
+}
+
+new Phaser.Game({type:Phaser.AUTO,width:720,height:1280,backgroundColor:'#1a0f17',physics:{default:'arcade',arcade:{gravity:{y:0},debug:false}},scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},scene:[MenuScene,GameScene]});
+
+function showGameOverUI(finalScore,sec,left){
+  const ui=document.getElementById('ui-overlay'),p=document.getElementById('panel'); ui.style.display='flex';
+  p.innerHTML=`<h2>Run Over</h2><p>Score <b>${finalScore}</b><br>Survived ${sec}s • Runners left ${left}</p><input id='nm' placeholder='name' maxlength='16'><button id='sub'>Submit Score</button><div id='lb' class='lb'></div><button id='re'>Play Again</button>`;
+  document.getElementById('sub').onclick=async()=>{const n=(document.getElementById('nm').value||'Anonymous').trim();await submitScore(n,finalScore);const rows=await getLeaderboard();document.getElementById('lb').innerHTML=rows.map((r,i)=>`<div><span>#${i+1} ${r.playerName}</span><span>${r.score}</span></div>`).join('');document.getElementById('sub').style.display='none';};
+  document.getElementById('re').onclick=()=>location.reload();
+}
+</script>
+</body></html>
