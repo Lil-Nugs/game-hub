@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/>
+<title>Dustfront Survivors</title>
+<link href="https://fonts.googleapis.com/css2?family=Rye&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#2a1a0f;overflow:hidden;font-family:'Rye',serif}
+#overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.72);z-index:20}
+.panel{width:min(92vw,480px);background:#1f130b;border:2px solid #d9a45c;color:#fff;padding:16px}
+.panel h2{font-size:40px;color:#f5d49a}
+.panel p{font-family:'Nunito',sans-serif;font-size:13px;color:#d8c3a2;margin:8px 0}
+.btn{font:26px 'Rye';background:#3a2416;color:#ffdca7;border:1px solid #d9a45c;padding:8px 12px;cursor:pointer;margin-top:8px}
+input{width:100%;padding:8px;background:#120b07;color:#fff;border:1px solid #6d4a2a;font:18px 'Rye'}
+.lb{max-height:180px;overflow:auto;font:12px 'Nunito';margin-top:8px}.lb div{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #4d3320}
+#stick{position:fixed;left:14px;bottom:14px;width:110px;height:110px;border-radius:55px;border:2px solid rgba(255,220,167,.3);background:rgba(58,36,22,.35);display:none;z-index:9}
+@media(pointer:coarse){#stick{display:block}}
+</style>
+</head>
+<body>
+<a href="../../index.html" style="position:fixed;top:8px;left:8px;z-index:30;color:#ffdca7;text-decoration:none;border:1px solid #d9a45c;padding:2px 8px;background:#1f130b;font-family:Rye;font-size:16px">← Hub</a>
+<div id="stick"></div>
+<div id="overlay"><div class="panel" id="panel"></div></div>
+<script>
+const GAME_ID='dustfront-survivors-7808';
+const LEADERBOARD_API='https://game-leaderboard.mattgames.workers.dev';
+async function submitScore(playerName,score){try{const r=await fetch(`${LEADERBOARD_API}/api/scores`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gameId:GAME_ID,playerName,score})});return await r.json()}catch{return null}}
+async function getLeaderboard(limit=10){try{const r=await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);const d=await r.json();return d.scores||[]}catch{return[]}}
+const audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+function sfx(t='square',f=440,d=.08,v=.12){if(audioCtx.state==='suspended')audioCtx.resume();const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type=t;o.frequency.value=f;o.connect(g);g.connect(audioCtx.destination);g.gain.setValueAtTime(v,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(.001,audioCtx.currentTime+d);o.start();o.stop(audioCtx.currentTime+d)}
+
+let stickDir={x:0,y:0},stickActive=false;
+const stick=document.getElementById('stick');
+stick.addEventListener('touchstart',e=>{stickActive=true;updateStick(e.touches[0]);e.preventDefault()},{passive:false});
+stick.addEventListener('touchmove',e=>{if(stickActive)updateStick(e.touches[0]);e.preventDefault()},{passive:false});
+stick.addEventListener('touchend',()=>{stickActive=false;stickDir={x:0,y:0}});
+function updateStick(t){const r=stick.getBoundingClientRect();const cx=r.left+r.width/2,cy=r.top+r.height/2;let dx=t.clientX-cx,dy=t.clientY-cy;const m=Math.hypot(dx,dy)||1;const max=40;dx=Math.max(-max,Math.min(max,dx));dy=Math.max(-max,Math.min(max,dy));stickDir={x:dx/max,y:dy/max}}
+
+const WEAPONS={
+  revolver:{name:'Revolver',rate:240,dmg:12,speed:520,shots:1,spread:0,color:0xffd27d},
+  shotgun:{name:'Shotgun',rate:420,dmg:8,speed:470,shots:5,spread:.16,color:0xffb36b},
+  repeater:{name:'Repeater',rate:120,dmg:7,speed:560,shots:1,spread:0,color:0xb6e4ff},
+  dynamite:{name:'Dynamite Toss',rate:800,dmg:30,speed:320,shots:1,spread:0,color:0xff6b6b,aoe:90}
+};
+
+const UPGRADES=[
+  {name:'🔫 Quick Hands',desc:'+18% fire rate',apply:g=>g.fireMult*=1.18},
+  {name:'💥 Heavy Rounds',desc:'+22% bullet damage',apply:g=>g.dmgMult*=1.22},
+  {name:'🤠 Boots',desc:'+15% move speed',apply:g=>g.speedMult*=1.15},
+  {name:'❤️ Canteen',desc:'+25 max HP + heal',apply:g=>{g.maxHp+=25;g.hp=Math.min(g.maxHp,g.hp+25)}},
+  {name:'🧲 Saddle Magnet',desc:'+35 pickup range',apply:g=>g.pickupRange+=35},
+  {name:'💵 Bounty Bonus',desc:'+20% coin gain',apply:g=>g.coinMult*=1.2},
+  {name:'🎯 Lucky Crit',desc:'+8% crit chance',apply:g=>g.crit+=.08},
+  {name:'🧨 Unlock Dynamite',desc:'Adds dynamite weapon',apply:g=>g.unlockWeapon('dynamite')},
+  {name:'🔫 Unlock Repeater',desc:'Adds repeater weapon',apply:g=>g.unlockWeapon('repeater')},
+  {name:'🪓 Unlock Shotgun',desc:'Adds shotgun weapon',apply:g=>g.unlockWeapon('shotgun')},
+];
+
+const SHOP=[
+  {name:'Heal 35',cost:14,buy:g=>g.hp=Math.min(g.maxHp,g.hp+35)},
+  {name:'Max HP +20',cost:18,buy:g=>{g.maxHp+=20;g.hp+=20}},
+  {name:'Damage +10%',cost:16,buy:g=>g.dmgMult*=1.1},
+  {name:'Fire Rate +10%',cost:16,buy:g=>g.fireMult*=1.1},
+  {name:'Bomb Screen',cost:40,buy:g=>{g.enemyG.getChildren().forEach(e=>{if(e.active)e.hp=0});}}
+];
+
+class MenuScene extends Phaser.Scene{constructor(){super('Menu')}create(){
+  const w=this.scale.width,h=this.scale.height;
+  const bg=this.add.graphics();
+  bg.fillGradientStyle(0xa46a2e,0xa46a2e,0x3f2615,0x3f2615,1); bg.fillRect(0,0,w,h);
+  this.add.text(w/2,90,'DUSTFRONT',{fontFamily:'Rye',fontSize:78,color:'#fff0cf'}).setOrigin(.5);
+  this.add.text(w/2,150,'SURVIVORS',{fontFamily:'Rye',fontSize:64,color:'#ffcf79'}).setOrigin(.5);
+  this.add.text(w/2,245,'Vampire Survivors-style roguelite in a Wild West frontier.\nAuto-fire, level-up cards, random drops, and shop rounds.',{fontFamily:'Nunito',fontSize:14,color:'#f8e4c4',align:'center'}).setOrigin(.5);
+  this.add.text(w/2,560,'WASD/Arrows or mobile stick\nWeapons auto-fire',{fontFamily:'Nunito',fontSize:14,color:'#f8e4c4',align:'center'}).setOrigin(.5);
+  const t=this.add.text(w/2,640,'CLICK TO START',{fontFamily:'Rye',fontSize:46,color:'#fff'}).setOrigin(.5);
+  this.tweens.add({targets:t,alpha:.2,yoyo:true,repeat:-1,duration:700});
+  const go=()=>{audioCtx.resume();sfx('triangle',720,.1,.14);this.scene.start('Game')};
+  this.input.once('pointerdown',go); this.input.keyboard.once('keydown',go);
+}}
+
+class GameScene extends Phaser.Scene{
+  constructor(){super('Game')}
+  create(){
+    this.start=this.time.now; this.score=0; this.kills=0; this.coins=0; this.level=1; this.xp=0; this.need=22;
+    this.hp=100; this.maxHp=100; this.dmgMult=1; this.fireMult=1; this.speedMult=1; this.coinMult=1; this.crit=.06; this.pickupRange=65;
+    this.unlocked=['revolver']; this.weaponTimers={};
+
+    const w=this.scale.width,h=this.scale.height; this.worldSize=2600;
+    this.physics.world.setBounds(-1300,-1300,2600,2600);
+
+    // terrain
+    const g=this.add.graphics();
+    for(let x=-1300;x<1300;x+=72){for(let y=-1300;y<1300;y+=72){g.fillStyle(((x+y)/72)%2?0x51301c:0x5b3820,1);g.fillRect(x,y,72,72)}}
+    for(let i=0;i<120;i++){g.fillStyle(0x3b2416,0.45);g.fillCircle(Phaser.Math.Between(-1300,1300),Phaser.Math.Between(-1300,1300),Phaser.Math.Between(4,12));}
+    // cactus doodles
+    for(let i=0;i<45;i++){const x=Phaser.Math.Between(-1250,1250),y=Phaser.Math.Between(-1250,1250);g.fillStyle(0x5f8f45,0.9);g.fillRect(x,y,8,20);g.fillRect(x-5,y+8,5,6);g.fillRect(x+8,y+10,5,6)}
+
+    this.enemyG=this.physics.add.group(); this.bulletG=this.physics.add.group(); this.dropG=this.physics.add.group(); this.fxG=this.add.group();
+
+    // player sprite
+    const pg=this.add.graphics(); pg.fillStyle(0x2f2f2f,1); pg.fillCircle(14,10,8); pg.fillStyle(0xd7b48a,1); pg.fillCircle(14,12,6); pg.fillStyle(0x6b4423,1); pg.fillRect(6,18,16,14); pg.fillStyle(0x8b5a2b,1); pg.fillRect(4,6,20,3); pg.generateTexture('p',28,32); pg.destroy();
+    const eg=this.add.graphics(); eg.fillStyle(0x4a2a1b,1); eg.fillCircle(12,12,10); eg.fillStyle(0xdc7058,1); eg.fillRect(4,14,16,10); eg.generateTexture('e',24,24); eg.destroy();
+    const bg2=this.add.graphics(); bg2.fillStyle(0xffd27d,1); bg2.fillCircle(4,4,4); bg2.generateTexture('b',8,8); bg2.clear(); bg2.fillStyle(0xffd76a,1); bg2.fillCircle(5,5,5); bg2.fillStyle(0xa4632b,1); bg2.fillRect(2,4,6,2); bg2.generateTexture('coin',10,10); bg2.clear(); bg2.fillStyle(0x7cff7c,1); bg2.fillCircle(5,5,5); bg2.generateTexture('hp',10,10); bg2.destroy();
+
+    this.player=this.physics.add.sprite(0,0,'p'); this.player.body.setSize(18,20).setOffset(5,7);
+    this.cam=this.cameras.main; this.cam.startFollow(this.player,true,.1,.1); this.cam.setBounds(-1300,-1300,2600,2600);
+
+    this.keys=this.input.keyboard.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT');
+
+    this.physics.add.overlap(this.bulletG,this.enemyG,(b,e)=>this.hitEnemy(b,e));
+    this.physics.add.overlap(this.player,this.enemyG,(p,e)=>{if(!e.hitAt||this.time.now-e.hitAt>430){e.hitAt=this.time.now;this.takeDamage(Math.max(2,Math.floor(e.atk-this.level*0.1)))}});
+    this.physics.add.overlap(this.player,this.dropG,(p,d)=>this.pickDrop(d));
+
+    this.spawnTick=0;
+    this.hud=this.add.text(10,8,'',{fontFamily:'Rye',fontSize:22,color:'#fff'}).setScrollFactor(0).setDepth(20);
+    this.hud2=this.add.text(10,36,'',{fontFamily:'Nunito',fontSize:13,color:'#ffe9c8'}).setScrollFactor(0).setDepth(20);
+  }
+
+  unlockWeapon(id){if(!this.unlocked.includes(id))this.unlocked.push(id)}
+
+  spawnEnemyBatch(){
+    const elapsed=(this.time.now-this.start)/1000; const diff=Math.min(elapsed/150,1);
+    const count=1+Math.floor(diff*3)+Math.floor(this.level/3);
+    for(let i=0;i<count;i++){
+      const a=Math.random()*Math.PI*2,dist=420+Math.random()*220;
+      const x=this.player.x+Math.cos(a)*dist,y=this.player.y+Math.sin(a)*dist;
+      const e=this.enemyG.create(x,y,'e');
+      e.hp=(18+this.level*3)*(1+diff*1.2); e.maxHp=e.hp; e.spd=(65+this.level*2)*(1+diff*.5); e.atk=6+this.level*0.8;
+      e.body.setSize(16,16).setOffset(4,4);
+      if(Math.random()<0.16+diff*0.2){e.setScale(1.35);e.hp*=2.2;e.atk*=1.4;e.spd*=0.8;e.tint=0xc84f4f}
+    }
+  }
+
+  fireWeapons(){
+    const elapsed=(this.time.now-this.start)/1000;
+    const nearest=this.closestEnemy();
+    if(!nearest)return;
+    this.unlocked.forEach(id=>{
+      const w=WEAPONS[id];
+      if(!this.weaponTimers[id])this.weaponTimers[id]=0;
+      const cd=w.rate/this.fireMult;
+      if(this.time.now<this.weaponTimers[id]+cd)return;
+      this.weaponTimers[id]=this.time.now;
+      for(let i=0;i<w.shots;i++){
+        const a=Math.atan2(nearest.y-this.player.y,nearest.x-this.player.x)+(i-(w.shots-1)/2)*w.spread;
+        const b=this.bulletG.create(this.player.x,this.player.y,'b');
+        b.setTint(w.color); b.setScale(w.name==='Dynamite Toss'?1.4:1);
+        b.vx=Math.cos(a)*w.speed; b.vy=Math.sin(a)*w.speed; b.life=1200; b.dmg=w.dmg*this.dmgMult; b.aoe=w.aoe||0;
+      }
+      sfx('square',320+Math.random()*60,.04,.08);
+    })
+  }
+
+  hitEnemy(b,e){
+    if(!b.active||!e.active)return;
+    let dmg=b.dmg; if(Math.random()<this.crit)dmg*=1.8;
+    e.hp-=dmg;
+    if(b.aoe){this.enemyG.getChildren().forEach(n=>{if(!n.active||n===e)return;const d=Phaser.Math.Distance.Between(e.x,e.y,n.x,n.y);if(d<b.aoe)n.hp-=dmg*.55});this.cameras.main.shake(80,.003)}
+    b.destroy();
+    if(e.hp<=0){
+      this.kills++; this.score+=18; this.xp+=4; e.destroy();
+      if(Math.random()<0.55)this.spawnDrop('coin',e.x,e.y);
+      if(Math.random()<0.09)this.spawnDrop('hp',e.x,e.y);
+      this.checkLevel();
+    }
+  }
+
+  spawnDrop(type,x,y){const d=this.dropG.create(x,y,type==='coin'?'coin':'hp'); d.kind=type; d.life=6500; d.vx=(Math.random()-.5)*30; d.vy=(Math.random()-.5)*30}
+  pickDrop(d){if(d.kind==='coin'){this.coins+=Math.ceil(2*this.coinMult); this.score+=3; sfx('triangle',840,.04,.06)} else {this.hp=Math.min(this.maxHp,this.hp+12); sfx('triangle',620,.05,.08)} d.destroy();}
+
+  checkLevel(){if(this.xp>=this.need){this.xp-=this.need; this.level++; this.need=Math.round(this.need*1.28); this.showUpgrade();}}
+
+  showUpgrade(){
+    this.scene.pause();
+    const ov=document.getElementById('overlay'),p=document.getElementById('panel'); ov.style.display='flex';
+    const opts=[...UPGRADES].sort(()=>Math.random()-.5).slice(0,3);
+    p.innerHTML=`<h2>Level ${this.level} Upgrade</h2><p>Choose 1 card. You can also buy from shop with coins (${this.coins}).</p><div id='cards'></div><div id='shop'></div><button id='skip' class='btn'>Skip</button>`;
+    const cards=document.getElementById('cards');
+    opts.forEach(o=>{const b=document.createElement('button'); b.className='btn'; b.style.display='block'; b.style.width='100%'; b.style.textAlign='left'; b.textContent=`${o.name} — ${o.desc}`; b.onclick=()=>{o.apply(this); close();}; cards.appendChild(b);});
+    const shop=document.getElementById('shop');
+    SHOP.forEach(s=>{const b=document.createElement('button'); b.className='btn'; b.style.display='block'; b.style.width='100%'; b.style.textAlign='left'; b.textContent=`[${s.cost}c] ${s.name}`; b.onclick=()=>{if(this.coins>=s.cost){this.coins-=s.cost; s.buy(this); this.showUpgrade();}}; shop.appendChild(b);});
+    const close=()=>{ov.style.display='none'; this.scene.resume();}; document.getElementById('skip').onclick=close;
+  }
+
+  closestEnemy(){let t=null,d=1e9;this.enemyG.getChildren().forEach(e=>{if(!e.active)return;const dd=Phaser.Math.Distance.Between(this.player.x,this.player.y,e.x,e.y);if(dd<d){d=dd;t=e}});return t}
+
+  takeDamage(v){this.hp-=v; this.cameras.main.shake(100,.006); sfx('sawtooth',120,.08,.1); if(this.hp<=0)this.gameOver()}
+
+  update(time,delta){if(this.hp<=0)return; const dt=delta/16.667;
+    let mx=0,my=0; if(this.keys.A.isDown||this.keys.LEFT.isDown)mx=-1; if(this.keys.D.isDown||this.keys.RIGHT.isDown)mx=1; if(this.keys.W.isDown||this.keys.UP.isDown)my=-1; if(this.keys.S.isDown||this.keys.DOWN.isDown)my=1;
+    if(stickActive){mx=stickDir.x; my=stickDir.y}
+    const m=Math.hypot(mx,my)||1;
+    this.player.x+=mx/m*(2.4*this.speedMult)*dt;
+    this.player.y+=my/m*(2.4*this.speedMult)*dt;
+
+    this.spawnTick+=delta; if(this.spawnTick>Math.max(260,950-(this.level*18))){this.spawnTick=0; this.spawnEnemyBatch();}
+    this.fireWeapons();
+
+    this.enemyG.getChildren().forEach(e=>{if(!e.active)return;const dx=this.player.x-e.x,dy=this.player.y-e.y,d=Math.hypot(dx,dy)||1;e.x+=dx/d*(e.spd*dt*0.06);e.y+=dy/d*(e.spd*dt*0.06)});
+    this.bulletG.getChildren().forEach(b=>{b.x+=b.vx*dt*0.06; b.y+=b.vy*dt*0.06; b.life-=delta; if(b.life<=0)b.destroy()});
+    this.dropG.getChildren().forEach(d=>{const dx=this.player.x-d.x,dy=this.player.y-d.y,dd=Math.hypot(dx,dy)||1; if(dd<this.pickupRange){d.x+=dx/dd*2.5*dt; d.y+=dy/dd*2.5*dt;} d.life-=delta; if(d.life<=0)d.destroy()});
+
+    const elapsed=(time-this.start)/1000; this.score=Math.floor(elapsed*12)+this.kills*11+this.coins*2;
+    this.hud.setText(`DUSTFRONT SURVIVORS  Lv${this.level}  HP ${Math.max(0,Math.ceil(this.hp))}/${this.maxHp}  Coins ${this.coins}`);
+    this.hud2.setText(`Weapon Set: ${this.unlocked.map(w=>WEAPONS[w].name).join(', ')}   XP ${this.xp}/${this.need}   Kills ${this.kills}   Score ${this.score}`);
+  }
+
+  gameOver(){
+    this.scene.pause();
+    const sec=Math.floor((this.time.now-this.start)/1000);
+    const ov=document.getElementById('overlay'),p=document.getElementById('panel'); ov.style.display='flex';
+    p.innerHTML=`<h2>Outlaw Down</h2><p>Score <b>${this.score}</b><br>Time ${sec}s • Kills ${this.kills} • Level ${this.level}</p><input id='nm' maxlength='16' placeholder='name'><button id='sub' class='btn'>Submit Score</button><div id='lb' class='lb'></div><button id='re' class='btn'>Play Again</button>`;
+    document.getElementById('sub').onclick=async()=>{const n=(document.getElementById('nm').value||'Anonymous').trim();await submitScore(n,this.score);const rows=await getLeaderboard();document.getElementById('lb').innerHTML=rows.map((r,i)=>`<div><span>#${i+1} ${r.playerName}</span><span>${r.score}</span></div>`).join('');document.getElementById('sub').style.display='none'};
+    document.getElementById('re').onclick=()=>location.reload();
+  }
+}
+
+new Phaser.Game({type:Phaser.AUTO,width:900,height:1400,backgroundColor:'#2a1a0f',physics:{default:'arcade',arcade:{gravity:{y:0},debug:false}},scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},scene:[MenuScene,GameScene]});
+</script>
+</body>
+</html>
