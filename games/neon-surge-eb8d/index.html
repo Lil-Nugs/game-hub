@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Sky Drift</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#87CEEB;display:flex;justify-content:center;align-items:center;height:100vh;overflow:hidden;font-family:'Fredoka',sans-serif}
+canvas{display:block;touch-action:none}
+#ui-overlay{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;justify-content:center;align-items:center;pointer-events:none;z-index:10}
+#ui-overlay>div{pointer-events:auto}
+.panel{background:rgba(255,255,255,.95);border:3px solid #f4a;border-radius:20px;padding:28px;text-align:center;color:#333;max-width:420px;width:92vw;max-height:92vh;overflow-y:auto;box-shadow:0 8px 30px rgba(0,0,0,.15)}
+.panel h1{font-size:28px;color:#f4a;margin-bottom:10px;font-weight:700}
+.panel h2{font-size:18px;color:#4a9;margin-bottom:10px}
+.panel p{font-size:13px;line-height:1.8;color:#666;margin-bottom:10px}
+.btn{font-family:'Fredoka',sans-serif;font-size:16px;font-weight:600;padding:14px 28px;border:3px solid #f4a;background:#fff;color:#f4a;cursor:pointer;border-radius:50px;margin:8px;transition:all .2s}
+.btn:hover{background:#f4a;color:#fff;transform:scale(1.05)}
+input[type="text"]{font-family:'Fredoka',sans-serif;font-size:16px;padding:12px;border:3px solid #4a9;background:#f0faf5;color:#333;border-radius:50px;width:200px;text-align:center;outline:none}
+.lb{text-align:left;margin-top:14px}.lb div{font-size:13px;padding:6px 0;color:#666;border-bottom:1px solid #eee;display:flex;justify-content:space-between}
+.lr{color:#f4a;font-weight:600}.ls{color:#4a9;font-weight:600}
+.tag{display:inline-block;background:#fef0f5;color:#f4a;font-size:11px;padding:3px 10px;border-radius:20px;margin:2px}
+</style>
+</head>
+<body>
+<a href="../../index.html" style="position:fixed;top:10px;left:10px;z-index:100;font-size:12px;color:#888;text-decoration:none;background:rgba(0,0,0,0.3);padding:4px 10px;border-radius:20px;font-family:sans-serif;">← Hub</a>
+<canvas id="c"></canvas>
+<div id="ui-overlay"><div id="ui-content"></div></div>
+<script>
+// roundRect polyfill
+if(!CanvasRenderingContext2D.prototype.roundRect){CanvasRenderingContext2D.prototype.roundRect=function(x,y,w,h,r){r=typeof r==="number"?r:0;this.moveTo(x+r,y);this.lineTo(x+w-r,y);this.quadraticCurveTo(x+w,y,x+w,y+r);this.lineTo(x+w,y+h-r);this.quadraticCurveTo(x+w,y+h,x+w-r,y+h);this.lineTo(x+r,y+h);this.quadraticCurveTo(x,y+h,x,y+h-r);this.lineTo(x,y+r);this.quadraticCurveTo(x,y,x+r,y);return this}}
+const GAME_ID='neon-surge-eb8d';
+const LEADERBOARD_API='https://game-leaderboard.mattgames.workers.dev';
+async function submitScore(n,s){try{const r=await fetch(`${LEADERBOARD_API}/api/scores`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gameId:GAME_ID,playerName:n,score:s})});return await r.json()}catch(e){return null}}
+async function getLeaderboard(l=10){try{const r=await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${l}`);const d=await r.json();return d.scores||[]}catch(e){return[]}}
+
+const C=document.getElementById('c'),X=C.getContext('2d'),ui=document.getElementById('ui-content');
+let W,H;
+function resize(){W=C.width=window.innerWidth;H=C.height=window.innerHeight}
+resize();window.addEventListener('resize',resize);
+
+const LANE_COUNT=5;
+let state='menu';
+let score=0,combo=0,maxCombo=0,gameTime=0,gameSpeed=2;
+let player={x:400,y:500,lane:2,r:16},walls=[],coins=[],powerups=[],particles=[],floats=[],clouds=[];
+let hasShield=false,hasMagnet=false,hasDouble=false,hasSlow=false;
+let shieldT=0,magnetT=0,doubleT=0,slowT=0;
+let targetLane=2,spawnT=0,coinT=0,puT=0;
+
+// Palette - warm sunset/sky theme
+const PAL={
+  sky1:'#87CEEB',sky2:'#FFB347',
+  cloud:'rgba(255,255,255,0.8)',
+  wall:['#FF6B6B','#FF8E72','#FFA07A','#E8747C'],
+  coin:'#FFD700',coinBig:'#FF69B4',
+  player:'#4ECDC4',playerLight:'#A8E6CF',
+  text:'#555',accent:'#FF6B9D',green:'#7BC67E'
+};
+
+// Input
+C.addEventListener('click',e=>{
+  if(state!=='playing')return;
+  if(e.clientX<W/2)targetLane=Math.max(0,targetLane-1);
+  else targetLane=Math.min(LANE_COUNT-1,targetLane+1);
+});
+let touchSX=null;
+C.addEventListener('touchstart',e=>{touchSX=e.touches[0].clientX;e.preventDefault()},{passive:false});
+C.addEventListener('touchend',e=>{
+  if(!touchSX||state!=='playing')return;
+  const dx=e.changedTouches[0].clientX-touchSX;
+  if(Math.abs(dx)>25){targetLane=dx>0?Math.min(LANE_COUNT-1,targetLane+1):Math.max(0,targetLane-1)}
+  else{if(e.changedTouches[0].clientX<W/2)targetLane=Math.max(0,targetLane-1);else targetLane=Math.min(LANE_COUNT-1,targetLane+1)}
+  touchSX=null;
+});
+window.addEventListener('keydown',e=>{
+  if(state!=='playing')return;
+  if(e.key==='ArrowLeft'||e.key==='a')targetLane=Math.max(0,targetLane-1);
+  if(e.key==='ArrowRight'||e.key==='d')targetLane=Math.min(LANE_COUNT-1,targetLane+1);
+  e.preventDefault();
+});
+
+function laneX(l){const lw=Math.min(W*.82,380)/LANE_COUNT;return(W-lw*LANE_COUNT)/2+l*lw+lw/2}
+function laneW(){return Math.min(W*.82,380)/LANE_COUNT}
+
+function reset(){
+  score=0;combo=0;maxCombo=0;gameTime=0;gameSpeed=2;
+  targetLane=2;spawnT=0;coinT=0;puT=0;
+  player={x:laneX(2),y:H*.78,lane:2};
+  walls=[];coins=[];powerups=[];particles=[];floats=[];
+  clouds=Array.from({length:8},()=>({x:Math.random()*W,y:Math.random()*H*.4,w:60+Math.random()*80,s:.2+Math.random()*.3}));
+  hasShield=false;hasMagnet=false;hasDouble=false;hasSlow=false;
+  shieldT=0;magnetT=0;doubleT=0;slowT=0;
+}
+
+function addFloat(x,y,text,color){floats.push({x,y,text,color,life:50})}
+function addParticles(x,y,color,n=8){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*Math.PI*2,s=Math.random()*4+1;
+    particles.push({x,y,dx:Math.cos(a)*s,dy:Math.sin(a)*s,life:1,color,size:Math.random()*5+2});
+  }
+}
+
+function spawnWall(){
+  const blocked=new Array(LANE_COUNT).fill(true);
+  // Always 2 gaps, sometimes 3 at low speed
+  const gapCount=gameSpeed<4?3:gameSpeed<6?2:Math.random()<.4?2:1;
+  const gaps=new Set();
+  // Ensure at least one gap near player's lane for fairness
+  gaps.add(Math.max(0,Math.min(LANE_COUNT-1,targetLane+(Math.random()>.5?1:-1)*Math.floor(Math.random()*2))));
+  while(gaps.size<gapCount){gaps.add(Math.floor(Math.random()*LANE_COUNT))}
+  gaps.forEach(g=>blocked[g]=false);
+  walls.push({y:-30,blocked,speed:gameSpeed,color:PAL.wall[Math.floor(Math.random()*PAL.wall.length)],passed:false});
+}
+
+function spawnCoin(){
+  const lane=Math.floor(Math.random()*LANE_COUNT);
+  const big=Math.random()<.12;
+  coins.push({x:laneX(lane),y:-20,lane,r:big?14:10,value:big?50:10,big,speed:gameSpeed*.85});
+}
+
+function spawnPowerup(){
+  const lane=Math.floor(Math.random()*LANE_COUNT);
+  const types=[{t:'shield',e:'🛡️'},{t:'magnet',e:'🧲'},{t:'double',e:'⭐'},{t:'slow',e:'🍃'}];
+  const p=types[Math.floor(Math.random()*types.length)];
+  powerups.push({x:laneX(lane),y:-20,lane,type:p.t,emoji:p.e,speed:gameSpeed*.8});
+}
+
+function activatePU(type){
+  const dur=360;
+  if(type==='shield'){hasShield=true;shieldT=dur;addFloat(W/2,H*.35,'🛡️ Shield!','#7BC67E')}
+  if(type==='magnet'){hasMagnet=true;magnetT=dur;addFloat(W/2,H*.35,'🧲 Magnet!','#f4a')}
+  if(type==='double'){hasDouble=true;doubleT=dur;addFloat(W/2,H*.35,'⭐ Double!','#FFD700')}
+  if(type==='slow'){hasSlow=true;slowT=dur;addFloat(W/2,H*.35,'🍃 Breeze!','#87CEEB')}
+}
+
+function update(){
+  if(state!=='playing')return;
+  gameTime++;
+
+  // Gentler speed curve — starts slow, ramps gradually
+  gameSpeed=2+gameTime*0.0012+Math.pow(gameTime,1.2)*0.000015;
+  const eff=hasSlow?gameSpeed*.55:gameSpeed;
+
+  // Smooth player movement
+  const tx=laneX(targetLane);
+  player.x+=(tx-player.x)*.2;
+  player.lane=targetLane;
+
+  // Spawning - walls less frequent early on
+  spawnT++;coinT++;puT++;
+  const wallInt=Math.max(30,80-gameTime*.008);
+  if(spawnT>=wallInt){spawnT=0;spawnWall()}
+  if(coinT>=18){coinT=0;if(Math.random()<.65)spawnCoin()}
+  if(puT>=240){puT=0;if(Math.random()<.45)spawnPowerup()}
+
+  // Clouds
+  clouds.forEach(c=>{c.x-=c.s;if(c.x+c.w<0){c.x=W+20;c.y=Math.random()*H*.35;c.w=60+Math.random()*80}});
+
+  // Walls
+  walls.forEach(w=>{
+    w.y+=eff;
+    if(!w.passed&&w.y>=player.y-18&&w.y<=player.y+18){
+      if(w.blocked[player.lane]){
+        if(hasShield){hasShield=false;shieldT=0;w.passed=true;score+=5;addParticles(player.x,player.y,'#7BC67E',15);addFloat(player.x,player.y-30,'Shield!','#7BC67E')}
+        else{addParticles(player.x,player.y,'#FF6B6B',25);showGameOver();return}
+      }else if(!w.passed){
+        w.passed=true;combo++;
+        if(combo>maxCombo)maxCombo=combo;
+        const pts=Math.floor((5+combo*1.5)*(hasDouble?2:1));
+        score+=pts;
+        // Milestone pops
+        if(combo===10)addFloat(W/2,H*.4,'🔥 10 Combo!','#FF8E72');
+        if(combo===25)addFloat(W/2,H*.4,'⚡ 25 Combo!','#FFD700');
+        if(combo===50)addFloat(W/2,H*.4,'🌟 50 Combo!','#FF69B4');
+        if(combo===100)addFloat(W/2,H*.4,'👑 100 COMBO!!','#f4a');
+      }
+    }
+  });
+
+  // Coins
+  coins.forEach(o=>{
+    o.y+=eff*.85;
+    if(hasMagnet){const dx=player.x-o.x,dy=player.y-o.y,d=Math.sqrt(dx*dx+dy*dy);if(d<160){o.x+=dx/d*5;o.y+=dy/d*3}}
+    const dx=player.x-o.x,dy=player.y-o.y;
+    if(Math.sqrt(dx*dx+dy*dy)<24){
+      const pts=Math.floor(o.value*(1+combo*.08)*(hasDouble?2:1));
+      score+=pts;addFloat(o.x,o.y-15,'+'+pts,o.big?'#FF69B4':'#FFD700');
+      addParticles(o.x,o.y,o.big?'#FF69B4':'#FFD700',6);o.dead=true;
+    }
+  });
+
+  // Powerups
+  powerups.forEach(p=>{
+    p.y+=eff*.8;
+    const dx=player.x-p.x,dy=player.y-p.y;
+    if(Math.sqrt(dx*dx+dy*dy)<26){activatePU(p.type);addParticles(p.x,p.y,'#fff',10);p.dead=true}
+  });
+
+  // Timers
+  if(shieldT>0){shieldT--;if(!shieldT)hasShield=false}
+  if(magnetT>0){magnetT--;if(!magnetT)hasMagnet=false}
+  if(doubleT>0){doubleT--;if(!doubleT)hasDouble=false}
+  if(slowT>0){slowT--;if(!slowT)hasSlow=false}
+
+  // Cleanup
+  walls=walls.filter(w=>w.y<H+60);
+  coins=coins.filter(o=>!o.dead&&o.y<H+40);
+  powerups=powerups.filter(p=>!p.dead&&p.y<H+40);
+  particles.forEach(p=>{p.x+=p.dx;p.y+=p.dy;p.life-=.025;p.dx*=.95;p.dy*=.95});
+  particles=particles.filter(p=>p.life>0);
+  floats.forEach(f=>{f.life--;f.y-=1});
+  floats=floats.filter(f=>f.life>0);
+}
+
+function draw(){
+  // Sky gradient - shifts from day to sunset over time
+  const t=Math.min(1,gameTime/3000);
+  const sky1=lerpColor([135,206,235],[255,140,80],t);
+  const sky2=lerpColor([255,255,240],[80,40,100],t);
+  const grad=X.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,`rgb(${sky1})`);grad.addColorStop(1,`rgb(${sky2})`);
+  X.fillStyle=grad;X.fillRect(0,0,W,H);
+
+  // Sun
+  const sunY=50+t*80;
+  const sunG=X.createRadialGradient(W*.75,sunY,10,W*.75,sunY,60);
+  sunG.addColorStop(0,'rgba(255,230,150,.8)');sunG.addColorStop(1,'transparent');
+  X.fillStyle=sunG;X.fillRect(W*.75-70,sunY-70,140,140);
+  X.fillStyle='rgba(255,240,200,.9)';
+  X.beginPath();X.arc(W*.75,sunY,22,0,Math.PI*2);X.fill();
+
+  // Clouds
+  clouds.forEach(c=>{
+    X.fillStyle=`rgba(255,255,255,${.5+t*.2})`;
+    X.beginPath();
+    X.ellipse(c.x,c.y,c.w/2,16,0,0,Math.PI*2);X.fill();
+    X.beginPath();X.ellipse(c.x-c.w*.25,c.y+5,c.w*.3,12,0,0,Math.PI*2);X.fill();
+    X.beginPath();X.ellipse(c.x+c.w*.2,c.y+4,c.w*.25,10,0,0,Math.PI*2);X.fill();
+  });
+
+  if(state!=='playing'&&state!=='gameover'){requestAnimationFrame(draw);return}
+
+  const totalW=laneW()*LANE_COUNT;
+  const startX=(W-totalW)/2;
+
+  // Lane area - soft background
+  X.fillStyle='rgba(255,255,255,.12)';
+  X.beginPath();X.roundRect(startX-8,0,totalW+16,H,12);X.fill();
+
+  // Lane dividers
+  for(let i=0;i<=LANE_COUNT;i++){
+    X.strokeStyle='rgba(0,0,0,.06)';X.lineWidth=1;
+    X.setLineDash([6,10]);
+    const lx=startX+i*laneW();
+    X.beginPath();X.moveTo(lx,0);X.lineTo(lx,H);X.stroke();
+    X.setLineDash([]);
+  }
+
+  // Walls - rounded, colorful bars
+  walls.forEach(w=>{
+    for(let i=0;i<LANE_COUNT;i++){
+      if(!w.blocked[i])continue;
+      const wx=startX+i*laneW()+3;
+      const a=w.passed?.25:1;
+      X.globalAlpha=a;
+      X.fillStyle=w.color;
+      X.beginPath();X.roundRect(wx,w.y-6,laneW()-6,12,6);X.fill();
+      // Highlight
+      X.fillStyle='rgba(255,255,255,.35)';
+      X.beginPath();X.roundRect(wx+3,w.y-4,laneW()-12,4,3);X.fill();
+      X.globalAlpha=1;
+    }
+    // Gap sparkle
+    if(!w.passed&&w.y>-10&&w.y<H*.4){
+      for(let i=0;i<LANE_COUNT;i++){
+        if(w.blocked[i])continue;
+        X.fillStyle='rgba(123,198,126,.08)';
+        X.fillRect(startX+i*laneW(),w.y-25,laneW(),50);
+      }
+    }
+  });
+
+  // Coins
+  coins.forEach(o=>{
+    const pulse=1+Math.sin(gameTime*.08+o.y*.05)*.12;
+    X.fillStyle=o.big?'#FF69B4':'#FFD700';
+    X.shadowColor=o.big?'#FF69B4':'#FFD700';X.shadowBlur=8;
+    X.beginPath();X.arc(o.x,o.y,o.r*pulse,0,Math.PI*2);X.fill();
+    X.fillStyle='rgba(255,255,255,.6)';
+    X.beginPath();X.arc(o.x-o.r*.25,o.y-o.r*.25,o.r*.3,0,Math.PI*2);X.fill();
+    X.shadowBlur=0;
+  });
+
+  // Powerups
+  powerups.forEach(p=>{
+    const bob=Math.sin(gameTime*.06)*5;
+    // Soft glow circle
+    X.fillStyle='rgba(255,255,255,.3)';
+    X.beginPath();X.arc(p.x,p.y+bob,18,0,Math.PI*2);X.fill();
+    X.font='22px serif';X.textAlign='center';X.textBaseline='middle';
+    X.fillText(p.emoji,p.x,p.y+bob);
+  });
+
+  // Player - cute bird/plane character
+  const px=player.x,py=player.y;
+  // Shadow
+  X.fillStyle='rgba(0,0,0,.1)';
+  X.beginPath();X.ellipse(px,py+20,14,5,0,0,Math.PI*2);X.fill();
+  // Body
+  X.fillStyle=PAL.player;
+  X.shadowColor=PAL.player;X.shadowBlur=12;
+  X.beginPath();X.arc(px,py,16,0,Math.PI*2);X.fill();
+  X.shadowBlur=0;
+  // Belly
+  X.fillStyle=PAL.playerLight;
+  X.beginPath();X.arc(px,py+4,10,0,Math.PI*2);X.fill();
+  // Eyes
+  X.fillStyle='#fff';
+  X.beginPath();X.arc(px-5,py-4,5,0,Math.PI*2);X.fill();
+  X.beginPath();X.arc(px+5,py-4,5,0,Math.PI*2);X.fill();
+  X.fillStyle='#333';
+  X.beginPath();X.arc(px-4,py-4,2.5,0,Math.PI*2);X.fill();
+  X.beginPath();X.arc(px+6,py-4,2.5,0,Math.PI*2);X.fill();
+  // Beak
+  X.fillStyle='#FFA07A';
+  X.beginPath();X.moveTo(px,py);X.lineTo(px-3,py+3);X.lineTo(px+3,py+3);X.fill();
+  // Wings
+  const wingFlap=Math.sin(gameTime*.15)*4;
+  X.fillStyle=PAL.player;
+  X.beginPath();X.ellipse(px-16,py+wingFlap,10,5,-.3,0,Math.PI*2);X.fill();
+  X.beginPath();X.ellipse(px+16,py+wingFlap,10,5,.3,0,Math.PI*2);X.fill();
+
+  // Shield ring
+  if(hasShield){
+    X.strokeStyle=`rgba(123,198,126,${.4+Math.sin(gameTime*.06)*.2})`;X.lineWidth=3;
+    X.beginPath();X.arc(px,py,24,0,Math.PI*2);X.stroke();X.lineWidth=1;
+  }
+
+  // Particles
+  particles.forEach(p=>{
+    X.globalAlpha=p.life;X.fillStyle=p.color;
+    X.beginPath();X.arc(p.x,p.y,p.size,0,Math.PI*2);X.fill();
+  });X.globalAlpha=1;
+
+  // Float texts
+  X.textAlign='center';
+  floats.forEach(f=>{
+    X.globalAlpha=Math.min(1,f.life/15);
+    X.font='bold 18px Fredoka';X.fillStyle=f.color;
+    X.fillText(f.text,f.x,f.y);
+  });X.globalAlpha=1;
+
+  // HUD
+  X.font='bold 22px Fredoka';X.textAlign='left';
+  X.fillStyle='rgba(0,0,0,.5)';X.fillText(score,14,32);
+  X.fillStyle='#fff';X.fillText(score,12,30);
+  X.font='12px Fredoka';X.fillStyle='rgba(0,0,0,.3)';X.fillText('SCORE',12,14);
+
+  if(combo>1){
+    X.textAlign='right';
+    X.font=`bold ${Math.min(28,18+combo*.1)}px Fredoka`;
+    const cc=combo>=50?'#FF69B4':combo>=25?'#FF8E72':combo>=10?'#FFD700':'#4ECDC4';
+    X.fillStyle='rgba(0,0,0,.3)';X.fillText(combo+'x',W-10,32);
+    X.fillStyle=cc;X.fillText(combo+'x',W-12,30);
+    X.font='12px Fredoka';X.fillStyle='rgba(0,0,0,.3)';X.fillText('COMBO',W-12,14);
+  }
+
+  // Active powerups
+  let py2=50;X.textAlign='left';X.font='13px Fredoka';
+  if(hasShield){X.fillStyle='#7BC67E';X.fillText(`🛡️ ${Math.ceil(shieldT/60)}s`,12,py2);py2+=18}
+  if(hasMagnet){X.fillStyle='#f4a';X.fillText(`🧲 ${Math.ceil(magnetT/60)}s`,12,py2);py2+=18}
+  if(hasDouble){X.fillStyle='#FFD700';X.fillText(`⭐ ${Math.ceil(doubleT/60)}s`,12,py2);py2+=18}
+  if(hasSlow){X.fillStyle='#87CEEB';X.fillText(`🍃 ${Math.ceil(slowT/60)}s`,12,py2)}
+
+  // Mobile hint
+  X.textAlign='center';X.font='11px Fredoka';X.fillStyle='rgba(0,0,0,.15)';
+  X.fillText('← tap left · tap right →',W/2,H-12);
+}
+
+function lerpColor(a,b,t){return a.map((v,i)=>Math.round(v+(b[i]-v)*t))}
+
+function showMenu(){
+  state='menu';
+  ui.innerHTML=`<div class="panel">
+    <h1>🐦 Sky Drift</h1>
+    <p>Guide your bird through the gaps in the clouds!<br>
+    Collect coins and build combos for big scores.<br>
+    The wind picks up over time... how far can you fly?</p>
+    <p>🪙 Gold = 10pts &nbsp; 💖 Pink = 50pts<br>
+    🛡️ Shield &nbsp; 🧲 Magnet &nbsp; ⭐ Double &nbsp; 🍃 Breeze</p>
+    <p>⌨️ A/D or ←→ &nbsp;&nbsp; 📱 Tap or swipe</p>
+    <button class="btn" id="go">Let's Fly! 🐦</button>
+  </div>`;
+  document.getElementById('go').onclick=()=>{ui.innerHTML='';state='playing';reset()};
+}
+
+function showGameOver(){
+  state='gameover';
+  ui.innerHTML=`<div class="panel">
+    <h1>💫 Bonk!</h1>
+    <h2>Score: ${score}</h2>
+    <p>Best Combo: <span class="tag">${maxCombo}x</span> Time: <span class="tag">${Math.floor(gameTime/60)}s</span> Speed: <span class="tag">${gameSpeed.toFixed(1)}</span></p>
+    <input type="text" id="ni" placeholder="Your name" maxlength="16">
+    <br><button class="btn" id="sub" style="margin-top:10px">Submit Score</button>
+    <div id="lba"></div>
+    <button class="btn" id="rep" style="margin-top:10px">Fly Again 🐦</button>
+  </div>`;
+  document.getElementById('sub').onclick=async()=>{
+    const n=document.getElementById('ni').value.trim()||'Anonymous';
+    document.getElementById('sub').textContent='...';
+    await submitScore(n,score);
+    const sc=await getLeaderboard();
+    document.getElementById('lba').innerHTML='<div class="lb"><h2>🏆 Top 10</h2>'+
+      sc.map((s,i)=>`<div><span class="lr">#${i+1} ${s.playerName}</span><span class="ls">${s.score}</span></div>`).join('')+'</div>';
+    document.getElementById('sub').style.display='none';
+  };
+  document.getElementById('rep').onclick=()=>{ui.innerHTML='';state='playing';reset()};
+}
+
+function loop(){update();draw();requestAnimationFrame(loop)}
+showMenu();loop();
+</script>
+</body>
+</html>

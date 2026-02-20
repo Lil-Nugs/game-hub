@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Pong — Gamehub</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a2e; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: 'Press Start 2P', monospace; color: #fff; overflow: hidden; touch-action: none; }
+canvas { display: block; max-width: 100vw; max-height: 80vh; }
+#ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; pointer-events: none; }
+#ui.active { pointer-events: all; }
+#ui > * { pointer-events: all; }
+.overlay { background: rgba(0,0,0,0.85); border-radius: 12px; padding: 30px 40px; text-align: center; max-width: 90vw; }
+h1 { font-size: 28px; color: #0f0; margin-bottom: 16px; text-shadow: 0 0 20px #0f0; }
+h2 { font-size: 18px; color: #0f0; margin-bottom: 12px; }
+p { font-size: 10px; color: #aaa; margin: 8px 0; line-height: 1.6; }
+.btn { font-family: 'Press Start 2P', monospace; font-size: 12px; padding: 12px 24px; margin: 8px; border: 2px solid #0f0; background: transparent; color: #0f0; cursor: pointer; border-radius: 4px; }
+.btn:hover { background: #0f0; color: #000; }
+input[type="text"] { font-family: 'Press Start 2P', monospace; font-size: 12px; padding: 8px 12px; border: 2px solid #0f0; background: #111; color: #0f0; text-align: center; border-radius: 4px; width: 200px; outline: none; }
+.score-final { font-size: 36px; color: #ff0; margin: 12px 0; text-shadow: 0 0 15px #ff0; }
+.lb-row { font-size: 10px; color: #ccc; margin: 4px 0; }
+.lb-row.mine { color: #0f0; }
+#touch-left, #touch-right { position: fixed; bottom: 0; width: 50%; height: 40%; z-index: 10; opacity: 0; }
+#touch-left { left: 0; }
+#touch-right { right: 0; }
+</style>
+</head>
+<body>
+<a href="../../index.html" style="position:fixed;top:10px;left:10px;z-index:100;font-size:12px;color:#888;text-decoration:none;background:rgba(0,0,0,0.3);padding:4px 10px;border-radius:20px;font-family:sans-serif;">← Hub</a>
+<canvas id="c"></canvas>
+<div id="ui" class="active">
+  <div class="overlay" id="startScreen">
+    <h1>🏓 PONG</h1>
+    <p>Classic pong — you vs AI</p>
+    <p>W/S or ↑/↓ to move<br>Touch: drag on left side of screen</p>
+    <p>First to 7 wins!</p>
+    <button class="btn" id="startBtn">START GAME</button>
+  </div>
+  <div class="overlay" id="gameOverScreen" style="display:none">
+    <h2 id="winText"></h2>
+    <div class="score-final" id="finalScore"></div>
+    <p>Enter your name for the leaderboard:</p>
+    <input type="text" id="nameInput" maxlength="16" placeholder="Your name">
+    <br>
+    <button class="btn" id="submitBtn">SUBMIT SCORE</button>
+    <div id="leaderboard" style="margin-top:16px"></div>
+    <button class="btn" id="replayBtn" style="display:none">PLAY AGAIN</button>
+  </div>
+</div>
+
+<script>
+const GAME_ID = 'pong-ba5d';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch (e) {
+    console.warn('Leaderboard unavailable:', e);
+    return null;
+  }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch (e) {
+    console.warn('Leaderboard unavailable:', e);
+    return [];
+  }
+}
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = 800, H = 500;
+canvas.width = W; canvas.height = H;
+
+const PAD_W = 12, PAD_H = 80, BALL_R = 8, WIN_SCORE = 7;
+let playerY, aiY, ballX, ballY, bvx, bvy, speed;
+let pScore, aScore, running = false, gameOver = false;
+let upPressed = false, downPressed = false;
+let touchY = null;
+let particles = [];
+let rallyCount = 0;
+
+// Stars background
+const stars = Array.from({length: 80}, () => ({
+  x: Math.random() * W, y: Math.random() * H,
+  r: Math.random() * 1.5 + 0.5, a: Math.random()
+}));
+
+function init() {
+  playerY = H/2 - PAD_H/2;
+  aiY = H/2 - PAD_H/2;
+  pScore = 0; aScore = 0;
+  rallyCount = 0;
+  resetBall(1);
+}
+
+function resetBall(dir) {
+  ballX = W/2; ballY = H/2;
+  speed = 5;
+  rallyCount = 0;
+  const angle = (Math.random() * 0.6 - 0.3);
+  bvx = speed * dir;
+  bvy = speed * Math.sin(angle);
+}
+
+function spawnParticles(x, y, color, count) {
+  for (let i = 0; i < count; i++) {
+    particles.push({
+      x, y,
+      vx: (Math.random() - 0.5) * 8,
+      vy: (Math.random() - 0.5) * 8,
+      life: 1, color, r: Math.random() * 3 + 1
+    });
+  }
+}
+
+function update() {
+  // Player movement
+  if (touchY !== null) {
+    playerY = touchY - PAD_H/2;
+  } else {
+    if (upPressed) playerY -= 6;
+    if (downPressed) playerY += 6;
+  }
+  playerY = Math.max(0, Math.min(H - PAD_H, playerY));
+
+  // AI with slight imperfection
+  const aiTarget = ballY - PAD_H/2 + (Math.sin(Date.now()/500) * 15);
+  const aiSpeed = Math.min(4 + speed * 0.2, 6);
+  const diff = aiTarget - aiY;
+  if (Math.abs(diff) > 3) aiY += Math.min(aiSpeed, Math.abs(diff)) * Math.sign(diff);
+  aiY = Math.max(0, Math.min(H - PAD_H, aiY));
+
+  // Ball
+  ballX += bvx;
+  ballY += bvy;
+
+  // Top/bottom bounce
+  if (ballY - BALL_R < 0) { ballY = BALL_R; bvy = Math.abs(bvy); spawnParticles(ballX, 0, '#fff', 5); }
+  if (ballY + BALL_R > H) { ballY = H - BALL_R; bvy = -Math.abs(bvy); spawnParticles(ballX, H, '#fff', 5); }
+
+  // Player paddle collision
+  if (bvx < 0 && ballX - BALL_R <= 20 + PAD_W && ballX > 15 && ballY >= playerY - 4 && ballY <= playerY + PAD_H + 4) {
+    const rel = (ballY - (playerY + PAD_H/2)) / (PAD_H/2);
+    rallyCount++;
+    speed = Math.min(speed + 0.3, 11);
+    bvx = speed;
+    bvy = speed * rel * 0.75;
+    ballX = 20 + PAD_W + BALL_R;
+    spawnParticles(ballX, ballY, '#0f0', 8);
+  }
+
+  // AI paddle collision
+  if (bvx > 0 && ballX + BALL_R >= W - 20 - PAD_W && ballX < W - 15 && ballY >= aiY - 4 && ballY <= aiY + PAD_H + 4) {
+    const rel = (ballY - (aiY + PAD_H/2)) / (PAD_H/2);
+    rallyCount++;
+    speed = Math.min(speed + 0.3, 11);
+    bvx = -speed;
+    bvy = speed * rel * 0.75;
+    ballX = W - 20 - PAD_W - BALL_R;
+    spawnParticles(ballX, ballY, '#f55', 8);
+  }
+
+  // Score
+  if (ballX < -20) { aScore++; spawnParticles(0, ballY, '#f55', 20); checkScore(-1); }
+  if (ballX > W + 20) { pScore++; spawnParticles(W, ballY, '#0f0', 20); checkScore(1); }
+
+  // Particles
+  particles = particles.filter(p => {
+    p.x += p.vx; p.y += p.vy;
+    p.life -= 0.03;
+    p.vx *= 0.96; p.vy *= 0.96;
+    return p.life > 0;
+  });
+}
+
+function checkScore(dir) {
+  if (pScore >= WIN_SCORE || aScore >= WIN_SCORE) {
+    running = false;
+    gameOver = true;
+    showGameOver();
+  } else {
+    resetBall(dir);
+  }
+}
+
+function showGameOver() {
+  const won = pScore >= WIN_SCORE;
+  document.getElementById('winText').textContent = won ? '🏆 YOU WIN!' : '💀 AI WINS!';
+  document.getElementById('finalScore').textContent = `${pScore} — ${aScore}`;
+  document.getElementById('startScreen').style.display = 'none';
+  document.getElementById('gameOverScreen').style.display = 'block';
+  document.getElementById('submitBtn').style.display = '';
+  document.getElementById('replayBtn').style.display = 'none';
+  document.getElementById('leaderboard').innerHTML = '';
+  document.getElementById('ui').classList.add('active');
+}
+
+function draw() {
+  // Background
+  ctx.fillStyle = '#0a0a2e';
+  ctx.fillRect(0, 0, W, H);
+
+  // Stars
+  stars.forEach(s => {
+    s.a += 0.01;
+    ctx.globalAlpha = 0.3 + Math.sin(s.a) * 0.3;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+
+  // Center line
+  ctx.setLineDash([8, 12]);
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(W/2, 0);
+  ctx.lineTo(W/2, H);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Score display
+  ctx.font = '40px "Press Start 2P"';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(0,255,0,0.3)';
+  ctx.fillText(pScore, W/4, 60);
+  ctx.fillStyle = 'rgba(255,85,85,0.3)';
+  ctx.fillText(aScore, 3*W/4, 60);
+
+  // Player paddle (green glow)
+  ctx.shadowColor = '#0f0';
+  ctx.shadowBlur = 15;
+  ctx.fillStyle = '#0f0';
+  ctx.fillRect(20, playerY, PAD_W, PAD_H);
+  ctx.shadowBlur = 0;
+
+  // AI paddle (red glow)
+  ctx.shadowColor = '#f55';
+  ctx.shadowBlur = 15;
+  ctx.fillStyle = '#f55';
+  ctx.fillRect(W - 20 - PAD_W, aiY, PAD_W, PAD_H);
+  ctx.shadowBlur = 0;
+
+  // Ball (white glow, intensifies with speed)
+  const glow = Math.min(speed * 3, 30);
+  ctx.shadowColor = '#fff';
+  ctx.shadowBlur = glow;
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(ballX, ballY, BALL_R, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Ball trail
+  ctx.globalAlpha = 0.15;
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(ballX - bvx, ballY - bvy, BALL_R * 0.8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(ballX - bvx*2, ballY - bvy*2, BALL_R * 0.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // Particles
+  particles.forEach(p => {
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+}
+
+function loop() {
+  if (!running) return;
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+// Controls
+document.addEventListener('keydown', e => {
+  if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') { upPressed = true; e.preventDefault(); }
+  if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') { downPressed = true; e.preventDefault(); }
+});
+document.addEventListener('keyup', e => {
+  if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') upPressed = false;
+  if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') downPressed = false;
+});
+
+// Touch controls (left half of screen)
+canvas.addEventListener('touchstart', e => { e.preventDefault(); handleTouch(e); });
+canvas.addEventListener('touchmove', e => { e.preventDefault(); handleTouch(e); });
+canvas.addEventListener('touchend', () => { touchY = null; });
+
+function handleTouch(e) {
+  const rect = canvas.getBoundingClientRect();
+  const t = e.touches[0];
+  const x = (t.clientX - rect.left) / rect.width;
+  if (x < 0.5) {
+    touchY = ((t.clientY - rect.top) / rect.height) * H;
+  }
+}
+
+// Start button
+document.getElementById('startBtn').addEventListener('click', () => {
+  document.getElementById('startScreen').style.display = 'none';
+  document.getElementById('ui').classList.remove('active');
+  init();
+  running = true;
+  draw();
+  loop();
+});
+
+// Submit score
+document.getElementById('submitBtn').addEventListener('click', async () => {
+  const name = document.getElementById('nameInput').value.trim() || 'Anonymous';
+  const score = pScore >= WIN_SCORE ? (pScore * 100 + (WIN_SCORE * 10 - aScore * 10)) : pScore * 10;
+  document.getElementById('submitBtn').textContent = 'SUBMITTING...';
+  document.getElementById('submitBtn').disabled = true;
+  await submitScore(name, score);
+  const scores = await getLeaderboard();
+  const lbEl = document.getElementById('leaderboard');
+  if (scores.length > 0) {
+    lbEl.innerHTML = '<h2 style="margin-bottom:8px">🏆 LEADERBOARD</h2>' +
+      scores.map((s, i) => `<div class="lb-row ${s.playerName === name ? 'mine' : ''}">${i+1}. ${s.playerName} — ${s.score}</div>`).join('');
+  } else {
+    lbEl.innerHTML = '<p>No scores yet — you could be first!</p>';
+  }
+  document.getElementById('submitBtn').style.display = 'none';
+  document.getElementById('replayBtn').style.display = '';
+});
+
+// Replay
+document.getElementById('replayBtn').addEventListener('click', () => {
+  document.getElementById('gameOverScreen').style.display = 'none';
+  document.getElementById('ui').classList.remove('active');
+  gameOver = false;
+  init();
+  running = true;
+  draw();
+  loop();
+});
+
+// Initial draw
+init();
+draw();
+</script>
+</body>
+</html>
