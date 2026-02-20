@@ -36,7 +36,7 @@ class MenuScene extends Phaser.Scene{
     this.add.text(w/2,90,'ISLA NG ANINO',{fontFamily:'VT323',fontSize:88,color:'#1f2d4d'}).setOrigin(.5);
     this.add.text(w/2,170,'WEB CUT — Catch runaway kids by day, survive FBI raids by night',{fontFamily:'Nunito',fontSize:16,color:'#233d61'}).setOrigin(.5);
     this.add.text(w/2,220,'Hero: Godwin Pang (pixel-art inspired)\nHome: blue-white island shrine with golden dome',{fontFamily:'Nunito',fontSize:14,color:'#294c77',align:'center'}).setOrigin(.5);
-    this.add.text(w/2,560,'WASD / Arrows move • J attack • K dodge • E interact',{fontFamily:'Nunito',fontSize:15,color:'#f0f6ff'}).setOrigin(.5);
+    this.add.text(w/2,560,'WASD / Arrows move • Click shoot • Space/K dodge • J slash • E interact',{fontFamily:'Nunito',fontSize:15,color:'#f0f6ff'}).setOrigin(.5);
     const t=this.add.text(w/2,640,'CLICK TO START',{fontFamily:'VT323',fontSize:64,color:'#ffe4a8'}).setOrigin(.5);
     this.tweens.add({targets:t,alpha:.2,duration:650,yoyo:true,repeat:-1});
     this.input.once('pointerdown',()=>{audioCtx.resume();sfx(620,.1,.18,'triangle');this.scene.start('GameScene')});
@@ -46,14 +46,23 @@ class MenuScene extends Phaser.Scene{
 
 class GameScene extends Phaser.Scene{
   constructor(){super('GameScene')}
+  preload(){
+    this.load.image('godwinHead','godwin.png');
+  }
   create(){
     this.physics.world.setBounds(-1600,-1000,3200,2000);
     this.elapsed=0; this.score=0; this.bonus=0; this.wave=0; this.crops=0; this.kidsCaught=0; this.mode='day'; this.nextWaveAt=0;
     this.hero={hp:140,maxHp:140,stam:100,maxStam:100,speed:220,atk:28,rollCd:0,atkCd:0,inv:0};
 
-    // Ground
+    // Island world (water around, land center)
     const gg=this.add.graphics();
-    for(let x=-1600;x<1600;x+=96)for(let y=-1000;y<1000;y+=96){gg.fillStyle(((x+y)/96)%2?0x264f3f:0x2d5d4a,1);gg.fillRect(x,y,96,96)}
+    // water
+    for(let x=-1600;x<1600;x+=96)for(let y=-1000;y<1000;y+=96){gg.fillStyle(((x+y)/96)%2?0x1b5fa8:0x2272c8,1);gg.fillRect(x,y,96,96)}
+    // sand ring
+    gg.fillStyle(0xe5d29a,1); gg.fillCircle(0,0,980);
+    // grass island
+    gg.fillStyle(0x2f7a52,1); gg.fillCircle(0,0,860);
+    for(let x=-900;x<900;x+=96)for(let y=-900;y<900;y+=96){if(Math.hypot(x,y)<830){gg.fillStyle(((x+y)/96)%2?0x2f7a52:0x337f58,1);gg.fillRect(x,y,96,96)}}
 
     // Home building inspired by reference image (blue-white stripes + golden dome)
     const hg=this.add.graphics();
@@ -64,27 +73,6 @@ class GameScene extends Phaser.Scene{
     hg.fillStyle(0x3a5ba6,1); hg.fillRect(75,108,30,52);
     hg.generateTexture('home',180,160); hg.destroy();
     this.home=this.physics.add.staticImage(0,0,'home');
-
-    // Hero texture (bigger portrait-like head, glasses, smile)
-    const pg=this.add.graphics();
-    // body
-    pg.fillStyle(0x2f4f8d,1);pg.fillRect(8,24,20,22);
-    // neck
-    pg.fillStyle(0xf2c7a8,1);pg.fillRect(15,21,6,4);
-    // head (larger)
-    pg.fillStyle(0xf6cfb4,1);pg.fillRect(6,3,24,22);
-    // hair (short dark, slightly spiked)
-    pg.fillStyle(0x111111,1);pg.fillRect(7,1,22,6);
-    pg.fillRect(9,0,4,2); pg.fillRect(14,0,4,2); pg.fillRect(20,0,3,2);
-    // glasses
-    pg.fillStyle(0x101010,1);pg.fillRect(7,10,10,6);pg.fillRect(19,10,10,6);pg.fillRect(17,12,2,2);
-    // eyes
-    pg.fillStyle(0x2b1f1a,1);pg.fillRect(10,12,2,2);pg.fillRect(23,12,2,2);
-    // smile
-    pg.fillStyle(0xc76d6d,1);pg.fillRect(15,18,6,2);
-    // shirt highlight
-    pg.fillStyle(0x4d74bf,1);pg.fillRect(10,27,16,6);
-    pg.generateTexture('hero',36,46); pg.destroy();
 
     const eg=this.add.graphics();
     // FBI agent enemy texture (suit + glasses)
@@ -102,32 +90,40 @@ class GameScene extends Phaser.Scene{
     kg.generateTexture('kid',20,22);kg.destroy();
     const bg=this.add.graphics();bg.fillStyle(0xffc857,1);bg.fillRect(0,0,8,8);bg.generateTexture('spit',8,8);bg.destroy();
 
-    this.player=this.physics.add.sprite(-120,120,'hero');
-    this.player.body.setSize(24,34).setOffset(6,6);
+    this.player=this.physics.add.image(-120,120,'godwinHead').setScale(0.085);
+    this.player.body.setCircle(18,14,14);
     this.player.setCollideWorldBounds(true);
 
     this.cropGroup=this.physics.add.group();
     this.kidGroup=this.physics.add.group();
     this.enemyGroup=this.physics.add.group();
     this.spitGroup=this.physics.add.group();
+    this.playerBullets=this.physics.add.group();
 
     this.spawnCrops(48);
     this.spawnKids(8);
 
-    this.keys=this.input.keyboard.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,J,K,E');
+    this.keys=this.input.keyboard.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,J,K,E,SPACE');
 
     this.physics.add.overlap(this.player,this.cropGroup,(p,c)=>{if(this.mode!=='day')return; c.destroy(); this.crops++; this.bonus+=22; sfx(790,.05,.09,'triangle')});
     this.physics.add.overlap(this.player,this.kidGroup,(p,k)=>{if(this.mode!=='day')return; k.destroy(); this.kidsCaught++; this.bonus+=45; sfx(910,.06,.1,'triangle'); this.time.delayedCall(1200,()=>this.spawnKids(1));});
     this.physics.add.overlap(this.player,this.spitGroup,(p,b)=>{if(this.hero.inv>0)return; b.destroy(); this.hit(10)});
     this.physics.add.overlap(this.player,this.enemyGroup,(p,e)=>{if(this.hero.inv>0)return; if(!e.getData('hitAt')||this.time.now-e.getData('hitAt')>420){e.setData('hitAt',this.time.now); this.hit(12)}});
+    this.physics.add.overlap(this.playerBullets,this.enemyGroup,(b,e)=>{b.destroy(); e.setData('hp',e.getData('hp')-22); e.setTint(0xfff2a8); this.time.delayedCall(40,()=>e.clearTint()); if(e.getData('hp')<=0){this.score+=35;this.bonus+=12;e.destroy();sfx(540,.05,.1,'triangle')}});
+
+    this.input.on('pointerdown',p=>{if(this.dead)return; this.shootGun(p.worldX,p.worldY)});
 
     this.cam=this.cameras.main; this.cam.startFollow(this.player,true,.12,.12); this.cam.setBounds(-1600,-1000,3200,2000);
     this.hud=this.add.text(10,8,'',{fontFamily:'VT323',fontSize:34,color:'#fff',stroke:'#000',strokeThickness:4}).setScrollFactor(0).setDepth(20);
+    this.nameTag=this.add.text(this.player.x,this.player.y-56,'GODWIN PANG',{fontFamily:'VT323',fontSize:36,color:'#ffd27d',stroke:'#000',strokeThickness:6}).setOrigin(0.5).setDepth(21);
   }
 
-  spawnCrops(n){for(let i=0;i<n;i++)this.cropGroup.create(Phaser.Math.Between(-1400,1400),Phaser.Math.Between(-800,800),'crop')}
-  spawnKids(n){for(let i=0;i<n;i++){const k=this.kidGroup.create(Phaser.Math.Between(-900,900),Phaser.Math.Between(-700,700),'kid');k.setData('spd',60+Math.random()*35);k.body.setSize(14,16).setOffset(3,3)}}
-  spawnWave(n){for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,d=Phaser.Math.Between(500,900);const e=this.enemyGroup.create(this.player.x+Math.cos(a)*d,this.player.y+Math.sin(a)*d,'fbi');const hp=Math.round(28+this.wave*6);e.setData('hp',hp);e.setData('spd',72+this.wave*6+Math.random()*14);e.body.setSize(20,20).setOffset(3,3)}}
+  randomIslandPoint(minR=0,maxR=780){const a=Math.random()*Math.PI*2,r=Phaser.Math.Between(minR,maxR);return{x:Math.cos(a)*r,y:Math.sin(a)*r}}
+  spawnCrops(n){for(let i=0;i<n;i++){const p=this.randomIslandPoint(60,760);this.cropGroup.create(p.x,p.y,'crop')}}
+  spawnKids(n){for(let i=0;i<n;i++){const p=this.randomIslandPoint(80,740);const k=this.kidGroup.create(p.x,p.y,'kid');k.setData('spd',60+Math.random()*35);k.body.setSize(14,16).setOffset(3,3)}}
+  spawnWave(n){for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,d=Phaser.Math.Between(860,980);const e=this.enemyGroup.create(Math.cos(a)*d,Math.sin(a)*d,'fbi');const hp=Math.round(28+this.wave*6);e.setData('hp',hp);e.setData('spd',72+this.wave*6+Math.random()*14);e.body.setSize(20,20).setOffset(3,3)}}
+
+  shootGun(tx,ty){if(this.time.now<(this._gunCd||0))return; this._gunCd=this.time.now+140; sfx(360,.05,.09,'square'); const a=Math.atan2(ty-this.player.y,tx-this.player.x); const b=this.playerBullets.create(this.player.x,this.player.y,'spit'); b.setTint(0x9cf5ff); b.setScale(1.1); b.setVelocity(Math.cos(a)*520,Math.sin(a)*520); b.life=1400;}
 
   attack(){if(this.time.now<this.hero.atkCd)return; this.hero.atkCd=this.time.now+260; sfx(260,.08,.12,'sawtooth');
     const slash=this.add.circle(this.player.x,this.player.y,56,0xffffff,.1); this.tweens.add({targets:slash,alpha:0,scale:1.35,duration:120,onComplete:()=>slash.destroy()});
@@ -154,7 +150,8 @@ class GameScene extends Phaser.Scene{
       e.setData('shot',time); const b=this.spitGroup.create(e.x,e.y,'spit'); const a=Math.atan2(dy,dx),sp=210+this.wave*10; b.setVelocity(Math.cos(a)*sp,Math.sin(a)*sp); b.life=2800;
     }
   });
-  this.spitGroup.getChildren().forEach(b=>{b.life-=delta;if(b.life<=0)b.destroy()});}
+  this.spitGroup.getChildren().forEach(b=>{b.life-=delta;if(b.life<=0)b.destroy()});
+  this.playerBullets.getChildren().forEach(b=>{b.life-=delta;if(b.life<=0)b.destroy()});}
 
   kidAI(){
     this.kidGroup.getChildren().forEach(k=>{
@@ -181,7 +178,7 @@ class GameScene extends Phaser.Scene{
     this.hero.inv=Math.max(0,this.hero.inv-delta); this.hero.stam=Math.min(this.hero.maxStam,this.hero.stam+delta*0.035);
 
     if(Phaser.Input.Keyboard.JustDown(this.keys.J))this.attack();
-    if(Phaser.Input.Keyboard.JustDown(this.keys.K))this.roll();
+    if(Phaser.Input.Keyboard.JustDown(this.keys.K)||Phaser.Input.Keyboard.JustDown(this.keys.SPACE))this.roll();
     if(Phaser.Input.Keyboard.JustDown(this.keys.E)&&this.mode==='day'){
       const d=Phaser.Math.Distance.Between(this.player.x,this.player.y,this.home.x,this.home.y);
       if(d<140){this.hero.hp=Math.min(this.hero.maxHp,this.hero.hp+25); this.bonus+=40; sfx(680,.09,.1,'triangle');}
@@ -192,6 +189,7 @@ class GameScene extends Phaser.Scene{
     this.enemyAI(time,delta);
 
     this.score=Math.floor(this.elapsed*10)+this.bonus;
+    this.nameTag.setPosition(this.player.x,this.player.y-56);
     this.hud.setText(`HP ${Math.ceil(this.hero.hp)}/${this.hero.maxHp}  STAM ${Math.ceil(this.hero.stam)}\n${this.mode.toUpperCase()}  FBI Wave ${this.wave}  Crops ${this.crops}  Kids ${this.kidsCaught}  Score ${this.score}`);
   }
 
