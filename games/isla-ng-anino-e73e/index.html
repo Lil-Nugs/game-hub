@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
+<title>Isla ng Anino</title>
+<link href="https://fonts.googleapis.com/css2?family=VT323&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0b1020;display:flex;justify-content:center;align-items:center;height:100vh;overflow:hidden;font-family:'VT323',monospace}
+#ui-overlay{position:fixed;inset:0;display:none;justify-content:center;align-items:center;background:rgba(0,0,0,.75);z-index:20}
+.panel{background:#12152a;border:2px solid #88e;max-width:420px;width:92vw;padding:18px;color:#fff}
+.panel h2{font-size:36px;color:#f7d58b;margin-bottom:8px}
+.panel p{font-family:'Nunito',sans-serif;font-size:13px;color:#ccc;margin:8px 0}
+.btn{font-family:'VT323',monospace;font-size:28px;border:2px solid #88e;background:#1d2142;color:#9cf;padding:8px 14px;cursor:pointer;margin-top:8px}
+input{width:100%;padding:8px;font-size:18px;margin:8px 0;background:#0e1124;color:#fff;border:1px solid #667}
+.lb{margin-top:10px;max-height:180px;overflow:auto;font-family:'Nunito',sans-serif;font-size:12px}
+.lb div{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #2b3058}
+.hudBtn{position:fixed;bottom:18px;width:68px;height:68px;border-radius:8px;border:2px solid #d6b26b;background:rgba(30,20,10,.45);color:#ffd;z-index:10;font-size:26px;display:none;align-items:center;justify-content:center}
+#atk{right:18px} #roll{right:94px}
+@media (pointer:coarse){.hudBtn{display:flex}}
+</style>
+</head>
+<body>
+<a href="../../index.html" style="position:fixed;top:8px;left:8px;z-index:30;color:#9cf;text-decoration:none;background:#12152a;padding:3px 8px;border:1px solid #88e;font-family:VT323;font-size:18px">← Hub</a>
+<div id="ui-overlay"><div class="panel" id="panel"></div></div>
+<div id="atk" class="hudBtn">⚔️</div><div id="roll" class="hudBtn">↯</div>
+<script>
+const GAME_ID='isla-ng-anino-e73e';
+const LEADERBOARD_API='https://game-leaderboard.mattgames.workers.dev';
+async function submitScore(playerName, score){try{const r=await fetch(`${LEADERBOARD_API}/api/scores`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gameId:GAME_ID,playerName,score})});return await r.json()}catch{return null}}
+async function getLeaderboard(limit=10){try{const r=await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);const d=await r.json();return d.scores||[]}catch{return[]}}
+const audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+function blip(f=440,d=.09,v=.18,t='square'){if(audioCtx.state==='suspended')audioCtx.resume();const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type=t;o.frequency.value=f;o.connect(g);g.connect(audioCtx.destination);g.gain.setValueAtTime(v,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(.001,audioCtx.currentTime+d);o.start();o.stop(audioCtx.currentTime+d)}
+
+class MenuScene extends Phaser.Scene{
+  constructor(){super('MenuScene')}
+  create(){
+    const w=this.scale.width,h=this.scale.height;
+    const g=this.add.graphics();
+    g.fillGradientStyle(0x7ed6a5,0x7ed6a5,0x6ab0ff,0x6ab0ff,1);g.fillRect(0,0,w,h);
+    this.add.text(w/2,100,'ISLA NG ANINO',{fontFamily:'VT323',fontSize:64,color:'#1a2038'}).setOrigin(.5);
+    this.add.text(w/2,160,'Cozy farming by day. Brutal soulslike by night.',{fontFamily:'Nunito',fontSize:14,color:'#1b2f4f'}).setOrigin(.5);
+    this.add.text(w/2,250,'Main Hero: Godwin Pang\n(pixel-art inspired by your reference)',{fontFamily:'Nunito',fontSize:13,color:'#20385a',align:'center'}).setOrigin(.5);
+    this.add.text(w/2,430,'WASD move • J attack • K dodge\nMobile: drag + buttons',{fontFamily:'Nunito',fontSize:13,color:'#20385a',align:'center'}).setOrigin(.5);
+    const t=this.add.text(w/2,540,'TAP TO START',{fontFamily:'VT323',fontSize:48,color:'#f7d58b'}).setOrigin(.5);
+    this.tweens.add({targets:t,alpha:.2,yoyo:true,repeat:-1,duration:700});
+    this.input.once('pointerdown',()=>{audioCtx.resume();blip(620,.1,.2);this.scene.start('GameScene')});
+    this.input.keyboard.once('keydown',()=>{audioCtx.resume();blip(620,.1,.2);this.scene.start('GameScene')});
+  }
+}
+
+class GameScene extends Phaser.Scene{
+  constructor(){super('GameScene')}
+  create(){
+    const W=this.scale.width,H=this.scale.height;
+    this.worldSize=2200;
+    this.physics.world.setBounds(-1100,-1100,2200,2200);
+
+    // Terrain
+    this.bg=this.add.tileSprite(0,0,4000,4000,null).setScrollFactor(1);
+    this.gfx=this.add.graphics();
+    for(let x=-1100;x<1100;x+=80){for(let y=-1100;y<1100;y+=80){this.gfx.fillStyle((x+y)/80%2?0x205c3b:0x245f41,1);this.gfx.fillRect(x,y,80,80)}}
+
+    this.crops=this.physics.add.group();
+    this.enemies=this.physics.add.group();
+    this.enemyBullets=this.physics.add.group();
+
+    this.timeStart=this.time.now;
+    this.mode='day'; // day first then night cycles
+    this.score=0; this.bonus=0; this.wave=0; this.cropsPicked=0;
+
+    this.hero={hp:120,maxHp:120,stam:100,maxStam:100,atk:22,speed:170,invuln:0,rollCd:0,atkCd:0};
+
+    // Player texture (glasses portrait-inspired)
+    const pg=this.add.graphics();
+    pg.fillStyle(0x314f8f,1); pg.fillRect(0,0,28,34); // shirt
+    pg.fillStyle(0xffd8b8,1); pg.fillRect(4,4,20,18); // face
+    pg.fillStyle(0x1e1e1e,1); pg.fillRect(3,8,9,6); pg.fillRect(16,8,9,6); pg.fillRect(12,10,4,2); // glasses
+    pg.fillStyle(0x0f0f0f,1); pg.fillRect(5,5,18,4); // hair
+    pg.generateTexture('hero',28,34); pg.destroy();
+
+    const eg=this.add.graphics();
+    eg.fillStyle(0x4f2232,1); eg.fillRect(0,0,24,24); eg.fillStyle(0xff6b6b,1); eg.fillRect(6,6,12,12); eg.generateTexture('aswang',24,24); eg.destroy();
+    const cg=this.add.graphics();
+    cg.fillStyle(0x6ea85c,1); cg.fillRect(0,0,18,18); cg.fillStyle(0xb6e27f,1); cg.fillRect(4,4,10,10); cg.generateTexture('crop',18,18); cg.destroy();
+    const bb=this.add.graphics(); bb.fillStyle(0xffc857,1); bb.fillRect(0,0,8,8); bb.generateTexture('eb',8,8); bb.destroy();
+
+    this.player=this.physics.add.sprite(0,0,'hero');
+    this.player.body.setSize(20,26).setOffset(4,4);
+    this.player.setCollideWorldBounds(true);
+
+    this.cursors=this.input.keyboard.createCursorKeys();
+    this.keys=this.input.keyboard.addKeys('W,A,S,D,J,K');
+
+    // mobile drag move
+    this.touchDir={x:0,y:0};
+    this.input.on('pointerdown',p=>{this.pointerDown=true;this.pointerPos={x:p.x,y:p.y}});
+    this.input.on('pointermove',p=>{if(!this.pointerDown)return;const dx=p.x-W/2,dy=p.y-H/2;const m=Math.hypot(dx,dy)||1;this.touchDir={x:dx/m,y:dy/m}});
+    this.input.on('pointerup',()=>{this.pointerDown=false;this.touchDir={x:0,y:0}});
+
+    document.getElementById('atk').onclick=()=>this.tryAttack();
+    document.getElementById('roll').onclick=()=>this.tryRoll();
+
+    this.physics.add.overlap(this.player,this.crops,(p,c)=>{c.destroy();this.cropsPicked++;this.bonus+=20;blip(780,.05,.12,'triangle')});
+    this.physics.add.overlap(this.player,this.enemyBullets,(p,b)=>{if(this.hero.invuln>0)return; b.destroy(); this.takeDamage(8)});
+    this.physics.add.overlap(this.player,this.enemies,(p,e)=>{if(this.hero.invuln>0)return; if(!e.getData('hitCd')||this.time.now-e.getData('hitCd')>500){e.setData('hitCd',this.time.now); this.takeDamage(10)}});
+
+    this.cam=this.cameras.main;
+    this.cam.startFollow(this.player,true,.12,.12);
+    this.cam.setBounds(-1100,-1100,2200,2200);
+
+    this.hud=this.add.text(10,8,'',{fontFamily:'VT323',fontSize:30,color:'#fff',stroke:'#000',strokeThickness:4}).setScrollFactor(0).setDepth(10);
+
+    this.spawnCrops(40);
+    this.modeSwitchAt=20; // seconds
+  }
+
+  spawnCrops(n){for(let i=0;i<n;i++){const x=Phaser.Math.Between(-1000,1000),y=Phaser.Math.Between(-1000,1000);this.crops.create(x,y,'crop')}}
+  spawnWave(str){
+    for(let i=0;i<str;i++){
+      const a=Math.random()*Math.PI*2,d=Phaser.Math.Between(450,700);
+      const x=this.player.x+Math.cos(a)*d,y=this.player.y+Math.sin(a)*d;
+      const e=this.enemies.create(x,y,'aswang');
+      const hp=Math.round(25+str*2+this.wave*3);
+      e.setData('hp',hp); e.setData('maxHp',hp); e.setData('spd',58+this.wave*4+Math.random()*10);
+      e.body.setSize(18,18).setOffset(3,3);
+    }
+  }
+
+  tryAttack(){
+    if(this.time.now<this.hero.atkCd)return;
+    this.hero.atkCd=this.time.now+280; blip(300,.06,.15,'sawtooth');
+    const slash=this.add.circle(this.player.x,this.player.y,48,0xffffff,.08);
+    this.tweens.add({targets:slash,alpha:0,scale:1.3,duration:120,onComplete:()=>slash.destroy()});
+    this.enemies.getChildren().forEach(e=>{
+      const d=Phaser.Math.Distance.Between(this.player.x,this.player.y,e.x,e.y);
+      if(d<58){
+        let dmg=this.hero.atk; if(this.mode==='night')dmg*=1.2;
+        e.setData('hp',e.getData('hp')-dmg);
+        e.setTint(0xffffff); this.time.delayedCall(80,()=>e.clearTint());
+        if(e.getData('hp')<=0){this.score+=25;this.bonus+=10;e.destroy();blip(520,.05,.1,'triangle')}
+      }
+    });
+  }
+
+  tryRoll(){
+    if(this.time.now<this.hero.rollCd||this.hero.stam<25)return;
+    const v=this.player.body.velocity; let nx=v.x,ny=v.y;
+    if(Math.abs(nx)+Math.abs(ny)<1){nx=0;ny=-1}else{const m=Math.hypot(nx,ny)||1;nx/=m;ny/=m}
+    this.hero.rollCd=this.time.now+650; this.hero.invuln=280; this.hero.stam-=25; blip(210,.08,.15);
+    this.player.setVelocity(nx*520,ny*520); this.player.setTint(0x9cf5ff);
+    this.time.delayedCall(180,()=>this.player.clearTint());
+  }
+
+  takeDamage(d){
+    this.hero.hp-=Math.max(1,d);
+    this.cam.shake(120,.008); blip(120,.15,.2,'sawtooth');
+    if(this.hero.hp<=0){this.gameOver();}
+  }
+
+  switchMode(next){
+    if(this.mode===next)return;
+    this.mode=next;
+    if(next==='night'){
+      this.cameras.main.flash(300,80,0,100);
+      this.bonus+=100; this.wave++; this.spawnWave(8+this.wave*2);
+    }else{
+      this.cameras.main.flash(300,180,230,255);
+      this.bonus+=60; this.spawnCrops(18);
+    }
+  }
+
+  enemyLogic(time,delta){
+    const dt=delta/16.667;
+    this.enemies.getChildren().forEach(e=>{
+      const dx=this.player.x-e.x,dy=this.player.y-e.y; const d=Math.hypot(dx,dy)||1;
+      const sp=e.getData('spd')*(this.mode==='night'?1.15:0.8);
+      e.setVelocity((dx/d)*sp*dt*1.2,(dy/d)*sp*dt*1.2);
+      // ranged spit in night
+      if(this.mode==='night' && (!e.getData('shotAt') || time-e.getData('shotAt')>1400+Math.random()*700)){
+        e.setData('shotAt',time);
+        const b=this.enemyBullets.create(e.x,e.y,'eb');
+        const a=Math.atan2(dy,dx); const s=180+this.wave*7;
+        b.setVelocity(Math.cos(a)*s,Math.sin(a)*s); b.lifespan=3000;
+      }
+    });
+    this.enemyBullets.getChildren().forEach(b=>{b.lifespan-=delta;if(b.lifespan<=0)b.destroy()});
+  }
+
+  update(time,delta){
+    if(this.dead)return;
+    const elapsed=(time-this.timeStart)/1000;
+    const cycle=30; // 12 day, 18 night
+    const p=elapsed%cycle;
+    if(p<12)this.switchMode('day'); else this.switchMode('night');
+
+    // movement
+    let mx=0,my=0;
+    if(this.keys.A.isDown||this.cursors.left.isDown)mx=-1;
+    if(this.keys.D.isDown||this.cursors.right.isDown)mx=1;
+    if(this.keys.W.isDown||this.cursors.up.isDown)my=-1;
+    if(this.keys.S.isDown||this.cursors.down.isDown)my=1;
+    if(this.pointerDown){mx=this.touchDir.x;my=this.touchDir.y;}
+    const m=Math.hypot(mx,my)||1;
+    if(this.hero.invuln<=0){this.player.setVelocity((mx/m)*this.hero.speed,(my/m)*this.hero.speed)}
+    this.hero.invuln=Math.max(0,this.hero.invuln-delta);
+
+    if(Phaser.Input.Keyboard.JustDown(this.keys.J))this.tryAttack();
+    if(Phaser.Input.Keyboard.JustDown(this.keys.K))this.tryRoll();
+
+    // stamina regen
+    this.hero.stam=Math.min(this.hero.maxStam,this.hero.stam+delta*0.03);
+
+    // night waves
+    if(this.mode==='night' && (!this.nextWaveAt || time>this.nextWaveAt)){
+      this.wave++; this.spawnWave(Math.min(24,6+this.wave*2));
+      this.nextWaveAt=time+3500;
+    }
+
+    this.enemyLogic(time,delta);
+
+    // score
+    this.score=Math.floor(elapsed*10)+this.bonus;
+
+    // visuals shift by mode
+    this.bg.tint=this.mode==='day'?0xb8f3c2:0x2b1838;
+
+    this.hud.setText(`HP ${Math.ceil(this.hero.hp)} / ${this.hero.maxHp}   STAM ${Math.ceil(this.hero.stam)}\n${this.mode.toUpperCase()}  Wave ${this.wave}  Crops ${this.cropsPicked}  Score ${this.score}`);
+  }
+
+  gameOver(){
+    if(this.dead)return; this.dead=true;
+    this.player.setTint(0xff3333); this.player.setVelocity(0,0);
+    this.cameras.main.shake(260,.013); blip(90,.45,.22,'sawtooth');
+    this.time.delayedCall(550,()=>{this.scene.pause(); showGameOverUI(this.score,Math.floor((this.time.now-this.timeStart)/1000),this.cropsPicked,this.wave)});
+  }
+}
+
+const config={type:Phaser.AUTO,width:540,height:960,backgroundColor:'#0d1225',physics:{default:'arcade',arcade:{gravity:{y:0},debug:false}},scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},scene:[MenuScene,GameScene]};
+new Phaser.Game(config);
+
+function showGameOverUI(finalScore,sec,crops,wave){
+  const ov=document.getElementById('ui-overlay'),p=document.getElementById('panel');
+  ov.style.display='flex';
+  p.innerHTML=`<h2>You Died</h2><p>Score: <b>${finalScore}</b><br>Time: ${sec}s • Crops: ${crops} • Highest Wave: ${wave}</p>
+  <input id='nm' placeholder='name' maxlength='16'/>
+  <button id='sub' class='btn'>Submit Score</button><div id='lb' class='lb'></div><button id='re' class='btn'>Play Again</button>`;
+  document.getElementById('sub').onclick=async()=>{
+    const n=(document.getElementById('nm').value||'Anonymous').trim();
+    await submitScore(n,finalScore);
+    const scores=await getLeaderboard();
+    document.getElementById('lb').innerHTML=scores.map((s,i)=>`<div><span>#${i+1} ${s.playerName}</span><span>${s.score}</span></div>`).join('');
+    document.getElementById('sub').style.display='none';
+  };
+  document.getElementById('re').onclick=()=>{ov.style.display='none';location.reload()};
+}
+</script>
+</body>
+</html>
