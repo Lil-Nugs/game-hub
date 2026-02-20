@@ -37,413 +37,420 @@ let W,H;
 function resize(){W=C.width=window.innerWidth;H=C.height=window.innerHeight}
 resize();window.addEventListener('resize',resize);
 
-// Road dimensions
-const ROAD_W=300,LANE_W=150;
-function roadL(){return(W-ROAD_W)/2}
-function roadR(){return(W+ROAD_W)/2}
-function roadCenter(){return W/2}
+// 3-lane road
+const LANES=3;
+function roadW(){return Math.min(W*.85,360)}
+function laneW(){return roadW()/LANES}
+function roadL(){return(W-roadW())/2}
+function laneX(l){return roadL()+l*laneW()+laneW()/2}
 
 // State
-let state='menu',score=0,distance=0,soldiers=5,weapon='pistol',fireRate=0,shieldHP=0;
-let marchSpeed=1.5,scrollY=0,shootTimer=0;
-let playerX=W/2;
-let army=[],zombies=[],bullets=[],gates=[],barriers=[],particles=[],floats=[],powerups=[];
-let gateSpawnDist=0,zombieSpawnDist=0,barrierSpawnDist=0;
-let combo=0,maxCombo=0;
+let state='menu';
+let score,distance,soldiers,lives,maxLives,weapon,shieldHP;
+let marchSpeed,scrollY,shootTimer;
+let playerLane,playerX;
+let zombies,bullets,gates,barriers,particles,floats;
+let gateCD,zombieCD,barrierCD;
+let combo,maxCombo;
 
-// Weapons
 const WEAPONS={
-  pistol:{name:'Pistol',emoji:'🔫',rate:18,dmg:1,count:1,spread:0,color:'#FFD700',bullet:'•'},
-  shotgun:{name:'Shotgun',emoji:'💥',rate:30,dmg:1,count:5,spread:.4,color:'#FF8C00',bullet:'•'},
-  laser:{name:'Laser',emoji:'⚡',rate:6,dmg:.5,count:1,spread:0,color:'#FF69B4',bullet:'─'},
-  rocket:{name:'Rocket',emoji:'🚀',rate:45,dmg:8,count:1,spread:0,color:'#FF1493',bullet:'★',splash:40},
-  minigun:{name:'Minigun',emoji:'🔥',rate:4,dmg:.4,count:2,spread:.15,color:'#FF4500',bullet:'·'},
+  pistol:{name:'Pistol',emoji:'🔫',rate:12,dmg:2,count:1,spread:0,color:'#FFD700',size:3},
+  shotgun:{name:'Shotgun',emoji:'💥',rate:22,dmg:1.5,count:4,spread:.3,color:'#FF8C00',size:3},
+  laser:{name:'Laser',emoji:'⚡',rate:5,dmg:1,count:1,spread:0,color:'#FF69B4',size:2},
+  rocket:{name:'Rocket',emoji:'🚀',rate:35,dmg:12,count:1,spread:0,color:'#FF1493',size:5,splash:50},
+  minigun:{name:'Minigun',emoji:'🔥',rate:3,dmg:.6,count:2,spread:.12,color:'#FF4500',size:2},
 };
 
-// Input
-let inputX=null,dragging=false;
-C.addEventListener('mousedown',e=>{dragging=true;inputX=e.clientX});
-C.addEventListener('mousemove',e=>{if(dragging)inputX=e.clientX});
-C.addEventListener('mouseup',()=>dragging=false);
-C.addEventListener('touchstart',e=>{inputX=e.touches[0].clientX;e.preventDefault()},{passive:false});
-C.addEventListener('touchmove',e=>{inputX=e.touches[0].clientX;e.preventDefault()},{passive:false});
-C.addEventListener('touchend',()=>{inputX=null});
+// Input - tap/click left third, middle, right third to pick lane
+// Or drag/swipe
+let inputLane=null;
+function getLaneFromX(cx){
+  const rel=cx-roadL();
+  if(rel<0)return 0;
+  if(rel>=roadW())return LANES-1;
+  return Math.floor(rel/laneW());
+}
+C.addEventListener('click',e=>{if(state==='playing')playerLane=getLaneFromX(e.clientX)});
+C.addEventListener('touchstart',e=>{if(state==='playing'){playerLane=getLaneFromX(e.touches[0].clientX)}e.preventDefault()},{passive:false});
+C.addEventListener('touchmove',e=>{if(state==='playing'){playerLane=getLaneFromX(e.touches[0].clientX)}e.preventDefault()},{passive:false});
+window.addEventListener('keydown',e=>{
+  if(state!=='playing')return;
+  if(e.key==='ArrowLeft'||e.key==='a')playerLane=Math.max(0,playerLane-1);
+  if(e.key==='ArrowRight'||e.key==='d')playerLane=Math.min(LANES-1,playerLane+1);
+});
 
 function reset(){
-  score=0;distance=0;soldiers=5;weapon='pistol';fireRate=0;shieldHP=0;
-  marchSpeed=1.5;scrollY=0;shootTimer=0;combo=0;maxCombo=0;
-  playerX=W/2;
-  army=[];zombies=[];bullets=[];gates=[];barriers=[];particles=[];floats=[];powerups=[];
-  gateSpawnDist=300;zombieSpawnDist=200;barrierSpawnDist=400;
-  rebuildArmy();
+  score=0;distance=0;soldiers=5;lives=10;maxLives=10;
+  weapon='pistol';shieldHP=0;
+  marchSpeed=1.2;scrollY=0;shootTimer=0;
+  playerLane=1;playerX=laneX(1);
+  combo=0;maxCombo=0;
+  zombies=[];bullets=[];gates=[];barriers=[];particles=[];floats=[];
+  gateCD=250;zombieCD=80;barrierCD=350;
 }
 
-function rebuildArmy(){
-  army=[];
-  const cols=Math.min(soldiers,5);
-  const rows=Math.ceil(soldiers/cols);
-  for(let i=0;i<soldiers;i++){
-    const col=i%cols,row=Math.floor(i/cols);
-    army.push({
-      offX:(col-(cols-1)/2)*22,
-      offY:row*20+10,
-      shootOff:Math.random()*20,
-      hue:Math.random()*360
-    });
-  }
+function addFloat(x,y,text,color,size=18){floats.push({x,y,text,color,size,life:55})}
+function addP(x,y,color,n=6){
+  for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,s=Math.random()*4+1;
+  particles.push({x,y,dx:Math.cos(a)*s,dy:Math.sin(a)*s,life:1,color,size:Math.random()*4+2})}
 }
 
-function addFloat(x,y,text,color,size=18){floats.push({x,y,text,color,size,life:50})}
-function addParticles(x,y,color,n=6,sz=4){
-  for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,s=Math.random()*3+1;
-  particles.push({x,y,dx:Math.cos(a)*s,dy:Math.sin(a)*s-1,life:1,color,size:Math.random()*sz+1})}
+// Zombie types with clear large visuals
+const Z_TYPES=[
+  {emoji:'🧟',hp:4,speed:.6,reward:5,sz:28,name:'Walker'},
+  {emoji:'💀',hp:7,speed:.8,reward:10,sz:26,name:'Skelly'},
+  {emoji:'🎃',hp:5,speed:1,reward:8,sz:28,name:'Pumpkin'},
+  {emoji:'👻',hp:3,speed:1.3,reward:6,sz:26,name:'Ghost'},
+  {emoji:'👹',hp:15,speed:.4,reward:20,sz:34,name:'Ogre'},
+  {emoji:'🤖',hp:20,speed:.3,reward:25,sz:32,name:'Mech'},
+];
+
+function spawnZombie(){
+  const lane=Math.floor(Math.random()*LANES);
+  const hpScale=1+distance/600;
+  const maxTier=Math.min(Math.floor(distance/400),Z_TYPES.length-1);
+  const tier=Math.floor(Math.random()*Math.random()*(maxTier+1));
+  const t=Z_TYPES[Math.min(tier,maxTier)];
+  const isBoss=distance>300&&Math.random()<.04;
+  zombies.push({
+    lane,x:laneX(lane),y:-40,
+    hp:Math.round(t.hp*hpScale*(isBoss?5:1)),
+    maxHp:Math.round(t.hp*hpScale*(isBoss?5:1)),
+    emoji:isBoss?'👑':t.emoji,
+    speed:t.speed*(isBoss?.5:1),
+    reward:Math.round(t.reward*(isBoss?8:1)),
+    sz:isBoss?42:t.sz,
+    isBoss
+  });
 }
 
 function spawnGatePair(){
-  const y=-80-scrollY;
-  // Two gates side by side - pick left or right
-  const gateTypes=[
-    ()=>{const n=Math.floor(Math.random()*8+3);return{label:`+${n}`,color:'#7BC67E',apply:()=>{soldiers+=n;rebuildArmy()}}},
-    ()=>{const n=Math.floor(Math.random()*3+2);return{label:`×${n}`,color:'#64B5F6',apply:()=>{soldiers=Math.floor(soldiers*n);rebuildArmy()}}},
-    ()=>{const n=Math.floor(Math.random()*5+2);return{label:`−${n}`,color:'#EF5350',apply:()=>{soldiers=Math.max(1,soldiers-n);rebuildArmy()}}},
-    ()=>{const n=Math.floor(Math.random()*2+2);return{label:`÷${n}`,color:'#FF8A65',apply:()=>{soldiers=Math.max(1,Math.ceil(soldiers/n));rebuildArmy()}}},
-    ()=>{const wps=Object.keys(WEAPONS).filter(w=>w!==weapon);const w=wps[Math.floor(Math.random()*wps.length)];return{label:WEAPONS[w].emoji+' '+WEAPONS[w].name,color:'#CE93D8',apply:()=>{weapon=w}}},
-    ()=>({label:'🛡️ Shield',color:'#4FC3F7',apply:()=>{shieldHP+=3}}),
-    ()=>({label:'⚡ Speed+',color:'#FFF176',apply:()=>{marchSpeed+=.2}}),
+  // Two choices side by side occupying lanes
+  // Gate A on left, gate B on right, centered
+  const gateY=-50;
+  const types=[
+    ()=>{const n=Math.floor(Math.random()*6+2);return{label:`+${n} 🧑`,color:'#7BC67E',apply:()=>{soldiers+=n}}},
+    ()=>{const n=Math.floor(Math.random()*2+2);return{label:`×${n} 🧑`,color:'#64B5F6',apply:()=>{soldiers=Math.floor(soldiers*n)}}},
+    ()=>{const n=Math.floor(Math.random()*4+1);return{label:`−${n} 🧑`,color:'#EF5350',apply:()=>{soldiers=Math.max(1,soldiers-n)}}},
+    ()=>{const n=2;return{label:`÷${n} 🧑`,color:'#FF8A65',apply:()=>{soldiers=Math.max(1,Math.ceil(soldiers/n))}}},
+    ()=>{const wps=Object.keys(WEAPONS);const w=wps[Math.floor(Math.random()*wps.length)];return{label:WEAPONS[w].emoji+' '+WEAPONS[w].name,color:'#CE93D8',apply:()=>{weapon=w}}},
+    ()=>({label:'🛡️ Shield +3',color:'#4FC3F7',apply:()=>{shieldHP+=3}}),
+    ()=>({label:'❤️ +3 Lives',color:'#F48FB1',apply:()=>{lives=Math.min(maxLives+5,lives+3)}}),
   ];
-  // Make sure the pair isn't identical
-  const t1=gateTypes[Math.floor(Math.random()*gateTypes.length)]();
-  let t2;do{t2=gateTypes[Math.floor(Math.random()*gateTypes.length)]()}while(t2.label===t1.label);
-  const rl=roadL(),mid=roadCenter();
-  gates.push({x:rl+LANE_W/2,y,w:LANE_W-12,h:50,...t1,hit:false});
-  gates.push({x:mid+LANE_W/2,y,w:LANE_W-12,h:50,...t2,hit:false});
-}
-
-function spawnZombieWave(){
-  const y=-60-scrollY;
-  const count=Math.floor(2+distance/500);
-  const hpScale=1+distance/800;
-  for(let i=0;i<count;i++){
-    const x=roadL()+30+Math.random()*(ROAD_W-60);
-    const types=[
-      {emoji:'🧟',hp:2*hpScale,speed:.3,reward:5,size:18},
-      {emoji:'💀',hp:4*hpScale,speed:.5,reward:10,size:16},
-      {emoji:'👹',hp:8*hpScale,speed:.2,reward:20,size:22},
-      {emoji:'🎃',hp:3*hpScale,speed:.7,reward:8,size:16},
-      {emoji:'👻',hp:1.5*hpScale,speed:.9,reward:6,size:14},
-    ];
-    const tier=Math.min(Math.floor(Math.random()*Math.random()*(1+distance/400)),types.length-1);
-    const t=types[tier];
-    zombies.push({x:x-scrollY*0+0,y:y-i*40,hp:t.hp,maxHp:t.hp,emoji:t.emoji,speed:t.speed,reward:t.reward,size:t.size});
-  }
+  const t1=types[Math.floor(Math.random()*types.length)]();
+  let t2;do{t2=types[Math.floor(Math.random()*types.length)]()}while(t2.label===t1.label);
+  // Left half and right half of road
+  const midX=W/2;
+  const hw=roadW()/2-6;
+  gates.push({x:midX-hw/2,y:gateY,w:hw,h:55,...t1,hit:false});
+  gates.push({x:midX+hw/2,y:gateY,w:hw,h:55,...t2,hit:false});
 }
 
 function spawnBarrier(){
-  const y=-60-scrollY;
-  const x=roadL()+40+Math.random()*(ROAD_W-80);
-  const hp=5+distance/200;
-  barriers.push({x,y,w:50+Math.random()*30,h:20,hp,maxHp:hp,color:'#A1887F'});
+  const lane=Math.floor(Math.random()*LANES);
+  const hp=6+distance/300;
+  barriers.push({lane,x:laneX(lane),y:-30,w:laneW()*.8,h:22,hp,maxHp:hp});
 }
 
 function shoot(){
   const w=WEAPONS[weapon];
-  const baseY=H*.75;
-  army.forEach((s,i)=>{
-    if((shootTimer+s.shootOff)%Math.max(2,Math.round(w.rate))!==0)return;
-    const sx=playerX+s.offX;
+  const baseY=H*.72;
+  // All soldiers shoot from their positions
+  const cols=Math.min(soldiers,5);
+  const rows=Math.ceil(soldiers/cols);
+  for(let i=0;i<Math.min(soldiers,15);i++){
+    if((shootTimer+i*3)%Math.max(2,w.rate)!==0)continue;
+    const col=i%cols,row=Math.floor(i/cols);
+    const sx=playerX+(col-(cols-1)/2)*18;
+    const sy=baseY+row*16;
     for(let b=0;b<w.count;b++){
-      const angle=-Math.PI/2+(b-(w.count-1)/2)*w.spread+(Math.random()-.5)*.05;
-      bullets.push({
-        x:sx,y:baseY-s.offY,
-        dx:Math.cos(angle)*8,dy:Math.sin(angle)*8,
-        dmg:w.dmg,color:w.color,size:w.bullet==='★'?6:w.bullet==='─'?1:3,
-        shape:w.bullet,splash:w.splash||0,life:80
-      });
+      const angle=-Math.PI/2+(b-(w.count-1)/2)*w.spread+(Math.random()-.5)*.04;
+      bullets.push({x:sx,y:sy,dx:Math.cos(angle)*9,dy:Math.sin(angle)*9,
+        dmg:w.dmg,color:w.color,size:w.size,splash:w.splash||0,life:70});
     }
-  });
+  }
 }
 
 function update(){
   if(state!=='playing')return;
 
-  // March forward
-  const eff=marchSpeed;
-  scrollY+=eff;
-  distance+=eff;
-  score+=Math.floor(eff);
+  marchSpeed=1.2+distance*.00025;
+  scrollY+=marchSpeed;
+  distance+=marchSpeed;
+  score+=Math.ceil(marchSpeed);
 
-  // Player horizontal movement
-  if(inputX!==null){
-    const target=Math.max(roadL()+20,Math.min(roadR()-20,inputX));
-    playerX+=(target-playerX)*.12;
-  }
+  // Smooth lane switch
+  const tx=laneX(playerLane);
+  playerX+=(tx-playerX)*.18;
 
-  // Shooting
+  // Shooting - always active from wave 1
   shootTimer++;
   shoot();
 
-  // Spawn gates
-  if(distance>=gateSpawnDist){
-    spawnGatePair();
-    gateSpawnDist=distance+250+Math.random()*150;
+  // Spawning
+  gateCD-=marchSpeed;zombieCD-=marchSpeed;barrierCD-=marchSpeed;
+  if(gateCD<=0){spawnGatePair();gateCD=220+Math.random()*120}
+  if(zombieCD<=0){
+    const count=1+Math.floor(distance/500);
+    for(let i=0;i<count;i++)spawnZombie();
+    zombieCD=Math.max(30,90-distance*.008)+Math.random()*40;
   }
-  // Spawn zombies
-  if(distance>=zombieSpawnDist){
-    spawnZombieWave();
-    zombieSpawnDist=distance+120+Math.random()*100;
-  }
-  // Spawn barriers
-  if(distance>=barrierSpawnDist){
-    spawnBarrier();
-    barrierSpawnDist=distance+300+Math.random()*200;
-  }
+  if(barrierCD<=0&&distance>200){spawnBarrier();barrierCD=280+Math.random()*160}
 
-  const playerBaseY=H*.75;
+  const armyY=H*.72;
 
-  // Move bullets
+  // Move zombies DOWN in their lane
+  zombies.forEach(z=>{
+    z.y+=z.speed+marchSpeed;
+    // Stay in lane
+    z.x+=(laneX(z.lane)-z.x)*.1;
+  });
+
+  // Bullet vs zombie
   bullets.forEach(b=>{
     b.x+=b.dx;b.y+=b.dy;b.life--;
-    // Hit zombies
     zombies.forEach(z=>{
       if(z.dead)return;
-      const dx=b.x-z.x,dy=b.y-(z.y+scrollY);
-      if(Math.abs(dx)<z.size&&Math.abs(dy)<z.size){
+      const dx=b.x-z.x,dy=b.y-z.y;
+      if(Math.abs(dx)<z.sz/2+4&&Math.abs(dy)<z.sz/2+4){
         z.hp-=b.dmg;b.life=0;
-        addParticles(b.x,z.y+scrollY,'#FF69B4',3,3);
+        addP(b.x,b.y,'#FF69B4',2);
         if(b.splash>0){
-          zombies.forEach(z2=>{
-            if(z2===z||z2.dead)return;
+          zombies.forEach(z2=>{if(z2!==z&&!z2.dead){
             const d=Math.sqrt((z2.x-z.x)**2+(z2.y-z.y)**2);
-            if(d<b.splash){z2.hp-=b.dmg*.5}
-          });
-          addParticles(b.x,z.y+scrollY,'#FF8C00',10,6);
+            if(d<b.splash)z2.hp-=b.dmg*.6;
+          }});
+          addP(z.x,z.y,'#FF8C00',8);
         }
-        if(z.hp<=0){
+        if(z.hp<=0&&!z.dead){
           z.dead=true;score+=z.reward;combo++;
           if(combo>maxCombo)maxCombo=combo;
-          addFloat(z.x,z.y+scrollY,'+'+z.reward,'#FFD700');
-          addParticles(z.x,z.y+scrollY,'#9B59B6',8);
-          // Kawaii death - hearts and stars
-          addParticles(z.x,z.y+scrollY,'#FF69B4',5,5);
+          addFloat(z.x,z.y,'+'+z.reward,'#FFD700');
+          addP(z.x,z.y,'#FF69B4',10);
+          addP(z.x,z.y,'#9B59B6',6);
         }
       }
     });
-    // Hit barriers
+    // Bullet vs barrier
     barriers.forEach(br=>{
       if(br.dead)return;
-      const bry=br.y+scrollY;
-      if(b.x>br.x-br.w/2&&b.x<br.x+br.w/2&&b.y>bry-br.h/2&&b.y<bry+br.h/2){
+      if(b.x>br.x-br.w/2&&b.x<br.x+br.w/2&&b.y>br.y-br.h/2&&b.y<br.y+br.h/2){
         br.hp-=b.dmg;b.life=0;
-        addParticles(b.x,bry,'#A1887F',2,2);
-        if(br.hp<=0){br.dead=true;addParticles(br.x,bry,'#8D6E63',12);score+=10}
+        addP(b.x,b.y,'#A1887F',2);
+        if(br.hp<=0){br.dead=true;addP(br.x,br.y,'#8D6E63',10);score+=15;addFloat(br.x,br.y,'+15','#8D6E63')}
       }
     });
   });
-  bullets=bullets.filter(b=>b.life>0&&b.y>-50&&b.y<H+50&&b.x>0&&b.x<W);
+  bullets=bullets.filter(b=>b.life>0&&b.y>-60&&b.y<H+50);
 
-  // Move zombies toward player
+  // Zombie reaches bottom = leak = lose lives
   zombies.forEach(z=>{
     if(z.dead)return;
-    z.y+=z.speed+eff*.3;
-    // Slight tracking toward player
-    const screenY=z.y+scrollY;
-    if(screenY>-50){
-      z.x+=(playerX-z.x)*.003;
-    }
-    // Hit player
-    if(screenY>playerBaseY-30&&screenY<playerBaseY+40&&Math.abs(z.x-playerX)<40){
-      // Zombie damages army
-      const dmg=Math.ceil(z.maxHp/3);
-      if(shieldHP>0){shieldHP-=dmg;if(shieldHP<0)shieldHP=0;addFloat(z.x,screenY,'Shield!','#4FC3F7')}
-      else{soldiers=Math.max(0,soldiers-dmg);rebuildArmy();combo=0}
-      z.dead=true;
-      addParticles(z.x,screenY,'#FF1493',10);
+    // Collision with player army
+    if(z.y>armyY-20&&z.y<armyY+50&&z.lane===playerLane){
+      // Direct hit - lose soldiers
+      const dmg=z.isBoss?5:Math.ceil(z.maxHp/4);
+      if(shieldHP>0){shieldHP=Math.max(0,shieldHP-dmg);addFloat(z.x,z.y,'🛡️ Blocked!','#4FC3F7')}
+      else{soldiers=Math.max(0,soldiers-dmg);combo=0}
+      z.dead=true;addP(z.x,z.y,'#FF1493',8);
       if(soldiers<=0){showGameOver();return}
     }
+    // Leaked past screen bottom
+    if(z.y>H+20){
+      z.dead=true;
+      const lifeLoss=z.isBoss?3:1;
+      lives-=lifeLoss;
+      addFloat(W/2,H-40,`-${lifeLoss} ❤️`,'#EF5350',20);
+      combo=0;
+      if(lives<=0){showGameOver();return}
+    }
   });
-  zombies=zombies.filter(z=>!z.dead&&z.y+scrollY<H+100);
+  zombies=zombies.filter(z=>!z.dead);
 
   // Gate collision
   gates.forEach(g=>{
     if(g.hit)return;
-    const gy=g.y+scrollY;
-    if(gy>playerBaseY-30&&gy<playerBaseY+30&&Math.abs(playerX-g.x)<g.w/2){
+    if(g.y>armyY-35&&g.y<armyY+20&&Math.abs(playerX-g.x)<g.w/2+10){
       g.hit=true;g.apply();
-      addFloat(g.x,gy-20,g.label,g.color,22);
-      addParticles(g.x,gy,g.color,12);
-      if(soldiers<=0){soldiers=1;rebuildArmy()}
+      addFloat(g.x,g.y-30,g.label,g.color,22);
+      addP(g.x,g.y,g.color,12);
+      if(soldiers<=0){soldiers=1}
     }
   });
-  gates=gates.filter(g=>g.y+scrollY<H+100);
 
-  // Barrier collision with player
-  barriers.forEach(br=>{
-    if(br.dead)return;
-    const bry=br.y+scrollY;
-    if(bry>playerBaseY-20&&bry<playerBaseY+30&&Math.abs(playerX-br.x)<br.w/2+20){
-      if(!br.dead){
-        soldiers=Math.max(1,soldiers-1);rebuildArmy();
-        addParticles(playerX,bry,'#f44',5);
-      }
-    }
-  });
-  barriers=barriers.filter(br=>!br.dead&&br.y+scrollY<H+100);
+  // Scroll gates & barriers
+  gates.forEach(g=>g.y+=marchSpeed);
+  gates=gates.filter(g=>g.y<H+100);
+  barriers.forEach(br=>{br.y+=marchSpeed;br.x+=(laneX(br.lane)-br.x)*.1});
+  barriers=barriers.filter(br=>!br.dead&&br.y<H+60);
 
   // Particles & floats
   particles.forEach(p=>{p.x+=p.dx;p.y+=p.dy;p.life-=.025;p.dx*=.95;p.dy*=.95});
   particles=particles.filter(p=>p.life>0);
   floats.forEach(f=>{f.life--;f.y-=1.2});
   floats=floats.filter(f=>f.life>0);
-
-  // Difficulty ramp
-  marchSpeed=1.5+distance*.0003;
 }
 
 function draw(){
-  // Background - pastel gradient that shifts
-  const t=Math.min(1,distance/5000);
-  const bg1=lerpC([255,183,197],[200,160,255],t);
-  const bg2=lerpC([255,240,245],[150,100,200],t);
+  // BG gradient - pastel pink to purple
+  const t=Math.min(1,distance/4000);
+  const c1=lerp([255,200,215],[220,180,255],t);
+  const c2=lerp([255,245,250],[180,140,220],t);
   const g=X.createLinearGradient(0,0,0,H);
-  g.addColorStop(0,`rgb(${bg1})`);g.addColorStop(1,`rgb(${bg2})`);
+  g.addColorStop(0,`rgb(${c1})`);g.addColorStop(1,`rgb(${c2})`);
   X.fillStyle=g;X.fillRect(0,0,W,H);
 
-  // Cute background pattern - hearts and stars
-  X.globalAlpha=.06;X.font='20px serif';X.textAlign='center';
-  for(let i=0;i<15;i++){
-    const bx=(i*137+scrollY*.1)%W;
-    const by=(i*193+scrollY*.3)%(H+100)-50;
-    X.fillText(i%3===0?'💖':i%3===1?'⭐':'🌸',bx,by);
+  // BG deco
+  X.globalAlpha=.07;X.font='22px serif';X.textAlign='center';
+  for(let i=0;i<12;i++){
+    X.fillText(i%4===0?'💖':i%4===1?'⭐':i%4===2?'💀':'🌸',
+      (i*157+scrollY*.05)%W,(i*211+scrollY*.15)%(H+80)-40);
   }
   X.globalAlpha=1;
 
-  const rl=roadL(),rr=roadR();
+  const rl=roadL(),rw=roadW();
 
   // Road
-  X.fillStyle='#E8D5E0';
-  X.beginPath();X.roundRect(rl-5,-10,ROAD_W+10,H+20,8);X.fill();
-  // Road surface
-  X.fillStyle='#F5EBF0';
-  X.fillRect(rl,0,ROAD_W,H);
-  // Center line
-  X.strokeStyle='rgba(255,105,180,.2)';X.lineWidth=2;X.setLineDash([20,15]);
-  const lineOff=(scrollY*3)%35;
-  X.beginPath();X.moveTo(W/2,-lineOff);X.lineTo(W/2,H);X.stroke();
+  X.fillStyle='#F0E0E8';
+  X.beginPath();X.roundRect(rl-4,0,rw+8,H,0);X.fill();
+  X.fillStyle='#F8F0F4';X.fillRect(rl,0,rw,H);
+
+  // Lane dividers
+  X.strokeStyle='rgba(255,105,180,.18)';X.lineWidth=2;X.setLineDash([15,12]);
+  for(let i=1;i<LANES;i++){
+    const lx=rl+i*laneW();
+    const off=(scrollY*2)%27;
+    X.beginPath();X.moveTo(lx,-off);X.lineTo(lx,H);X.stroke();
+  }
   X.setLineDash([]);X.lineWidth=1;
 
-  // Side decorations - flowers/skulls alternating
-  const decoOff=(scrollY*2)%120;
-  for(let y=-decoOff;y<H+60;y+=120){
-    X.font='16px serif';X.textAlign='center';
-    X.fillText('🌸',rl-20,y);X.fillText('💀',rr+20,y+60);
-    X.fillText('🎀',rr+20,y);X.fillText('🌺',rl-20,y+60);
+  // Side deco
+  const dOff=(scrollY*1.5)%100;
+  X.font='14px serif';
+  for(let y=-dOff;y<H+50;y+=100){
+    X.fillText('🌸',rl-18,y);X.fillText('💀',rl+rw+18,y+50);
+    X.fillText('🎀',rl+rw+18,y);X.fillText('🌺',rl-18,y+50);
   }
 
   // Gates
   gates.forEach(g=>{
-    const gy=g.y+scrollY;
-    if(gy<-80||gy>H+80)return;
-    const a=g.hit?.3:1;X.globalAlpha=a;
-    // Gate body
+    if(g.y<-80||g.y>H+80)return;
+    X.globalAlpha=g.hit?.25:1;
+    // Gate body with rounded rect
     X.fillStyle=g.color;
-    X.beginPath();X.roundRect(g.x-g.w/2,gy-g.h/2,g.w,g.h,12);X.fill();
-    // Highlight
-    X.fillStyle='rgba(255,255,255,.35)';
-    X.beginPath();X.roundRect(g.x-g.w/2+4,gy-g.h/2+4,g.w-8,g.h/2-4,8);X.fill();
-    // Label
-    X.fillStyle='#fff';X.font='bold 14px Nunito';X.textAlign='center';X.textBaseline='middle';
-    X.fillText(g.label,g.x,gy);
+    X.beginPath();X.roundRect(g.x-g.w/2,g.y-g.h/2,g.w,g.h,14);X.fill();
+    // Shine
+    X.fillStyle='rgba(255,255,255,.3)';
+    X.beginPath();X.roundRect(g.x-g.w/2+4,g.y-g.h/2+4,g.w-8,g.h*.4,10);X.fill();
+    // Text
+    X.fillStyle='#fff';X.font='bold 13px Nunito';X.textAlign='center';X.textBaseline='middle';
+    // Shadow
+    X.fillStyle='rgba(0,0,0,.2)';X.fillText(g.label,g.x+1,g.y+1);
+    X.fillStyle='#fff';X.fillText(g.label,g.x,g.y);
     X.globalAlpha=1;
   });
 
   // Barriers
   barriers.forEach(br=>{
-    if(br.dead)return;
-    const bry=br.y+scrollY;
-    if(bry<-40||bry>H+40)return;
-    const hpPct=br.hp/br.maxHp;
-    X.fillStyle=hpPct>.5?'#A1887F':'#D7837F';
-    X.beginPath();X.roundRect(br.x-br.w/2,bry-br.h/2,br.w,br.h,4);X.fill();
-    // Cracks
-    if(hpPct<.7){
-      X.strokeStyle='rgba(0,0,0,.2)';X.lineWidth=1;
-      X.beginPath();X.moveTo(br.x-5,bry-br.h/2);X.lineTo(br.x+3,bry+br.h/2);X.stroke();
-    }
-    // HP bar
-    X.fillStyle='rgba(0,0,0,.2)';X.fillRect(br.x-br.w/2,bry-br.h/2-6,br.w,4);
-    X.fillStyle='#E57373';X.fillRect(br.x-br.w/2,bry-br.h/2-6,br.w*hpPct,4);
+    if(br.dead||br.y<-40||br.y>H+40)return;
+    const pct=br.hp/br.maxHp;
+    X.fillStyle=pct>.5?'#BCAAA4':'#D7837F';
+    X.beginPath();X.roundRect(br.x-br.w/2,br.y-br.h/2,br.w,br.h,5);X.fill();
+    X.fillStyle='rgba(255,255,255,.25)';
+    X.beginPath();X.roundRect(br.x-br.w/2+2,br.y-br.h/2+2,br.w-4,br.h*.4,3);X.fill();
+    if(pct<.7){X.strokeStyle='rgba(0,0,0,.15)';X.beginPath();X.moveTo(br.x-4,br.y-br.h/2);X.lineTo(br.x+2,br.y+br.h/2);X.stroke()}
+    // HP
+    X.fillStyle='rgba(0,0,0,.12)';X.fillRect(br.x-br.w/2,br.y-br.h/2-7,br.w,4);
+    X.fillStyle='#E57373';X.fillRect(br.x-br.w/2,br.y-br.h/2-7,br.w*pct,4);
   });
 
-  // Zombies
+  // ZOMBIES - big, visible, solid
   zombies.forEach(z=>{
     if(z.dead)return;
-    const zy=z.y+scrollY;
-    if(zy<-40||zy>H+40)return;
+    if(z.y<-50||z.y>H+50)return;
+
+    // Red danger glow behind zombie
+    const glow=X.createRadialGradient(z.x,z.y,0,z.x,z.y,z.sz);
+    glow.addColorStop(0,'rgba(255,60,60,.2)');glow.addColorStop(1,'transparent');
+    X.fillStyle=glow;X.fillRect(z.x-z.sz,z.y-z.sz,z.sz*2,z.sz*2);
+
     // Shadow
-    X.fillStyle='rgba(0,0,0,.1)';
-    X.beginPath();X.ellipse(z.x,zy+z.size,z.size*.6,4,0,0,Math.PI*2);X.fill();
-    // Zombie
-    X.font=z.size+'px serif';X.textAlign='center';X.textBaseline='middle';
-    X.fillText(z.emoji,z.x,zy);
-    // HP bar
-    if(z.hp<z.maxHp){
-      const bw=z.size*1.5;
-      X.fillStyle='rgba(0,0,0,.15)';X.fillRect(z.x-bw/2,zy-z.size-4,bw,3);
-      X.fillStyle='#FF69B4';X.fillRect(z.x-bw/2,zy-z.size-4,bw*(z.hp/z.maxHp),3);
+    X.fillStyle='rgba(0,0,0,.15)';
+    X.beginPath();X.ellipse(z.x,z.y+z.sz/2+4,z.sz/2,5,0,0,Math.PI*2);X.fill();
+
+    // Big clear emoji
+    X.font=`${z.sz}px serif`;X.textAlign='center';X.textBaseline='middle';
+    X.fillText(z.emoji,z.x,z.y);
+
+    // HP bar - wide, bright, always visible
+    const bw=z.sz*1.8;
+    const bx=z.x-bw/2,by=z.y-z.sz/2-10;
+    X.fillStyle='rgba(60,0,0,.4)';
+    X.beginPath();X.roundRect(bx,by,bw,6,3);X.fill();
+    const hpPct=Math.max(0,z.hp/z.maxHp);
+    X.fillStyle=hpPct>.5?'#7BC67E':hpPct>.25?'#FFB347':'#FF4444';
+    X.beginPath();X.roundRect(bx,by,bw*hpPct,6,3);X.fill();
+
+    // Boss crown glow
+    if(z.isBoss){
+      X.strokeStyle='rgba(255,215,0,.5)';X.lineWidth=2;
+      X.beginPath();X.arc(z.x,z.y,z.sz/2+6,0,Math.PI*2);X.stroke();X.lineWidth=1;
     }
   });
 
   // Bullets
   bullets.forEach(b=>{
-    X.fillStyle=b.color;X.shadowColor=b.color;X.shadowBlur=4;
-    if(b.shape==='★'){
-      X.font='10px serif';X.textAlign='center';X.fillText('★',b.x,b.y);
-    }else if(b.shape==='─'){
-      X.fillRect(b.x-1,b.y-4,2,8);
-    }else{
-      X.beginPath();X.arc(b.x,b.y,b.size/2,0,Math.PI*2);X.fill();
-    }
+    X.fillStyle=b.color;
+    X.shadowColor=b.color;X.shadowBlur=5;
+    X.beginPath();X.arc(b.x,b.y,b.size,0,Math.PI*2);X.fill();
     X.shadowBlur=0;
   });
 
   // Player army
-  const baseY=H*.75;
-  army.forEach((s,i)=>{
-    const sx=playerX+s.offX;
-    const sy=baseY+s.offY;
-    const bob=Math.sin(scrollY*.1+i)*.8;
+  const armyY=H*.72;
+  const cols=Math.min(soldiers,5);
+  const count=Math.min(soldiers,25); // draw cap for perf
+  for(let i=0;i<count;i++){
+    const col=i%cols,row=Math.floor(i/cols);
+    const sx=playerX+(col-(cols-1)/2)*20;
+    const sy=armyY+row*18;
+    const bob=Math.sin(scrollY*.12+i*.7)*1.5;
     // Shadow
     X.fillStyle='rgba(0,0,0,.08)';
-    X.beginPath();X.ellipse(sx,sy+12,8,3,0,0,Math.PI*2);X.fill();
-    // Body - kawaii soldier
-    const hue=s.hue;
-    X.fillStyle=`hsl(${hue},70%,75%)`;
-    X.beginPath();X.arc(sx,sy+bob,10,0,Math.PI*2);X.fill();
+    X.beginPath();X.ellipse(sx,sy+13,9,3,0,0,Math.PI*2);X.fill();
+    // Body
+    const hue=(i*47)%360;
+    X.fillStyle=`hsl(${hue},65%,72%)`;
+    X.beginPath();X.arc(sx,sy+bob,11,0,Math.PI*2);X.fill();
     // Face
     X.fillStyle='#FFE4C4';
-    X.beginPath();X.arc(sx,sy-3+bob,7,0,Math.PI*2);X.fill();
+    X.beginPath();X.arc(sx,sy-3+bob,7.5,0,Math.PI*2);X.fill();
     // Eyes
     X.fillStyle='#333';
-    X.beginPath();X.arc(sx-2.5,sy-4+bob,1.5,0,Math.PI*2);X.fill();
-    X.beginPath();X.arc(sx+2.5,sy-4+bob,1.5,0,Math.PI*2);X.fill();
+    X.beginPath();X.arc(sx-3,sy-4+bob,1.8,0,Math.PI*2);X.fill();
+    X.beginPath();X.arc(sx+3,sy-4+bob,1.8,0,Math.PI*2);X.fill();
     // Blush
     X.fillStyle='rgba(255,105,180,.3)';
-    X.beginPath();X.arc(sx-5,sy-1+bob,2.5,0,Math.PI*2);X.fill();
-    X.beginPath();X.arc(sx+5,sy-1+bob,2.5,0,Math.PI*2);X.fill();
-    // Mouth
-    X.strokeStyle='#333';X.lineWidth=1;
-    X.beginPath();X.arc(sx,sy-1+bob,2,.1*Math.PI,.9*Math.PI);X.stroke();
+    X.beginPath();X.arc(sx-5.5,sy-1+bob,2.5,0,Math.PI*2);X.fill();
+    X.beginPath();X.arc(sx+5.5,sy-1+bob,2.5,0,Math.PI*2);X.fill();
+    // Smile
+    X.strokeStyle='#555';X.lineWidth=.8;
+    X.beginPath();X.arc(sx,sy-1+bob,2.5,.15*Math.PI,.85*Math.PI);X.stroke();X.lineWidth=1;
     // Helmet
-    X.fillStyle=`hsl(${hue},60%,55%)`;
-    X.beginPath();X.arc(sx,sy-6+bob,7,Math.PI,.01);X.fill();
-  });
+    X.fillStyle=`hsl(${hue},55%,52%)`;
+    X.beginPath();X.arc(sx,sy-6+bob,7.5,Math.PI,.01);X.fill();
+    // Muzzle flash when shooting
+    if(shootTimer%WEAPONS[weapon].rate<3){
+      X.fillStyle='rgba(255,200,50,.4)';
+      X.beginPath();X.arc(sx,sy-12+bob,4,0,Math.PI*2);X.fill();
+    }
+  }
 
-  // Shield indicator around army
+  // Shield ring
   if(shieldHP>0){
-    const sa=.2+Math.sin(Date.now()*.004)*.1;
+    const sa=.25+Math.sin(Date.now()*.004)*.1;
     X.strokeStyle=`rgba(79,195,247,${sa})`;X.lineWidth=3;
-    X.beginPath();X.ellipse(playerX,baseY+10,50,40,0,0,Math.PI*2);X.stroke();
-    X.lineWidth=1;
+    X.beginPath();X.ellipse(playerX,armyY+10,55,45,0,0,Math.PI*2);X.stroke();X.lineWidth=1;
   }
 
   // Particles
@@ -452,63 +459,59 @@ function draw(){
     X.beginPath();X.arc(p.x,p.y,p.size,0,Math.PI*2);X.fill();
   });X.globalAlpha=1;
 
-  // Float texts
+  // Floats
   X.textAlign='center';
   floats.forEach(f=>{
     X.globalAlpha=Math.min(1,f.life/15);
-    X.font=`bold ${f.size}px Nunito`;X.fillStyle=f.color;
-    // Outline
+    X.font=`bold ${f.size}px Nunito`;
     X.strokeStyle='rgba(0,0,0,.2)';X.lineWidth=3;X.strokeText(f.text,f.x,f.y);
-    X.fillText(f.text,f.x,f.y);X.lineWidth=1;
+    X.fillStyle=f.color;X.fillText(f.text,f.x,f.y);X.lineWidth=1;
   });X.globalAlpha=1;
 
-  // HUD
-  X.textAlign='left';
+  // ===== HUD =====
   // Score
-  X.font='bold 22px Nunito';X.fillStyle='rgba(0,0,0,.15)';X.fillText(score,14,34);
-  X.fillStyle='#fff';X.fillText(score,12,32);
-  X.font='bold 11px Nunito';X.fillStyle='rgba(255,255,255,.6)';X.fillText('SCORE',12,14);
+  X.textAlign='left';X.font='bold 11px Nunito';X.fillStyle='rgba(255,255,255,.6)';X.fillText('SCORE',12,16);
+  X.font='bold 24px Nunito';X.fillStyle='rgba(0,0,0,.12)';X.fillText(score,14,40);
+  X.fillStyle='#fff';X.fillText(score,12,38);
 
-  // Soldiers
+  // Lives + Soldiers
   X.textAlign='right';
-  X.font='bold 22px Nunito';X.fillStyle='rgba(0,0,0,.15)';X.fillText('🧑 '+soldiers,W-10,34);
-  X.fillStyle='#fff';X.fillText('🧑 '+soldiers,W-12,32);
+  X.font='bold 14px Nunito';X.fillStyle='#fff';
+  X.fillText('❤️ '+lives,W-12,22);
+  X.fillText('🧑 '+soldiers,W-12,42);
+  if(shieldHP>0){X.fillStyle='#4FC3F7';X.fillText('🛡️ '+shieldHP,W-12,60)}
 
   // Weapon
-  X.textAlign='center';
-  X.font='bold 14px Nunito';X.fillStyle='rgba(255,255,255,.8)';
+  X.textAlign='center';X.font='bold 15px Nunito';X.fillStyle='rgba(255,255,255,.85)';
   X.fillText(WEAPONS[weapon].emoji+' '+WEAPONS[weapon].name,W/2,22);
 
   // Combo
   if(combo>2){
-    X.font=`bold ${Math.min(24,14+combo*.2)}px Nunito`;
-    X.fillStyle=combo>20?'#FF1493':combo>10?'#FFD700':'#fff';
-    X.fillText(combo+'x combo!',W/2,46);
-  }
-
-  // Shield
-  if(shieldHP>0){
-    X.textAlign='left';X.font='bold 13px Nunito';X.fillStyle='#4FC3F7';
-    X.fillText('🛡️ '+shieldHP,12,52);
+    X.font=`bold ${Math.min(24,14+combo*.15)}px Nunito`;
+    const cc=combo>30?'#FF1493':combo>15?'#FFD700':'#fff';
+    X.fillStyle=cc;X.fillText(combo+'x 🔥',W/2,46);
   }
 
   // Distance
-  X.textAlign='center';X.font='10px Nunito';X.fillStyle='rgba(255,255,255,.4)';
-  X.fillText(Math.floor(distance)+'m',W/2,H-8);
+  X.font='11px Nunito';X.fillStyle='rgba(255,255,255,.35)';X.fillText(Math.floor(distance)+'m',W/2,H-8);
+
+  // Mobile hint
+  X.font='10px Nunito';X.fillStyle='rgba(255,255,255,.2)';
+  X.fillText('← tap lane to move →',W/2,H-24);
 }
 
-function lerpC(a,b,t){return a.map((v,i)=>Math.round(v+(b[i]-v)*t))}
+function lerp(a,b,t){return a.map((v,i)=>Math.round(v+(b[i]-v)*t))}
 
 function showMenu(){
   state='menu';
   ui.innerHTML=`<div class="panel">
     <h1>🎀💀 Kawaii Killzone 💀🎀</h1>
     <p>March your adorable army forward!<br>
-    Choose gates to grow (or shrink) your squad.<br>
-    Shoot zombies, break barriers, collect weapons!<br><br>
-    🔫 Pistol · 💥 Shotgun · ⚡ Laser · 🚀 Rocket · 🔥 Minigun<br>
-    Your soldier count = your health. Don't hit zero!</p>
-    <p>📱 Drag/tap to move &nbsp; ⌨️ Mouse to aim</p>
+    Your soldiers auto-shoot at zombies ahead.<br>
+    Tap lanes to dodge — zombies that leak past cost ❤️ lives!<br>
+    Choose gates to grow your squad or grab weapons.</p>
+    <p>🔫 Pistol · 💥 Shotgun · ⚡ Laser · 🚀 Rocket · 🔥 Minigun</p>
+    <p>📱 Tap a lane / Swipe &nbsp; ⌨️ A/D or ←→</p>
     <button class="btn" id="go">March! 💖</button>
   </div>`;
   document.getElementById('go').onclick=()=>{ui.innerHTML='';state='playing';reset()};
