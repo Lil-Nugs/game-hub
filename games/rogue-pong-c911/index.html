@@ -93,23 +93,38 @@ const stars = Array.from({length: 120}, () => ({
 }));
 
 // Game state
-let state = 'menu'; // menu, playing, upgrade, gameover
+let state = 'menu';
 let score = 0;
 let wave = 0;
 let lives = 3;
 let ballsReturned = 0;
-let nextUpgrade = 5; // balls returned to trigger upgrade
+let nextUpgrade = 5;
 
 // Paddle
-let paddle = { w: 100, h: 14, speed: 8, x: 0, y: 0, color: '#0ff', multiball: false };
+let paddle = { w: 120, h: 14, speed: 8, x: 0, y: 0, color: '#0ff' };
 // Balls
 let balls = [];
 // Particles
 let particles = [];
 // Enemy paddle (top)
-let enemy = { w: 120, h: 10, x: 0, y: 30, speed: 3, dx: 1 };
+let enemy = { w: 130, h: 10, x: 0, y: 30, speed: 2.5, dx: 1 };
+
+// Launch preview state
+let launching = false;
+let launchTimer = 0;
+const LAUNCH_DELAY = 90; // 1.5 seconds at 60fps
+let pendingBalls = [];
 
 // Upgrades system
+let ballBaseSpeed = 3;  // SLOWER starting speed (was 5)
+let ballRadius = 8;
+let magnetPower = 0;
+let extraBalls = 0;
+let shieldCount = 0;
+let scoreMult = 1;
+let powerHit = 0;
+let acquiredUpgrades = [];
+
 const allUpgrades = [
   { id: 'wider', name: '🏓 Wide Paddle', desc: 'Paddle +25% wider', apply: () => { paddle.w *= 1.25; } },
   { id: 'speed', name: '⚡ Quick Paddle', desc: 'Paddle moves 20% faster', apply: () => { paddle.speed *= 1.2; } },
@@ -120,19 +135,10 @@ const allUpgrades = [
   { id: 'multiball', name: '🎱 Multiball', desc: 'Extra ball each wave', apply: () => { extraBalls++; } },
   { id: 'shield', name: '🛡️ Shield', desc: 'One-time save from losing a ball', apply: () => { shieldCount++; } },
   { id: 'score_mult', name: '💰 Score x1.5', desc: 'Score multiplier +0.5x', apply: () => { scoreMult += 0.5; } },
-  { id: 'piercing', name: '💥 Power Hit', desc: 'Ball speeds up on paddle hit', apply: () => { powerHit += 0.1; } },
+  { id: 'piercing', name: '💥 Power Hit', desc: 'Ball speeds up on paddle hit', apply: () => { powerHit += 0.08; } },
   { id: 'enemy_shrink', name: '📏 Shrink Enemy', desc: 'Enemy paddle 20% smaller', apply: () => { enemy.w *= 0.8; } },
-  { id: 'enemy_slow', name: '🦥 Slow Enemy', desc: 'Enemy moves 20% slower', apply: () => { enemy.speed *= 0.8; } },
+  { id: 'enemy_slow', name: '🦥 Slow Enemy', desc: 'Enemy moves 15% slower', apply: () => { enemy.speed *= 0.85; } },
 ];
-
-let ballBaseSpeed = 5;
-let ballRadius = 8;
-let magnetPower = 0;
-let extraBalls = 0;
-let shieldCount = 0;
-let scoreMult = 1;
-let powerHit = 0;
-let acquiredUpgrades = [];
 
 // Input
 let keys = {};
@@ -146,19 +152,22 @@ window.addEventListener('mousemove', e => { if (state === 'playing') touchX = e.
 
 function resetGame() {
   score = 0; wave = 0; lives = 3; ballsReturned = 0; nextUpgrade = 5;
-  ballBaseSpeed = 5; ballRadius = 8; magnetPower = 0; extraBalls = 0;
+  ballBaseSpeed = 3; ballRadius = 8; magnetPower = 0; extraBalls = 0;
   shieldCount = 0; scoreMult = 1; powerHit = 0; acquiredUpgrades = [];
-  paddle.w = 100; paddle.speed = 8;
-  enemy.w = 120; enemy.speed = 3;
+  paddle.w = 120; paddle.speed = 8;
+  enemy.w = 130; enemy.speed = 2.5;
   enemy.x = W / 2;
   particles = [];
+  launching = false;
+  pendingBalls = [];
   startWave();
 }
 
-function spawnBall() {
-  const angle = (Math.random() * 0.8 + 0.1) * Math.PI; // downward-ish
-  const speed = ballBaseSpeed + wave * 0.3;
-  balls.push({
+function createBall() {
+  const angle = (Math.random() * 0.6 + 0.2) * Math.PI;
+  // Speed ramps gently: starts at 3, gains 0.15 per wave
+  const speed = ballBaseSpeed + wave * 0.15;
+  return {
     x: W / 2 + (Math.random() - 0.5) * 200,
     y: H * 0.3,
     dx: Math.cos(angle) * speed * (Math.random() > 0.5 ? 1 : -1),
@@ -166,15 +175,22 @@ function spawnBall() {
     r: ballRadius,
     trail: [],
     hue: Math.random() * 360
-  });
+  };
 }
 
 function startWave() {
   wave++;
   balls = [];
+  pendingBalls = [];
   const count = 1 + extraBalls;
-  for (let i = 0; i < count; i++) setTimeout(() => spawnBall(), i * 500);
-  enemy.speed = 3 + wave * 0.3;
+  for (let i = 0; i < count; i++) {
+    pendingBalls.push(createBall());
+  }
+  // Start launch preview
+  launching = true;
+  launchTimer = LAUNCH_DELAY;
+  // Enemy gets slightly faster each wave
+  enemy.speed = 2.5 + wave * 0.15;
   enemy.dx = Math.random() > 0.5 ? 1 : -1;
 }
 
@@ -204,7 +220,9 @@ function showMenu() {
       <p>Endless pong with roguelite upgrades!<br>
       Return the ball past the enemy.<br>
       Every 5 returns, pick an upgrade.<br>
-      Don't let the ball past you!</p>
+      Don't let the ball past you!<br><br>
+      A preview shows where the ball will launch —<br>
+      use the countdown to get in position!</p>
       <p>⌨️ Arrow keys / Mouse / Touch</p>
       <button class="btn" id="startBtn">START GAME</button>
     </div>`;
@@ -285,7 +303,30 @@ function update() {
   }
   paddle.x = Math.max(paddle.w / 2, Math.min(W - paddle.w / 2, paddle.x));
 
-  // Enemy movement
+  // Launch preview countdown
+  if (launching) {
+    launchTimer--;
+    if (launchTimer <= 0) {
+      // Release all pending balls
+      balls = pendingBalls.slice();
+      pendingBalls = [];
+      launching = false;
+    }
+    // Player can still move during preview - no ball physics yet
+    // Enemy also moves during preview
+    if (balls.length === 0 && pendingBalls.length > 0) {
+      const targetBall = pendingBalls[0];
+      const diff = targetBall.x - enemy.x;
+      enemy.x += Math.sign(diff) * Math.min(Math.abs(diff), enemy.speed * 0.5);
+    }
+    enemy.x = Math.max(enemy.w / 2, Math.min(W - enemy.w / 2, enemy.x));
+    // Update particles during preview
+    particles.forEach(p => { p.x += p.dx; p.y += p.dy; p.life -= 0.03; p.dx *= 0.96; p.dy *= 0.96; });
+    particles = particles.filter(p => p.life > 0);
+    return;
+  }
+
+  // Enemy movement - tracks closest ball
   if (balls.length > 0) {
     const targetBall = balls.reduce((a, b) => a.y < b.y ? a : b);
     const diff = targetBall.x - enemy.x;
@@ -359,8 +400,8 @@ function update() {
   // Remove balls (reverse order)
   ballsToRemove.sort((a, b) => b - a).forEach(i => balls.splice(i, 1));
 
-  // Check for upgrade
-  if (balls.length === 0 && state === 'playing') {
+  // Check for upgrade or next wave
+  if (balls.length === 0 && !launching && state === 'playing') {
     if (lives <= 0) {
       showGameOver();
       return;
@@ -396,7 +437,6 @@ function draw() {
   });
 
   if (state === 'menu' || state === 'gameover' || state === 'upgrade') {
-    // Draw faint game area behind UI
     ctx.globalAlpha = 0.15;
   }
 
@@ -440,7 +480,65 @@ function draw() {
     ctx.lineWidth = 1;
   }
 
-  // Balls
+  // Launch preview - show pending balls with trajectory line
+  if (launching && pendingBalls.length > 0) {
+    const progress = 1 - (launchTimer / LAUNCH_DELAY);
+    const pulse = 0.4 + Math.sin(Date.now() * 0.01) * 0.3;
+
+    pendingBalls.forEach(b => {
+      // Ghost ball position
+      ctx.fillStyle = `hsla(${b.hue}, 100%, 70%, ${pulse})`;
+      ctx.shadowColor = `hsl(${b.hue}, 100%, 70%)`;
+      ctx.shadowBlur = 20;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r * 1.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // Trajectory arrow
+      const arrowLen = 50;
+      const speed = Math.sqrt(b.dx * b.dx + b.dy * b.dy);
+      const nx = b.dx / speed, ny = b.dy / speed;
+      ctx.strokeStyle = `hsla(${b.hue}, 100%, 70%, ${pulse * 0.6})`;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(b.x, b.y);
+      ctx.lineTo(b.x + nx * arrowLen, b.y + ny * arrowLen);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineWidth = 1;
+
+      // Arrowhead
+      const ax = b.x + nx * arrowLen, ay = b.y + ny * arrowLen;
+      ctx.fillStyle = `hsla(${b.hue}, 100%, 70%, ${pulse * 0.8})`;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(ax - nx * 8 + ny * 5, ay - ny * 8 - nx * 5);
+      ctx.lineTo(ax - nx * 8 - ny * 5, ay - ny * 8 + nx * 5);
+      ctx.fill();
+    });
+
+    // Countdown text
+    const secsLeft = Math.ceil(launchTimer / 60);
+    ctx.font = '28px "Press Start 2P"';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = `rgba(255,255,255,${0.5 + pulse * 0.3})`;
+    ctx.fillText(secsLeft, W / 2, H / 2);
+    ctx.font = '10px "Press Start 2P"';
+    ctx.fillStyle = '#888';
+    ctx.fillText('GET READY', W / 2, H / 2 + 30);
+
+    // Progress bar
+    const barW = 200, barH = 6;
+    const barX = W / 2 - barW / 2, barY = H / 2 + 45;
+    ctx.fillStyle = '#222';
+    ctx.fillRect(barX, barY, barW, barH);
+    ctx.fillStyle = '#0ff';
+    ctx.fillRect(barX, barY, barW * progress, barH);
+  }
+
+  // Active balls
   balls.forEach(b => {
     // Trail
     b.trail.forEach((t, i) => {
