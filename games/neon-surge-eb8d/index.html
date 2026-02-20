@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Neon Surge</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#050510;display:flex;justify-content:center;align-items:center;height:100vh;overflow:hidden;font-family:'Press Start 2P',monospace}
+canvas{display:block;touch-action:none}
+#ui-overlay{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;justify-content:center;align-items:center;pointer-events:none;z-index:10}
+#ui-overlay>div{pointer-events:auto}
+.panel{background:rgba(5,5,16,.97);border:2px solid #f0f;border-radius:14px;padding:28px;text-align:center;color:#fff;max-width:420px;width:92vw;max-height:92vh;overflow-y:auto}
+.panel h1{font-size:22px;color:#f0f;margin-bottom:14px;text-shadow:0 0 30px #f0f,0 0 60px #a0f}
+.panel h2{font-size:14px;color:#0ff;margin-bottom:10px}
+.panel p{font-size:8px;line-height:2;color:#aaa;margin-bottom:10px}
+.btn{font-family:'Press Start 2P',monospace;font-size:11px;padding:14px 24px;border:2px solid #f0f;background:transparent;color:#f0f;cursor:pointer;border-radius:8px;margin:8px;transition:all .2s}
+.btn:hover{background:#f0f;color:#000;box-shadow:0 0 20px #f0f}
+input[type="text"]{font-family:'Press Start 2P',monospace;font-size:10px;padding:10px;border:2px solid #f0f;background:rgba(255,0,255,.08);color:#f0f;border-radius:6px;width:200px;text-align:center;outline:none}
+.lb{text-align:left;margin-top:14px}.lb div{font-size:8px;padding:5px 0;color:#aaa;border-bottom:1px solid #1a1a2e}
+.lr{color:#f0f}.ls{color:#0ff;float:right}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui-overlay"><div id="ui-content"></div></div>
+<script>
+const GAME_ID='neon-surge-eb8d';
+const LEADERBOARD_API='https://game-leaderboard.mattgames.workers.dev';
+async function submitScore(n,s){try{const r=await fetch(`${LEADERBOARD_API}/api/scores`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gameId:GAME_ID,playerName:n,score:s})});return await r.json()}catch(e){return null}}
+async function getLeaderboard(l=10){try{const r=await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${l}`);const d=await r.json();return d.scores||[]}catch(e){return[]}}
+
+const C=document.getElementById('c'),X=C.getContext('2d'),ui=document.getElementById('ui-content');
+let W,H;
+function resize(){W=C.width=window.innerWidth;H=C.height=window.innerHeight}
+resize();window.addEventListener('resize',resize);
+
+// GAME CONSTANTS
+const LANE_COUNT=5;
+const PLAYER_SIZE=16;
+
+let state='menu';
+let score,combo,maxCombo,bestCombo,gameTime,gameSpeed;
+let player,walls,orbs,powerups,particles,streaks,shakeTimer;
+let hasShield,hasMagnet,hasDouble,hasSlowmo;
+let shieldTimer,magnetTimer,doubleTimer,slowmoTimer;
+
+// Input
+let targetLane=2,keys={};
+let touchStartX=null;
+window.addEventListener('keydown',e=>{
+  if(state!=='playing')return;
+  if(e.key==='ArrowLeft'||e.key==='a')targetLane=Math.max(0,targetLane-1);
+  if(e.key==='ArrowRight'||e.key==='d')targetLane=Math.min(LANE_COUNT-1,targetLane+1);
+  e.preventDefault();
+});
+C.addEventListener('touchstart',e=>{touchStartX=e.touches[0].clientX;e.preventDefault()},{passive:false});
+C.addEventListener('touchend',e=>{
+  if(!touchStartX||state!=='playing')return;
+  const dx=e.changedTouches[0].clientX-touchStartX;
+  if(Math.abs(dx)>25){
+    if(dx>0)targetLane=Math.min(LANE_COUNT-1,targetLane+1);
+    else targetLane=Math.max(0,targetLane-1);
+  }
+  touchStartX=null;
+});
+// Also allow tap on left/right half
+C.addEventListener('click',e=>{
+  if(state!=='playing')return;
+  if(e.clientX<W/2)targetLane=Math.max(0,targetLane-1);
+  else targetLane=Math.min(LANE_COUNT-1,targetLane+1);
+});
+
+function laneX(lane){
+  const laneW=Math.min(W*0.8,400)/LANE_COUNT;
+  const startX=(W-laneW*LANE_COUNT)/2;
+  return startX+lane*laneW+laneW/2;
+}
+function laneW(){return Math.min(W*0.8,400)/LANE_COUNT}
+
+function reset(){
+  score=0;combo=0;maxCombo=0;bestCombo=0;gameTime=0;gameSpeed=3;
+  targetLane=2;
+  player={x:laneX(2),y:H*0.82,lane:2,r:PLAYER_SIZE};
+  walls=[];orbs=[];powerups=[];particles=[];streaks=[];shakeTimer=0;
+  hasShield=false;hasMagnet=false;hasDouble=false;hasSlowmo=false;
+  shieldTimer=0;magnetTimer=0;doubleTimer=0;slowmoTimer=0;
+  spawnTimer=0;orbTimer=0;puTimer=0;
+}
+
+let spawnTimer=0,orbTimer=0,puTimer=0;
+
+function spawnWall(){
+  // Random gap pattern - 1-2 gaps in the lanes
+  const blocked=new Array(LANE_COUNT).fill(true);
+  const gapCount=Math.random()<0.3?2:1;
+  const gaps=[];
+  while(gaps.length<gapCount){
+    const g=Math.floor(Math.random()*LANE_COUNT);
+    if(!gaps.includes(g)){gaps.push(g);blocked[g]=false}
+  }
+  // Sometimes create a "challenge wall" with only 1 gap at high speed
+  walls.push({y:-40,blocked,speed:gameSpeed,hue:Math.random()*360,passed:false});
+}
+
+function spawnOrb(){
+  const lane=Math.floor(Math.random()*LANE_COUNT);
+  const value=Math.random()<0.15?50:Math.random()<0.3?25:10;
+  const hue=value===50?60:value===25?180:120;
+  orbs.push({x:laneX(lane),y:-20,lane,r:value===50?12:value===25?10:8,value,hue,speed:gameSpeed*0.9});
+}
+
+function spawnPowerup(){
+  const lane=Math.floor(Math.random()*LANE_COUNT);
+  const types=['shield','magnet','double','slowmo'];
+  const type=types[Math.floor(Math.random()*types.length)];
+  const emojis={shield:'🛡️',magnet:'🧲',double:'✨',slowmo:'🕐'};
+  powerups.push({x:laneX(lane),y:-20,lane,type,emoji:emojis[type],speed:gameSpeed*0.8});
+}
+
+function spawnParticles(x,y,color,count=12){
+  for(let i=0;i<count;i++){
+    const angle=Math.random()*Math.PI*2;
+    const spd=Math.random()*5+2;
+    particles.push({x,y,dx:Math.cos(angle)*spd,dy:Math.sin(angle)*spd,life:1,color,size:Math.random()*4+1});
+  }
+}
+
+function addStreak(text,color){
+  streaks.push({text,color,y:H*0.4,life:60,scale:2});
+}
+
+function activatePowerup(type){
+  const dur=300; // 5 seconds
+  switch(type){
+    case 'shield':hasShield=true;shieldTimer=dur;addStreak('🛡️ SHIELD!','#4f4');break;
+    case 'magnet':hasMagnet=true;magnetTimer=dur;addStreak('🧲 MAGNET!','#f4f');break;
+    case 'double':hasDouble=true;doubleTimer=dur;addStreak('✨ DOUBLE PTS!','#ff0');break;
+    case 'slowmo':hasSlowmo=true;slowmoTimer=dur;addStreak('🕐 SLOW-MO!','#4af');break;
+  }
+}
+
+function update(){
+  if(state!=='playing')return;
+  gameTime++;
+
+  // Speed ramps up over time - accelerating curve for inevitable death
+  gameSpeed=3+gameTime*0.002+Math.pow(gameTime,1.3)*0.00005;
+  const effectiveSpeed=hasSlowmo?gameSpeed*0.5:gameSpeed;
+
+  // Move player toward target lane smoothly
+  const tx=laneX(targetLane);
+  player.x+=(tx-player.x)*0.25;
+  player.lane=targetLane;
+
+  // Spawn timing
+  spawnTimer++;orbTimer++;puTimer++;
+  // Walls spawn faster over time
+  const wallInterval=Math.max(25,60-gameTime*0.01);
+  if(spawnTimer>=wallInterval){spawnTimer=0;spawnWall()}
+  if(orbTimer>=20){orbTimer=0;if(Math.random()<0.6)spawnOrb()}
+  if(puTimer>=180){puTimer=0;if(Math.random()<0.4)spawnPowerup()}
+
+  // Update walls
+  walls.forEach(w=>{
+    w.y+=effectiveSpeed;
+    // Check collision when wall reaches player
+    if(!w.passed&&w.y>=player.y-20&&w.y<=player.y+20){
+      if(w.blocked[player.lane]){
+        // HIT!
+        if(hasShield){
+          hasShield=false;shieldTimer=0;
+          spawnParticles(player.x,player.y,'#4f4',20);
+          addStreak('SHIELD SAVED!','#4f4');
+          w.passed=true;
+          score+=5;
+        }else{
+          // GAME OVER
+          shakeTimer=20;
+          spawnParticles(player.x,player.y,'#f44',30);
+          showGameOver();
+          return;
+        }
+      }else{
+        // Passed through gap!
+        if(!w.passed){
+          w.passed=true;
+          combo++;
+          if(combo>maxCombo)maxCombo=combo;
+          const pts=Math.floor((5+combo*2)*(hasDouble?2:1));
+          score+=pts;
+          spawnParticles(player.x,w.y,'#f0f',4);
+          // Streak milestones
+          if(combo===10)addStreak('🔥 10 COMBO!','#f80');
+          if(combo===25)addStreak('⚡ 25 COMBO!','#ff0');
+          if(combo===50)addStreak('💀 50 COMBO!','#f0f');
+          if(combo===100)addStreak('👑 100 COMBO!!','#fff');
+        }
+      }
+    }
+  });
+
+  // Update orbs
+  orbs.forEach(o=>{
+    o.y+=effectiveSpeed*0.9;
+    // Magnet: pull orbs toward player
+    if(hasMagnet){
+      const dx=player.x-o.x;
+      const dy=player.y-o.y;
+      const dist=Math.sqrt(dx*dx+dy*dy);
+      if(dist<150){
+        o.x+=dx/dist*4;
+        o.y+=dy/dist*2;
+      }
+    }
+    // Collect
+    const dx=player.x-o.x,dy=player.y-o.y;
+    if(Math.sqrt(dx*dx+dy*dy)<player.r+o.r){
+      const pts=Math.floor(o.value*(1+combo*0.1)*(hasDouble?2:1));
+      score+=pts;
+      spawnParticles(o.x,o.y,`hsl(${o.hue},100%,70%)`,8);
+      o.dead=true;
+    }
+  });
+
+  // Update powerups
+  powerups.forEach(p=>{
+    p.y+=effectiveSpeed*0.8;
+    const dx=player.x-p.x,dy=player.y-p.y;
+    if(Math.sqrt(dx*dx+dy*dy)<player.r+18){
+      activatePowerup(p.type);
+      spawnParticles(p.x,p.y,'#fff',15);
+      p.dead=true;
+    }
+  });
+
+  // Powerup timers
+  if(shieldTimer>0){shieldTimer--;if(shieldTimer<=0)hasShield=false}
+  if(magnetTimer>0){magnetTimer--;if(magnetTimer<=0)hasMagnet=false}
+  if(doubleTimer>0){doubleTimer--;if(doubleTimer<=0)hasDouble=false}
+  if(slowmoTimer>0){slowmoTimer--;if(slowmoTimer<=0)hasSlowmo=false}
+
+  // Reset combo if hit wall (handled in collision)
+  // Clean up
+  walls=walls.filter(w=>w.y<H+60);
+  orbs=orbs.filter(o=>!o.dead&&o.y<H+40);
+  powerups=powerups.filter(p=>!p.dead&&p.y<H+40);
+
+  // Particles
+  particles.forEach(p=>{p.x+=p.dx;p.y+=p.dy;p.life-=0.025;p.dx*=.96;p.dy*=.96});
+  particles=particles.filter(p=>p.life>0);
+
+  // Streaks
+  streaks.forEach(s=>{s.life--;s.y-=0.5;s.scale+=(1-s.scale)*0.1});
+  streaks=streaks.filter(s=>s.life>0);
+
+  if(shakeTimer>0)shakeTimer--;
+}
+
+function draw(){
+  // Shake
+  const sx=shakeTimer>0?(Math.random()-.5)*shakeTimer:0;
+  const sy=shakeTimer>0?(Math.random()-.5)*shakeTimer:0;
+
+  // BG
+  ctx_bg(sx,sy);
+
+  if(state!=='playing'&&state!=='gameover_anim'){
+    requestAnimationFrame(draw);return;
+  }
+
+  X.save();
+  X.translate(sx,sy);
+
+  const totalW=laneW()*LANE_COUNT;
+  const startX=(W-totalW)/2;
+
+  // Lane lines
+  for(let i=0;i<=LANE_COUNT;i++){
+    const lx=startX+i*laneW();
+    X.strokeStyle='rgba(255,0,255,0.12)';
+    X.lineWidth=1;
+    X.setLineDash([8,12]);
+    X.beginPath();X.moveTo(lx,0);X.lineTo(lx,H);X.stroke();
+    X.setLineDash([]);
+  }
+
+  // Scrolling grid effect
+  const gridOffset=(gameTime*gameSpeed*0.5)%40;
+  X.strokeStyle='rgba(255,0,255,0.04)';
+  for(let y=-40+gridOffset;y<H;y+=40){
+    X.beginPath();X.moveTo(startX,y);X.lineTo(startX+totalW,y);X.stroke();
+  }
+
+  // Walls
+  walls.forEach(w=>{
+    for(let i=0;i<LANE_COUNT;i++){
+      if(!w.blocked[i])continue;
+      const wx=startX+i*laneW();
+      const a=w.passed?0.2:0.8;
+      // Glow
+      X.shadowColor=`hsla(${w.hue},100%,60%,${a})`;X.shadowBlur=15;
+      X.fillStyle=`hsla(${w.hue},100%,50%,${a*0.8})`;
+      X.fillRect(wx+2,w.y-4,laneW()-4,8);
+      // Inner bright line
+      X.fillStyle=`hsla(${w.hue},100%,80%,${a})`;
+      X.fillRect(wx+4,w.y-1,laneW()-8,2);
+      X.shadowBlur=0;
+    }
+    // Gap indicators (safe lanes glow green)
+    if(!w.passed&&w.y>-20&&w.y<H*0.3){
+      for(let i=0;i<LANE_COUNT;i++){
+        if(w.blocked[i])continue;
+        X.fillStyle='rgba(0,255,100,0.06)';
+        X.fillRect(startX+i*laneW(),w.y-20,laneW(),40);
+      }
+    }
+  });
+
+  // Orbs
+  orbs.forEach(o=>{
+    const pulse=1+Math.sin(gameTime*0.1+o.y*0.05)*0.15;
+    X.shadowColor=`hsl(${o.hue},100%,60%)`;X.shadowBlur=12;
+    X.fillStyle=`hsl(${o.hue},100%,65%)`;
+    X.beginPath();X.arc(o.x,o.y,o.r*pulse,0,Math.PI*2);X.fill();
+    // Inner glow
+    X.fillStyle=`hsl(${o.hue},100%,90%)`;
+    X.beginPath();X.arc(o.x,o.y,o.r*pulse*0.4,0,Math.PI*2);X.fill();
+    X.shadowBlur=0;
+  });
+
+  // Powerups
+  powerups.forEach(p=>{
+    const bob=Math.sin(gameTime*0.08+p.y*0.03)*4;
+    X.font='20px serif';X.textAlign='center';X.textBaseline='middle';
+    X.shadowColor='#fff';X.shadowBlur=15;
+    X.fillText(p.emoji,p.x,p.y+bob);
+    X.shadowBlur=0;
+  });
+
+  // Player
+  const playerGlow=hasShield?'#4f4':hasDouble?'#ff0':hasMagnet?'#f4f':'#f0f';
+  // Trail
+  X.fillStyle=`${playerGlow}22`;
+  X.beginPath();X.arc(player.x,player.y+8,player.r*1.5,0,Math.PI*2);X.fill();
+
+  // Ship body - triangle
+  X.shadowColor=playerGlow;X.shadowBlur=20;
+  X.fillStyle=playerGlow;
+  X.beginPath();
+  X.moveTo(player.x,player.y-player.r);
+  X.lineTo(player.x-player.r*0.8,player.y+player.r*0.6);
+  X.lineTo(player.x+player.r*0.8,player.y+player.r*0.6);
+  X.closePath();X.fill();
+  // Inner
+  X.fillStyle='#fff';
+  X.beginPath();
+  X.moveTo(player.x,player.y-player.r*0.5);
+  X.lineTo(player.x-player.r*0.3,player.y+player.r*0.2);
+  X.lineTo(player.x+player.r*0.3,player.y+player.r*0.2);
+  X.closePath();X.fill();
+  X.shadowBlur=0;
+
+  // Shield visual
+  if(hasShield){
+    const sa=0.3+Math.sin(gameTime*0.08)*0.15;
+    X.strokeStyle=`rgba(0,255,100,${sa})`;X.lineWidth=2;
+    X.beginPath();X.arc(player.x,player.y,player.r+8,0,Math.PI*2);X.stroke();
+    X.lineWidth=1;
+  }
+
+  // Engine particles
+  if(Math.random()<0.6){
+    particles.push({
+      x:player.x+(Math.random()-.5)*8,
+      y:player.y+player.r+Math.random()*4,
+      dx:(Math.random()-.5)*1.5,dy:Math.random()*2+1,
+      life:.6,color:playerGlow,size:Math.random()*3+1
+    });
+  }
+
+  // Particles
+  particles.forEach(p=>{
+    X.globalAlpha=p.life;X.fillStyle=p.color;
+    X.fillRect(p.x-p.size/2,p.y-p.size/2,p.size,p.size);
+  });X.globalAlpha=1;
+
+  // Streaks
+  streaks.forEach(s=>{
+    X.globalAlpha=Math.min(1,s.life/15);
+    X.font=`${Math.floor(16*s.scale)}px "Press Start 2P"`;
+    X.textAlign='center';X.fillStyle=s.color;
+    X.shadowColor=s.color;X.shadowBlur=20;
+    X.fillText(s.text,W/2,s.y);
+    X.shadowBlur=0;
+  });X.globalAlpha=1;
+
+  X.restore();
+
+  // HUD
+  X.font='14px "Press Start 2P"';X.textAlign='left';
+  X.fillStyle='#f0f';X.fillText(`${score}`,12,28);
+  X.font='9px "Press Start 2P"';
+  X.fillStyle='#888';X.fillText('SCORE',12,14);
+
+  // Combo
+  if(combo>0){
+    const cs=Math.min(1.5,1+combo*0.005);
+    X.font=`${Math.floor(12*cs)}px "Press Start 2P"`;
+    X.textAlign='right';
+    X.fillStyle=combo>=50?'#f0f':combo>=25?'#ff0':combo>=10?'#f80':'#0ff';
+    X.shadowColor=X.fillStyle;X.shadowBlur=combo>10?10:0;
+    X.fillText(`${combo}x`,W-12,28);
+    X.shadowBlur=0;
+    X.font='9px "Press Start 2P"';X.fillStyle='#888';
+    X.fillText('COMBO',W-12,14);
+  }
+
+  // Speed indicator
+  X.font='8px "Press Start 2P"';X.textAlign='center';
+  X.fillStyle='#444';
+  X.fillText(`SPD ${gameSpeed.toFixed(1)}`,W/2,14);
+
+  // Active powerups
+  let puY=42;X.textAlign='left';X.font='8px "Press Start 2P"';
+  if(hasShield){X.fillStyle='#4f4';X.fillText(`🛡️ ${Math.ceil(shieldTimer/60)}s`,12,puY);puY+=14}
+  if(hasMagnet){X.fillStyle='#f4f';X.fillText(`🧲 ${Math.ceil(magnetTimer/60)}s`,12,puY);puY+=14}
+  if(hasDouble){X.fillStyle='#ff0';X.fillText(`✨ ${Math.ceil(doubleTimer/60)}s`,12,puY);puY+=14}
+  if(hasSlowmo){X.fillStyle='#4af';X.fillText(`🕐 ${Math.ceil(slowmoTimer/60)}s`,12,puY)}
+
+  // Mobile hint
+  X.textAlign='center';X.fillStyle='#222';X.font='7px "Press Start 2P"';
+  X.fillText('← TAP LEFT | TAP RIGHT →',W/2,H-10);
+}
+
+function ctx_bg(sx,sy){
+  X.fillStyle='#050510';X.fillRect(0,0,W,H);
+  // Subtle vignette
+  const vg=X.createRadialGradient(W/2,H/2,H*0.3,W/2,H/2,H*0.8);
+  vg.addColorStop(0,'transparent');vg.addColorStop(1,'rgba(0,0,0,0.4)');
+  X.fillStyle=vg;X.fillRect(0,0,W,H);
+  // Stars
+  for(let i=0;i<40;i++){
+    const sx2=(i*211+gameTime*0.2)%W;
+    const sy2=(i*167+gameTime*(0.3+i*0.01))%H;
+    X.fillStyle=`rgba(255,255,255,${0.1+Math.sin(gameTime*0.01+i)*.08})`;
+    X.fillRect(sx2,sy2,1,1);
+  }
+}
+
+function showMenu(){
+  state='menu';
+  ui.innerHTML=`<div class="panel">
+    <h1>⚡ NEON SURGE</h1>
+    <p>Dodge neon walls. Collect orbs. Build combos.<br>
+    Speed increases forever — how long can you survive?<br><br>
+    🟢 Green orbs = 10 pts &nbsp; 🔵 Blue = 25 pts &nbsp; 🟡 Gold = 50 pts<br>
+    Combo multiplier builds each wall you dodge!<br><br>
+    🛡️ Shield — survive one hit<br>
+    🧲 Magnet — pulls orbs to you<br>
+    ✨ Double — 2x points<br>
+    🕐 Slow-Mo — slows everything down</p>
+    <p>⌨️ A/D or ←→ &nbsp; 📱 Tap left/right or swipe</p>
+    <button class="btn" id="go">SURGE</button>
+  </div>`;
+  document.getElementById('go').onclick=()=>{ui.innerHTML='';state='playing';reset()};
+}
+
+function showGameOver(){
+  state='gameover';
+  bestCombo=maxCombo;
+  ui.innerHTML=`<div class="panel">
+    <h1>💥 CRASHED</h1>
+    <h2>Score: ${score}</h2>
+    <p>Best Combo: ${maxCombo}x • Speed: ${gameSpeed.toFixed(1)} • Time: ${Math.floor(gameTime/60)}s</p>
+    <input type="text" id="ni" placeholder="Your name" maxlength="16">
+    <br><button class="btn" id="sub" style="margin-top:10px">SUBMIT</button>
+    <div id="lba"></div>
+    <button class="btn" id="rep" style="margin-top:10px">AGAIN</button>
+  </div>`;
+  document.getElementById('sub').onclick=async()=>{
+    const n=document.getElementById('ni').value.trim()||'Anonymous';
+    document.getElementById('sub').textContent='...';
+    await submitScore(n,score);
+    const sc=await getLeaderboard();
+    document.getElementById('lba').innerHTML='<div class="lb"><h2>🏆 TOP 10</h2>'+
+      sc.map((s,i)=>`<div><span class="lr">#${i+1}</span> ${s.playerName} <span class="ls">${s.score}</span></div>`).join('')+'</div>';
+    document.getElementById('sub').style.display='none';
+  };
+  document.getElementById('rep').onclick=()=>{ui.innerHTML='';state='playing';reset()};
+}
+
+function loop(){update();draw();requestAnimationFrame(loop)}
+showMenu();loop();
+</script>
+</body>
+</html>
