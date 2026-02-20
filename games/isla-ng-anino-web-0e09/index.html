@@ -52,7 +52,7 @@ class GameScene extends Phaser.Scene{
   create(){
     this.physics.world.setBounds(-1600,-1000,3200,2000);
     this.elapsed=0; this.score=0; this.bonus=0; this.wave=0; this.crops=0; this.kidsCaught=0; this.mode='day'; this.nextWaveAt=0;
-    this.hero={hp:140,maxHp:140,stam:100,maxStam:100,speed:220,atk:28,rollCd:0,atkCd:0,inv:0};
+    this.hero={hp:140,maxHp:140,stam:100,maxStam:100,speed:220,atk:28,rollCd:0,atkCd:0,inv:0,weaponLevel:1,weaponName:'Pistol'};
 
     // Island world (water around, land center)
     const gg=this.add.graphics();
@@ -101,29 +101,34 @@ class GameScene extends Phaser.Scene{
     this.playerBullets=this.physics.add.group();
 
     this.spawnCrops(48);
-    this.spawnKids(8);
+    this.spawnKids(14);
 
     this.keys=this.input.keyboard.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,J,K,E,SPACE');
 
     this.physics.add.overlap(this.player,this.cropGroup,(p,c)=>{if(this.mode!=='day')return; c.destroy(); this.crops++; this.bonus+=22; sfx(790,.05,.09,'triangle')});
-    this.physics.add.overlap(this.player,this.kidGroup,(p,k)=>{if(this.mode!=='day')return; k.destroy(); this.kidsCaught++; this.bonus+=45; sfx(910,.06,.1,'triangle'); this.time.delayedCall(1200,()=>this.spawnKids(1));});
+    this.physics.add.overlap(this.player,this.kidGroup,(p,k)=>{if(this.mode!=='day')return; k.destroy(); this.kidsCaught++; this.bonus+=45; sfx(910,.06,.1,'triangle'); if(this.kidsCaught%5===0)this.applyWeaponUpgrade(); this.time.delayedCall(900,()=>this.spawnKids(1));});
     this.physics.add.overlap(this.player,this.spitGroup,(p,b)=>{if(this.hero.inv>0)return; b.destroy(); this.hit(10)});
     this.physics.add.overlap(this.player,this.enemyGroup,(p,e)=>{if(this.hero.inv>0)return; if(!e.getData('hitAt')||this.time.now-e.getData('hitAt')>420){e.setData('hitAt',this.time.now); this.hit(12)}});
-    this.physics.add.overlap(this.playerBullets,this.enemyGroup,(b,e)=>{b.destroy(); e.setData('hp',e.getData('hp')-22); e.setTint(0xfff2a8); this.time.delayedCall(40,()=>e.clearTint()); if(e.getData('hp')<=0){this.score+=35;this.bonus+=12;e.destroy();sfx(540,.05,.1,'triangle')}});
+    this.physics.add.overlap(this.playerBullets,this.enemyGroup,(b,e)=>{const dmg=b.damage||22; b.destroy(); e.setData('hp',e.getData('hp')-dmg); e.setTint(0xfff2a8); this.time.delayedCall(40,()=>e.clearTint()); if(b.rocket){this.enemyGroup.getChildren().forEach(t=>{if(t===e)return; const d=Phaser.Math.Distance.Between(e.x,e.y,t.x,t.y); if(d<80)t.setData('hp',t.getData('hp')-12);}); this.cameras.main.shake(80,.004);} if(e.getData('hp')<=0){this.score+=35;this.bonus+=12;e.destroy();sfx(540,.05,.1,'triangle')}});
 
     this.input.on('pointerdown',p=>{if(this.dead)return; this.shootGun(p.worldX,p.worldY)});
 
     this.cam=this.cameras.main; this.cam.startFollow(this.player,true,.12,.12); this.cam.setBounds(-1600,-1000,3200,2000);
     this.hud=this.add.text(10,8,'',{fontFamily:'VT323',fontSize:34,color:'#fff',stroke:'#000',strokeThickness:4}).setScrollFactor(0).setDepth(20);
     this.nameTag=this.add.text(this.player.x,this.player.y-56,'GODWIN PANG',{fontFamily:'VT323',fontSize:36,color:'#ffd27d',stroke:'#000',strokeThickness:6}).setOrigin(0.5).setDepth(21);
+    this.quoteText=this.add.text(this.player.x,this.player.y-92,'',{fontFamily:'VT323',fontSize:26,color:'#ffffff',stroke:'#000',strokeThickness:5}).setOrigin(0.5).setDepth(21);
+    this.quotes=["You'll never catch me!",'Move, move!','Island life, no surrender!','Keep up if you can!'];
+    this.nextQuoteAt=0;
   }
 
   randomIslandPoint(minR=0,maxR=780){const a=Math.random()*Math.PI*2,r=Phaser.Math.Between(minR,maxR);return{x:Math.cos(a)*r,y:Math.sin(a)*r}}
   spawnCrops(n){for(let i=0;i<n;i++){const p=this.randomIslandPoint(60,760);this.cropGroup.create(p.x,p.y,'crop')}}
-  spawnKids(n){for(let i=0;i<n;i++){const p=this.randomIslandPoint(80,740);const k=this.kidGroup.create(p.x,p.y,'kid');k.setData('spd',60+Math.random()*35);k.body.setSize(14,16).setOffset(3,3)}}
-  spawnWave(n){for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,d=Phaser.Math.Between(860,980);const e=this.enemyGroup.create(Math.cos(a)*d,Math.sin(a)*d,'fbi');const hp=Math.round(28+this.wave*6);e.setData('hp',hp);e.setData('spd',72+this.wave*6+Math.random()*14);e.body.setSize(20,20).setOffset(3,3)}}
+  spawnKids(n){for(let i=0;i<n;i++){const p=this.randomIslandPoint(80,740);const k=this.kidGroup.create(p.x,p.y,'kid');k.setData('spd',70+Math.random()*45);k.body.setSize(14,16).setOffset(3,3)}}
+  spawnWave(n){for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,d=Phaser.Math.Between(860,980);const e=this.enemyGroup.create(Math.cos(a)*d,Math.sin(a)*d,'fbi');const r=Math.random();let type='agent';if(r>0.92)type='heli';else if(r>0.74)type='swat';const hp=Math.round((type==='swat'?42:type==='heli'?58:28)+this.wave*6);e.setData('hp',hp);e.setData('type',type);e.setData('spd',(type==='swat'?84:type==='heli'?66:72)+this.wave*6+Math.random()*14);if(type==='swat')e.setTint(0x9dc0ff);if(type==='heli')e.setTint(0xffd27d);e.body.setSize(20,20).setOffset(3,3)}}
 
-  shootGun(tx,ty){if(this.time.now<(this._gunCd||0))return; this._gunCd=this.time.now+140; sfx(360,.05,.09,'square'); const a=Math.atan2(ty-this.player.y,tx-this.player.x); const b=this.playerBullets.create(this.player.x,this.player.y,'spit'); b.setTint(0x9cf5ff); b.setScale(1.1); b.setVelocity(Math.cos(a)*520,Math.sin(a)*520); b.life=1400;}
+  shootGun(tx,ty){if(this.time.now<(this._gunCd||0))return; const lvl=this.hero.weaponLevel; const spread=lvl>=3?0.12:0.05; const bullets=lvl>=4?3:lvl>=2?2:1; const cd=lvl>=4?70:lvl>=3?90:lvl>=2?110:140; this._gunCd=this.time.now+cd; sfx(360,.05,.09,'square'); const a=Math.atan2(ty-this.player.y,tx-this.player.x); for(let i=0;i<bullets;i++){const off=(i-(bullets-1)/2)*spread; const b=this.playerBullets.create(this.player.x,this.player.y,'spit'); b.setTint(lvl>=4?0xffb347:lvl>=3?0xff8b6a:0x9cf5ff); b.setScale(lvl>=3?1.4:1.1); b.setVelocity(Math.cos(a+off)*(lvl>=3?620:520),Math.sin(a+off)*(lvl>=3?620:520)); b.life=1400; b.damage=lvl>=4?38:lvl>=3?30:lvl>=2?24:22; b.rocket=lvl>=3;} }
+
+  applyWeaponUpgrade(){this.hero.weaponLevel=Math.min(4,this.hero.weaponLevel+1);const names=['Pistol','SMG','Machine Gun','Rocket Launcher'];this.hero.weaponName=names[this.hero.weaponLevel-1];this.bonus+=120;sfx(980,.09,.12,'triangle');this.showQuote('UPGRADE: '+this.hero.weaponName+'!');}
 
   attack(){if(this.time.now<this.hero.atkCd)return; this.hero.atkCd=this.time.now+260; sfx(260,.08,.12,'sawtooth');
     const slash=this.add.circle(this.player.x,this.player.y,56,0xffffff,.1); this.tweens.add({targets:slash,alpha:0,scale:1.35,duration:120,onComplete:()=>slash.destroy()});
@@ -139,15 +144,22 @@ class GameScene extends Phaser.Scene{
 
   switchMode(m){if(this.mode===m)return; this.mode=m;
     if(m==='night'){this.cameras.main.flash(320,80,0,120); this.wave++; this.spawnWave(8+this.wave*2); this.bonus+=100;}
-    else{this.cameras.main.flash(280,180,240,255); this.spawnCrops(20); this.spawnKids(2); this.bonus+=70;}
+    else{this.cameras.main.flash(280,180,240,255); this.spawnCrops(20); this.spawnKids(4); this.bonus+=70;}
   }
 
   enemyAI(time,delta){this.enemyGroup.getChildren().forEach(e=>{
     const dx=this.player.x-e.x,dy=this.player.y-e.y,d=Math.hypot(dx,dy)||1;
+    const type=e.getData('type')||'agent';
     const s=e.getData('spd')*(this.mode==='night'?1.18:.75);
-    e.setVelocity((dx/d)*s,(dy/d)*s);
-    if(this.mode==='night'&&(!e.getData('shot')||time-e.getData('shot')>1200+Math.random()*650)){
-      e.setData('shot',time); const b=this.spitGroup.create(e.x,e.y,'spit'); const a=Math.atan2(dy,dx),sp=210+this.wave*10; b.setVelocity(Math.cos(a)*sp,Math.sin(a)*sp); b.life=2800;
+    if(type==='heli'){
+      const ang=(time*0.001)+(e.x*0.0007);
+      e.setVelocity(Math.cos(ang)*s*0.7 + (dx/d)*s*0.5, Math.sin(ang)*s*0.7 + (dy/d)*s*0.5);
+    }else{
+      e.setVelocity((dx/d)*s,(dy/d)*s);
+    }
+    const shotCd=type==='swat'?900:type==='heli'?700:1200;
+    if(this.mode==='night'&&(!e.getData('shot')||time-e.getData('shot')>shotCd+Math.random()*400)){
+      e.setData('shot',time); const b=this.spitGroup.create(e.x,e.y,'spit'); const a=Math.atan2(dy,dx),sp=(type==='heli'?260:type==='swat'?235:210)+this.wave*10; b.setVelocity(Math.cos(a)*sp,Math.sin(a)*sp); b.life=2800; if(type==='heli')b.setTint(0xffd27d);
     }
   });
   this.spitGroup.getChildren().forEach(b=>{b.life-=delta;if(b.life<=0)b.destroy()});
@@ -184,25 +196,29 @@ class GameScene extends Phaser.Scene{
       if(d<140){this.hero.hp=Math.min(this.hero.maxHp,this.hero.hp+25); this.bonus+=40; sfx(680,.09,.1,'triangle');}
     }
 
-    if(this.mode==='night'&&time>this.nextWaveAt){this.wave++; this.spawnWave(Math.min(30,6+this.wave*2)); this.nextWaveAt=time+3600;}
+    if(this.mode==='night'&&time>this.nextWaveAt){this.wave++; this.spawnWave(Math.min(36,8+this.wave*2)); this.nextWaveAt=time+3400;}
     this.kidAI();
     this.enemyAI(time,delta);
 
+    if(time>this.nextQuoteAt){this.showQuote(this.quotes[Math.floor(Math.random()*this.quotes.length)]); this.nextQuoteAt=time+7000;}
     this.score=Math.floor(this.elapsed*10)+this.bonus;
     this.nameTag.setPosition(this.player.x,this.player.y-56);
-    this.hud.setText(`HP ${Math.ceil(this.hero.hp)}/${this.hero.maxHp}  STAM ${Math.ceil(this.hero.stam)}\n${this.mode.toUpperCase()}  FBI Wave ${this.wave}  Crops ${this.crops}  Kids ${this.kidsCaught}  Score ${this.score}`);
+    this.quoteText.setPosition(this.player.x,this.player.y-92);
+    this.hud.setText(`HP ${Math.ceil(this.hero.hp)}/${this.hero.maxHp}  STAM ${Math.ceil(this.hero.stam)}\n${this.mode.toUpperCase()}  FBI Wave ${this.wave}  Crops ${this.crops}  Runaways ${this.kidsCaught}  ${this.hero.weaponName}  Score ${this.score}`);
   }
 
+  showQuote(t){this.quoteText.setText(t); this.quoteText.setAlpha(1); this.tweens.killTweensOf(this.quoteText); this.tweens.add({targets:this.quoteText,alpha:0,duration:2200,ease:'Quad.easeOut'});}
+
   gameOver(){if(this.dead)return; this.dead=true; this.player.setTint(0xff4444); this.player.setVelocity(0,0); this.cam.shake(280,.013); sfx(80,.5,.2,'sawtooth');
-    this.time.delayedCall(500,()=>{this.scene.pause();showGameOver(this.score,Math.floor(this.elapsed),this.crops,this.kidsCaught,this.wave)});
+    this.time.delayedCall(500,()=>{this.scene.pause();showGameOver(this.score,Math.floor(this.elapsed),this.crops,this.kidsCaught,this.wave,this.hero.weaponName)});
   }
 }
 
 new Phaser.Game({type:Phaser.AUTO,width:1280,height:720,backgroundColor:'#0e1730',physics:{default:'arcade',arcade:{gravity:{y:0},debug:false}},scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},scene:[MenuScene,GameScene]});
 
-function showGameOver(score,sec,crops,kids,wave){
+function showGameOver(score,sec,crops,kids,wave,weapon){
   const ui=document.getElementById('ui'),p=document.getElementById('panel'); ui.style.display='flex';
-  p.innerHTML=`<h2>You Died</h2><p>Score: <b>${score}</b><br>Time: ${sec}s • Crops: ${crops} • Kids Caught: ${kids} • Highest FBI Wave: ${wave}</p><input id="nm" placeholder="name" maxlength="16"><button id="sub">Submit Score</button><div id="lb" class="lb"></div><button id="re">Play Again</button>`;
+  p.innerHTML=`<h2>You Died</h2><p>Score: <b>${score}</b><br>Time: ${sec}s • Crops: ${crops} • Kids Caught: ${kids} • Highest FBI Wave: ${wave} • Weapon: ${weapon}</p><input id="nm" placeholder="name" maxlength="16"><button id="sub">Submit Score</button><div id="lb" class="lb"></div><button id="re">Play Again</button>`;
   document.getElementById('sub').onclick=async()=>{const n=(document.getElementById('nm').value||'Anonymous').trim();await submitScore(n,score);const rows=await getLeaderboard();document.getElementById('lb').innerHTML=rows.map((r,i)=>`<div><span>#${i+1} ${r.playerName}</span><span>${r.score}</span></div>`).join('');document.getElementById('sub').style.display='none'};
   document.getElementById('re').onclick=()=>location.reload();
 }
