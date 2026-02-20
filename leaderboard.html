@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Leaderboards — Game Hub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a0f;
+    color: #e0e0e0;
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100vh;
+  }
+
+  header {
+    text-align: center;
+    padding: 3rem 1rem 1.5rem;
+    border-bottom: 1px solid rgba(108, 92, 231, 0.2);
+  }
+
+  header h1 {
+    font-family: 'Space Mono', monospace;
+    font-size: 2.5rem;
+    color: #fff;
+    letter-spacing: -1px;
+  }
+
+  header h1 span { color: #6c5ce7; }
+
+  header p {
+    margin-top: 0.5rem;
+    color: #888;
+    font-size: 1rem;
+  }
+
+  nav {
+    text-align: center;
+    padding: 1rem;
+  }
+
+  nav a {
+    color: #6c5ce7;
+    text-decoration: none;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.9rem;
+    padding: 0.5rem 1.2rem;
+    border: 1px solid rgba(108, 92, 231, 0.3);
+    border-radius: 8px;
+    transition: all 0.2s;
+  }
+
+  nav a:hover {
+    background: rgba(108, 92, 231, 0.1);
+    border-color: #6c5ce7;
+  }
+
+  #container {
+    max-width: 900px;
+    margin: 1.5rem auto;
+    padding: 0 1rem;
+  }
+
+  /* Game selector tabs */
+  .game-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 2rem;
+    justify-content: center;
+  }
+
+  .game-tab {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.85rem;
+    padding: 0.5rem 1.2rem;
+    background: #12121a;
+    border: 1px solid #1e1e2e;
+    border-radius: 8px;
+    color: #aaa;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .game-tab:hover { border-color: #6c5ce7; color: #fff; }
+  .game-tab.active { border-color: #6c5ce7; background: rgba(108, 92, 231, 0.15); color: #fff; }
+
+  /* Leaderboard panel */
+  .lb-panel {
+    display: none;
+    animation: fadeIn 0.3s ease;
+  }
+
+  .lb-panel.active { display: block; }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .lb-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #1e1e2e;
+  }
+
+  .lb-header h2 {
+    font-family: 'Space Mono', monospace;
+    font-size: 1.5rem;
+    color: #fff;
+  }
+
+  .lb-header .play-link {
+    color: #6c5ce7;
+    text-decoration: none;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.85rem;
+    transition: color 0.2s;
+  }
+
+  .lb-header .play-link:hover { color: #a29bfe; }
+
+  .lb-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .lb-table th {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.75rem;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    text-align: left;
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid #1e1e2e;
+  }
+
+  .lb-table th:last-child { text-align: right; }
+
+  .lb-table td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid rgba(30, 30, 46, 0.5);
+    font-size: 0.95rem;
+  }
+
+  .lb-table td:last-child {
+    text-align: right;
+    font-family: 'Space Mono', monospace;
+    font-weight: 700;
+    color: #fff;
+  }
+
+  .lb-table tr { transition: background 0.15s; }
+  .lb-table tr:hover { background: rgba(108, 92, 231, 0.05); }
+
+  .rank { font-family: 'Space Mono', monospace; font-weight: 700; width: 50px; }
+  .rank-1 { color: #ffd700; }
+  .rank-2 { color: #c0c0c0; }
+  .rank-3 { color: #cd7f32; }
+  .rank-other { color: #555; }
+
+  .medal { font-size: 1.2rem; margin-right: 4px; }
+
+  .player-name { color: #e0e0e0; }
+
+  .empty-lb {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: #555;
+    font-size: 1rem;
+  }
+
+  .empty-lb span { font-size: 2rem; display: block; margin-bottom: 0.5rem; }
+
+  .loading {
+    text-align: center;
+    padding: 3rem;
+    color: #555;
+  }
+
+  .loading .spinner {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    border: 2px solid #333;
+    border-top-color: #6c5ce7;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 1rem;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .desc-text {
+    color: #888;
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+  }
+
+  @media (max-width: 600px) {
+    header h1 { font-size: 1.8rem; }
+    .lb-table td, .lb-table th { padding: 0.5rem 0.6rem; font-size: 0.85rem; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🏆 <span>Leaderboards</span></h1>
+  <p>See who's on top across all games</p>
+</header>
+<nav>
+  <a href="index.html">← Back to Games</a>
+</nav>
+<div id="container">
+  <div class="game-tabs" id="tabs"></div>
+  <div id="panels"></div>
+</div>
+
+<script>
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+(async () => {
+  const tabsEl = document.getElementById('tabs');
+  const panelsEl = document.getElementById('panels');
+
+  // Load games list
+  let games = [];
+  try {
+    const res = await fetch('games.json');
+    const data = await res.json();
+    games = data.games || [];
+  } catch (e) {
+    panelsEl.innerHTML = '<div class="empty-lb"><span>⚠️</span>Failed to load games.</div>';
+    return;
+  }
+
+  if (games.length === 0) {
+    panelsEl.innerHTML = '<div class="empty-lb"><span>🎮</span>No games yet — ask the bot to make one!</div>';
+    return;
+  }
+
+  // Sort newest first
+  games.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  // Create tabs and panels
+  games.forEach((game, i) => {
+    // Tab
+    const tab = document.createElement('button');
+    tab.className = 'game-tab' + (i === 0 ? ' active' : '');
+    tab.textContent = game.title;
+    tab.dataset.slug = game.slug;
+    tab.addEventListener('click', () => switchTab(game.slug));
+    tabsEl.appendChild(tab);
+
+    // Panel
+    const panel = document.createElement('div');
+    panel.className = 'lb-panel' + (i === 0 ? ' active' : '');
+    panel.id = 'panel-' + game.slug;
+    panel.innerHTML = `
+      <div class="lb-header">
+        <div>
+          <h2>${escHtml(game.title)}</h2>
+          <p class="desc-text">${escHtml(game.description)}</p>
+        </div>
+        <a class="play-link" href="games/${encodeURIComponent(game.slug)}/index.html">Play →</a>
+      </div>
+      <div class="loading"><div class="spinner"></div><br>Loading scores...</div>
+    `;
+    panelsEl.appendChild(panel);
+  });
+
+  // Load first game's leaderboard
+  loadLeaderboard(games[0].slug);
+
+  function switchTab(slug) {
+    document.querySelectorAll('.game-tab').forEach(t => t.classList.toggle('active', t.dataset.slug === slug));
+    document.querySelectorAll('.lb-panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + slug));
+    // Load if not already loaded
+    const panel = document.getElementById('panel-' + slug);
+    if (panel.querySelector('.loading')) loadLeaderboard(slug);
+  }
+
+  async function loadLeaderboard(slug) {
+    const panel = document.getElementById('panel-' + slug);
+    const contentArea = panel.querySelector('.loading') || panel.querySelector('.lb-content');
+    
+    try {
+      const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${slug}&limit=25`);
+      const data = await res.json();
+      const scores = data.scores || [];
+
+      if (scores.length === 0) {
+        if (contentArea) contentArea.outerHTML = '<div class="empty-lb"><span>👻</span>No scores yet — be the first to play!</div>';
+        return;
+      }
+
+      const medals = ['🥇', '🥈', '🥉'];
+      const rows = scores.map((s, i) => {
+        const rankClass = i < 3 ? `rank-${i + 1}` : 'rank-other';
+        const medal = i < 3 ? `<span class="medal">${medals[i]}</span>` : '';
+        return `<tr>
+          <td class="rank ${rankClass}">${medal}${i + 1}</td>
+          <td class="player-name">${escHtml(s.playerName)}</td>
+          <td>${s.score.toLocaleString()}</td>
+        </tr>`;
+      }).join('');
+
+      const html = `<div class="lb-content"><table class="lb-table">
+        <thead><tr><th>Rank</th><th>Player</th><th>Score</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+
+      if (contentArea) contentArea.outerHTML = html;
+    } catch (e) {
+      if (contentArea) contentArea.outerHTML = '<div class="empty-lb"><span>⚠️</span>Couldn\'t load leaderboard. Try again later.</div>';
+    }
+  }
+})();
+
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+</script>
+</body>
+</html>
