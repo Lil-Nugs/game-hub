@@ -3,121 +3,138 @@
     {
       "slug": "pong-ba5d",
       "title": "Pong",
-      "description": "Classic pong — you vs AI. First to 7 wins!",
+      "description": "Classic pong \u2014 you vs AI. First to 7 wins!",
       "creator": "lilnug",
-      "date": "2025-02-17T00:00:00Z"
+      "date": "2025-02-17T00:00:00Z",
+      "model": "unknown"
     },
     {
       "slug": "rogue-pong-c911",
       "title": "Rogue Pong",
       "description": "Endless roguelite pong with pick-3 upgrades. Return the ball past the enemy, choose upgrades every 5 returns, compete for the highest score!",
       "creator": "lilnug",
-      "date": "2026-02-20T04:21:20.042Z"
+      "date": "2026-02-20T04:21:20.042Z",
+      "model": "codex"
     },
     {
       "slug": "vessel-matt-f467",
       "title": "Matt's Vessel",
       "description": "Roguelike dungeon crawler. Find oblong objects and insert them into Matt, the sacred vessel. Fight enemies, pick upgrades, go deeper.",
       "creator": "goob2037",
-      "date": "2026-02-20T04:23:36.095Z"
+      "date": "2026-02-20T04:23:36.095Z",
+      "model": "codex"
     },
     {
       "slug": "tower-siege-236e",
       "title": "Tower Siege",
       "description": "Endless tower defense with roguelite pick-3 upgrades every 5 waves. 4 tower types, scaling enemies, boss waves. Compete for the highest score!",
       "creator": "lilnug",
-      "date": "2026-02-20T04:30:04.574Z"
+      "date": "2026-02-20T04:30:04.574Z",
+      "model": "codex"
     },
     {
       "slug": "neon-surge-eb8d",
       "title": "Sky Drift",
       "description": "Cute bird lane-dodger. Fly through cloud gaps, collect coins, build combos. Sky shifts from day to sunset as speed ramps. Chill start, intense finish.",
       "creator": "lilnug",
-      "date": "2026-02-20T04:44:58.136Z"
+      "date": "2026-02-20T04:44:58.136Z",
+      "model": "codex"
     },
     {
       "slug": "zombie-march-ab54",
       "title": "Kawaii Killzone",
       "description": "March your adorable army through zombie hordes. Choose gates to grow your squad, pick up weapons, break barriers. Fortnite-HelloKitty-Zombie-core aesthetic.",
       "creator": "lilnug",
-      "date": "2026-02-20T04:55:48.539Z"
+      "date": "2026-02-20T04:55:48.539Z",
+      "model": "codex"
     },
     {
       "slug": "jjk-battle-d12b",
       "title": "Jujutsu Tots",
       "description": "JJK-themed toddler battle logic game. Pick the right cursed technique to counter baby curses. 5-way type matchup system, streak bonuses, boss fights.",
       "creator": "jgoodo",
-      "date": "2026-02-20T05:34:02.928Z"
+      "date": "2026-02-20T05:34:02.928Z",
+      "model": "codex"
     },
     {
       "slug": "kawaii-survivors-f8e9",
       "title": "Kawaii Survivors",
       "description": "Vampire Survivors-style top-down roguelite. Pick starter weapon, auto-attack waves of pixel monsters, level up with pick-3 upgrades, shop with gold, random drops. Pixel-hellokitty-darkcore aesthetic.",
       "creator": "lilnug",
-      "date": "2026-02-20T05:51:46.294Z"
+      "date": "2026-02-20T05:51:46.294Z",
+      "model": "codex"
     },
     {
       "slug": "eggplant-juice-4e8f",
       "title": "Eggplant Juicer",
       "description": "Drag vigorously to juice eggplants. 5 levels of increasingly thicc eggplants.",
       "creator": "billyhoho",
-      "date": "2026-02-20T06:02:48.100Z"
+      "date": "2026-02-20T06:02:48.100Z",
+      "model": "codex"
     },
     {
       "slug": "isla-ng-anino-e73e",
       "title": "Isla ng Anino",
       "description": "Cozy Philippine island farming by day, hardcore 2D soulslike survival by night. Play as Godwin Pang (pixel-art inspired).",
       "creator": "jgoodo",
-      "date": "2026-02-20T06:41:48.256Z"
+      "date": "2026-02-20T06:41:48.256Z",
+      "model": "codex"
     },
     {
       "slug": "lane-surge-326e",
       "title": "Lane Surge",
       "description": "Lane-based auto-shooter roguelite with fighter tiers, merges, gates, weapon modifiers, boss fight, and permanent upgrades.",
       "creator": "vimgo",
-      "date": "2026-02-20T07:02:44.533Z"
+      "date": "2026-02-20T07:02:44.533Z",
+      "model": "codex"
     },
     {
       "slug": "omegaverse-8fc4",
       "title": "OMEGAVERSE (SFW)",
       "description": "Chaotic SFW hotdog survival game. Runners eat hotdogs, split into new runners, and dodge hazards for score.",
       "creator": "jeison",
-      "date": "2026-02-20T07:04:39.968Z"
+      "date": "2026-02-20T07:04:39.968Z",
+      "model": "codex"
     },
     {
       "slug": "island-front-377f",
       "title": "Island Front: Keenan",
       "description": "Island survival fighter with amphibious enemy landings, weapon unlock progression, and rally callouts.",
       "creator": "jgoodo",
-      "date": "2026-02-20T07:08:04.795Z"
+      "date": "2026-02-20T07:08:04.795Z",
+      "model": "codex"
     },
     {
       "slug": "lane-surge-v2-449e",
       "title": "Lane Surge Turbo",
       "description": "Arcade-juicy rebuild of Lane Surge with bold visuals, punchier FX, and improved readability.",
       "creator": "vimgo",
-      "date": "2026-02-20T07:14:58.608Z"
+      "date": "2026-02-20T07:14:58.608Z",
+      "model": "codex"
     },
     {
       "slug": "dustfront-survivors-7808",
       "title": "Dustfront Survivors",
       "description": "Wild West survivors roguelite with auto-fire, level-up cards, random drops, and shop upgrades.",
       "creator": "lilnug",
-      "date": "2026-02-20T07:22:45.918Z"
+      "date": "2026-02-20T07:22:45.918Z",
+      "model": "codex"
     },
     {
       "slug": "blackbox-mystery-80fc",
       "title": "Blackbox Mystery",
       "description": "Puzzle mystery game revealing only allowed internal capabilities. Collect clues, reach terminal, solve phrase.",
       "creator": "jgoodo",
-      "date": "2026-02-20T07:36:16.158Z"
+      "date": "2026-02-20T07:36:16.158Z",
+      "model": "codex"
     },
     {
       "slug": "survivor-v3-ee38",
       "title": "Ashfall Survivors V3",
       "description": "Fresh V3 survivors clone with pick-3 upgrades, integrated shop, random drops, and polished FE loop.",
       "creator": "lilnug",
-      "date": "2026-02-20T08:24:49.716Z"
+      "date": "2026-02-20T08:24:49.716Z",
+      "model": "codex"
     }
   ]
 }

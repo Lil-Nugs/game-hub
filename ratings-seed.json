@@ -1,0 +1,4 @@
+{
+  "_note": "Optional shared baseline ratings. Browser-local ratings are stored in localStorage. For global live writes, wire a worker endpoint.",
+  "_schema": { "gameSlug": { "visuals": { "sum": 0, "count": 0 }, "balance": { "sum": 0, "count": 0 }, "entertainment": { "sum": 0, "count": 0 }, "stability": { "sum": 0, "count": 0 } } }
+}
