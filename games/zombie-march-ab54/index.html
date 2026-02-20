@@ -48,15 +48,15 @@ function laneX(l){return roadL()+l*laneW()+laneW()/2}
 
 // State
 let state='menu';
-let score=0,distance=0,soldiers=5,lives=10,maxLives=10,weapon='pistol',shieldHP=0;
-let marchSpeed=1.2,scrollY=0,shootTimer=0;
+let score=0,distance=0,soldiers=8,lives=15,maxLives=15,weapon='pistol',shieldHP=0;
+let marchSpeed=1,scrollY=0,shootTimer=0;
 let playerLane=1,playerX=0;
 let zombies=[],bullets=[],gates=[],barriers=[],particles=[],floats=[];
-let gateCD=250,zombieCD=80,barrierCD=350;
+let gateCD=180,zombieCD=120,barrierCD=400;
 let combo=0,maxCombo=0;
 
 const WEAPONS={
-  pistol:{name:'Pistol',emoji:'🔫',rate:12,dmg:2,count:1,spread:0,color:'#FFD700',size:3},
+  pistol:{name:'Pistol',emoji:'🔫',rate:10,dmg:4,count:1,spread:0,color:'#FFD700',size:3},
   shotgun:{name:'Shotgun',emoji:'💥',rate:22,dmg:1.5,count:4,spread:.3,color:'#FF8C00',size:3},
   laser:{name:'Laser',emoji:'⚡',rate:5,dmg:1,count:1,spread:0,color:'#FF69B4',size:2},
   rocket:{name:'Rocket',emoji:'🚀',rate:35,dmg:12,count:1,spread:0,color:'#FF1493',size:5,splash:50},
@@ -82,13 +82,13 @@ window.addEventListener('keydown',e=>{
 });
 
 function reset(){
-  score=0;distance=0;soldiers=5;lives=10;maxLives=10;
+  score=0;distance=0;soldiers=8;lives=15;maxLives=15;
   weapon='pistol';shieldHP=0;
-  marchSpeed=1.2;scrollY=0;shootTimer=0;
+  marchSpeed=1;scrollY=0;shootTimer=0;
   playerLane=1;playerX=laneX(1);
   combo=0;maxCombo=0;
   zombies=[];bullets=[];gates=[];barriers=[];particles=[];floats=[];
-  gateCD=250;zombieCD=80;barrierCD=350;
+  gateCD=180;zombieCD=120;barrierCD=400;
 }
 
 function addFloat(x,y,text,color,size=18){floats.push({x,y,text,color,size,life:55})}
@@ -109,7 +109,7 @@ const Z_TYPES=[
 
 function spawnZombie(){
   const lane=Math.floor(Math.random()*LANES);
-  const hpScale=1+distance/600;
+  const hpScale=1+distance/1200;
   const maxTier=Math.min(Math.floor(distance/400),Z_TYPES.length-1);
   const tier=Math.floor(Math.random()*Math.random()*(maxTier+1));
   const t=Z_TYPES[Math.min(tier,maxTier)];
@@ -176,7 +176,7 @@ function shoot(){
 function update(){
   if(state!=='playing')return;
 
-  marchSpeed=1.2+distance*.00025;
+  marchSpeed=1+distance*.00015;
   scrollY+=marchSpeed;
   distance+=marchSpeed;
   score+=Math.ceil(marchSpeed);
@@ -191,11 +191,11 @@ function update(){
 
   // Spawning
   gateCD-=marchSpeed;zombieCD-=marchSpeed;barrierCD-=marchSpeed;
-  if(gateCD<=0){spawnGatePair();gateCD=220+Math.random()*120}
+  if(gateCD<=0){spawnGatePair();gateCD=180+Math.random()*80}
   if(zombieCD<=0){
-    const count=1+Math.floor(distance/500);
+    const count=1+Math.floor(distance/800);
     for(let i=0;i<count;i++)spawnZombie();
-    zombieCD=Math.max(30,90-distance*.008)+Math.random()*40;
+    zombieCD=Math.max(40,110-distance*.006)+Math.random()*50;
   }
   if(barrierCD<=0&&distance>200){spawnBarrier();barrierCD=280+Math.random()*160}
 
@@ -251,7 +251,7 @@ function update(){
     // Collision with player army
     if(z.y>armyY-20&&z.y<armyY+50&&z.lane===playerLane){
       // Direct hit - lose soldiers
-      const dmg=z.isBoss?5:Math.ceil(z.maxHp/4);
+      const dmg=z.isBoss?3:1;
       if(shieldHP>0){shieldHP=Math.max(0,shieldHP-dmg);addFloat(z.x,z.y,'🛡️ Blocked!','#4FC3F7')}
       else{soldiers=Math.max(0,soldiers-dmg);combo=0}
       z.dead=true;addP(z.x,z.y,'#FF1493',8);
