@@ -13,6 +13,13 @@
       "description": "Endless roguelite pong with pick-3 upgrades. Return the ball past the enemy, choose upgrades every 5 returns, compete for the highest score!",
       "creator": "lilnug",
       "date": "2026-02-20T04:21:20.042Z"
+    },
+    {
+      "slug": "vessel-matt-f467",
+      "title": "Matt's Vessel",
+      "description": "Roguelike dungeon crawler. Find oblong objects and insert them into Matt, the sacred vessel. Fight enemies, pick upgrades, go deeper.",
+      "creator": "goob2037",
+      "date": "2026-02-20T04:23:36.095Z"
     }
   ]
 }

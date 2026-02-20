@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Matt's Vessel</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #1a0a2e; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: 'Press Start 2P', monospace; }
+canvas { display: block; touch-action: none; }
+#ui-overlay {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  display: flex; justify-content: center; align-items: center;
+  pointer-events: none; z-index: 10;
+}
+#ui-overlay > div { pointer-events: auto; }
+.ui-panel {
+  background: rgba(20, 10, 40, 0.95); border: 2px solid #f80; border-radius: 12px;
+  padding: 24px; text-align: center; color: #fff; max-width: 440px; width: 90vw;
+  max-height: 90vh; overflow-y: auto;
+}
+.ui-panel h1 { font-size: 18px; color: #f80; margin-bottom: 12px; text-shadow: 0 0 20px #f80; }
+.ui-panel h2 { font-size: 13px; color: #ff0; margin-bottom: 10px; }
+.ui-panel p { font-size: 8px; line-height: 1.9; color: #ccc; margin-bottom: 8px; }
+.btn {
+  font-family: 'Press Start 2P', monospace; font-size: 10px; padding: 12px 20px;
+  border: 2px solid #f80; background: transparent; color: #f80; cursor: pointer;
+  border-radius: 6px; margin: 6px; transition: all 0.2s;
+}
+.btn:hover { background: #f80; color: #000; }
+.btn-upgrade {
+  display: block; width: 100%; text-align: left; font-size: 8px; padding: 14px;
+  margin: 6px 0; border-color: #0ff; color: #0ff; line-height: 1.6;
+}
+.btn-upgrade:hover { background: #0ff; color: #000; }
+.btn-upgrade .up-name { font-size: 10px; display: block; margin-bottom: 4px; }
+.btn-upgrade .up-desc { font-size: 7px; color: #aaa; }
+.btn-upgrade:hover .up-desc { color: #333; }
+input[type="text"] {
+  font-family: 'Press Start 2P', monospace; font-size: 10px; padding: 10px;
+  border: 2px solid #f80; background: rgba(255,136,0,0.1); color: #f80;
+  border-radius: 6px; width: 200px; text-align: center; outline: none;
+}
+.leaderboard { text-align: left; margin-top: 12px; }
+.leaderboard div { font-size: 8px; padding: 4px 0; color: #aaa; border-bottom: 1px solid #222; }
+.lb-rank { color: #f80; }
+.lb-score { color: #0ff; float: right; }
+#mobile-controls {
+  position: fixed; bottom: 10px; left: 0; width: 100%; display: none;
+  justify-content: center; gap: 5px; z-index: 20; pointer-events: none;
+}
+.dpad { pointer-events: auto; width: 60px; height: 60px; border-radius: 12px; border: 2px solid rgba(255,136,0,0.5); background: rgba(255,136,0,0.15); font-size: 24px; color: #f80; display: flex; align-items: center; justify-content: center; }
+@media (pointer: coarse) { #mobile-controls { display: flex; } }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui-overlay"><div id="ui-content"></div></div>
+<div id="mobile-controls">
+  <button class="dpad" id="ml">⬅️</button>
+  <button class="dpad" id="mu">⬆️</button>
+  <button class="dpad" id="md">⬇️</button>
+  <button class="dpad" id="mr">➡️</button>
+</div>
+
+<script>
+const GAME_ID = 'vessel-matt-f467';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch (e) { console.warn('Leaderboard unavailable:', e); return null; }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch (e) { console.warn('Leaderboard unavailable:', e); return []; }
+}
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const ui = document.getElementById('ui-content');
+
+const TILE = 32;
+const ROOM_W = 13;
+const ROOM_H = 11;
+let W, H, SCALE;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  SCALE = Math.min(Math.floor(W / (ROOM_W * TILE)), Math.floor(H / (ROOM_H * TILE + 60)));
+  SCALE = Math.max(1, SCALE);
+}
+resize();
+window.addEventListener('resize', resize);
+
+// State
+let state = 'menu';
+let score = 0;
+let floor = 0;
+let hp = 5;
+let maxHp = 5;
+let hasOblong = false;
+let oblongName = '';
+let mattAnger = 0;
+let kills = 0;
+let upgrades = [];
+
+// Player
+let player = { x: 6, y: 5, emoji: '🧑', atk: 1, def: 0, speed: 1 };
+
+// Map
+let map = [];
+let entities = [];
+let particles = [];
+let msgs = [];
+let matt = null;
+let oblongItem = null;
+
+const OBLONG_NAMES = [
+  'Elongated Egg 🥚', 'Weird Cucumber 🥒', 'Sussy Zucchini 🫒', 'Ancient Baguette 🥖',
+  'Mystic Pickle 🫑', 'Oval Relic 💎', 'Holy Corndog 🌽', 'Legendary Banana 🍌',
+  'Sacred Eggplant 🍆', 'Cosmic Burrito 🌯', 'Forbidden Hotdog 🌭', 'Divine Rolling Pin 🪵'
+];
+
+const ENEMY_TYPES = [
+  { emoji: '👻', name: 'Ghost', hp: 2, atk: 1, xp: 10 },
+  { emoji: '🦇', name: 'Bat', hp: 1, atk: 1, xp: 5 },
+  { emoji: '🐀', name: 'Rat', hp: 3, atk: 1, xp: 8 },
+  { emoji: '💀', name: 'Skeleton', hp: 4, atk: 2, xp: 15 },
+  { emoji: '🧟', name: 'Zombie', hp: 5, atk: 2, xp: 20 },
+  { emoji: '🐍', name: 'Snake', hp: 3, atk: 2, xp: 12 },
+  { emoji: '🕷️', name: 'Spider', hp: 2, atk: 3, xp: 18 },
+  { emoji: '👹', name: 'Demon', hp: 8, atk: 3, xp: 30 },
+];
+
+const ALL_UPGRADES = [
+  { name: '⚔️ Sharp Edge', desc: '+1 Attack', apply: () => { player.atk++; } },
+  { name: '🛡️ Thick Skin', desc: '+1 Defense', apply: () => { player.def++; } },
+  { name: '❤️ Vitality', desc: '+2 Max HP & heal', apply: () => { maxHp += 2; hp = maxHp; } },
+  { name: '🧲 Oblong Sense', desc: 'Oblong glows brighter', apply: () => { } },
+  { name: '🏃 Swift Feet', desc: 'Enemies sometimes miss turns', apply: () => { player.speed++; } },
+  { name: '💀 Lifesteal', desc: 'Heal 1 HP per kill', apply: () => { } },
+  { name: '🔥 Fire Touch', desc: '+2 Attack', apply: () => { player.atk += 2; } },
+  { name: '🧱 Fortify', desc: '+2 Defense', apply: () => { player.def += 2; } },
+  { name: '💖 Full Heal', desc: 'Restore all HP', apply: () => { hp = maxHp; } },
+  { name: '👁️ Reveal Map', desc: 'See through walls (aesthetic)', apply: () => { } },
+];
+
+function generateFloor() {
+  floor++;
+  map = [];
+  entities = [];
+  hasOblong = false;
+  matt = null;
+  oblongItem = null;
+
+  // Generate dungeon rooms
+  for (let y = 0; y < ROOM_H; y++) {
+    map[y] = [];
+    for (let x = 0; x < ROOM_W; x++) {
+      if (x === 0 || x === ROOM_W - 1 || y === 0 || y === ROOM_H - 1) {
+        map[y][x] = 1; // wall
+      } else {
+        map[y][x] = 0; // floor
+      }
+    }
+  }
+
+  // Add random walls for structure
+  const wallCount = 8 + floor * 2;
+  for (let i = 0; i < wallCount; i++) {
+    const wx = 2 + Math.floor(Math.random() * (ROOM_W - 4));
+    const wy = 2 + Math.floor(Math.random() * (ROOM_H - 4));
+    if (wx !== player.x || wy !== player.y) {
+      map[wy][wx] = 1;
+    }
+  }
+
+  // Ensure player position is clear
+  player.x = 1 + Math.floor(Math.random() * (ROOM_W - 2));
+  player.y = 1 + Math.floor(Math.random() * (ROOM_H - 2));
+  map[player.y][player.x] = 0;
+  // Clear around player
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    const nx = player.x + dx, ny = player.y + dy;
+    if (nx > 0 && nx < ROOM_W-1 && ny > 0 && ny < ROOM_H-1) map[ny][nx] = 0;
+  }
+
+  // Place oblong item
+  let ox, oy;
+  do { ox = 1 + Math.floor(Math.random() * (ROOM_W - 2)); oy = 1 + Math.floor(Math.random() * (ROOM_H - 2)); }
+  while (map[oy][ox] !== 0 || (ox === player.x && oy === player.y));
+  oblongName = OBLONG_NAMES[Math.floor(Math.random() * OBLONG_NAMES.length)];
+  oblongItem = { x: ox, y: oy, emoji: oblongName.split(' ').pop(), name: oblongName };
+  map[oy][ox] = 0;
+
+  // Place Matt (the vessel)
+  let mx, my;
+  do { mx = 1 + Math.floor(Math.random() * (ROOM_W - 2)); my = 1 + Math.floor(Math.random() * (ROOM_H - 2)); }
+  while (map[my][mx] !== 0 || (mx === player.x && my === player.y) || (mx === ox && my === oy));
+  matt = { x: mx, y: my, emoji: '🏺', satisfied: false };
+  map[my][mx] = 0;
+
+  // Place enemies
+  const enemyCount = 2 + floor;
+  for (let i = 0; i < enemyCount; i++) {
+    let ex, ey;
+    do { ex = 1 + Math.floor(Math.random() * (ROOM_W - 2)); ey = 1 + Math.floor(Math.random() * (ROOM_H - 2)); }
+    while (map[ey][ex] !== 0 || (ex === player.x && ey === player.y) ||
+           (ex === ox && ey === oy) || (ex === mx && ey === my) ||
+           entities.some(e => e.x === ex && e.y === ey));
+    const tier = Math.min(Math.floor(Math.random() * (1 + floor * 0.5)), ENEMY_TYPES.length - 1);
+    const type = ENEMY_TYPES[tier];
+    entities.push({
+      x: ex, y: ey, emoji: type.emoji, name: type.name,
+      hp: type.hp + Math.floor(floor * 0.5), maxHp: type.hp + Math.floor(floor * 0.5),
+      atk: type.atk + Math.floor(floor * 0.3), xp: type.xp + floor * 2
+    });
+    map[ey][ex] = 0;
+  }
+
+  // Place healing potion
+  if (Math.random() < 0.5) {
+    let px, py;
+    do { px = 1 + Math.floor(Math.random() * (ROOM_W - 2)); py = 1 + Math.floor(Math.random() * (ROOM_H - 2)); }
+    while (map[py][px] !== 0 || (px === player.x && py === player.y));
+    entities.push({ x: px, y: py, emoji: '🧪', name: 'Potion', isPotion: true });
+  }
+}
+
+function addMsg(text, color = '#fff') {
+  msgs.push({ text, color, life: 120 });
+  if (msgs.length > 4) msgs.shift();
+}
+
+function tryMove(dx, dy) {
+  if (state !== 'playing') return;
+  const nx = player.x + dx;
+  const ny = player.y + dy;
+  if (nx < 0 || nx >= ROOM_W || ny < 0 || ny >= ROOM_H) return;
+  if (map[ny][nx] === 1) return;
+
+  // Check enemy collision
+  const enemy = entities.find(e => e.x === nx && e.y === ny && !e.isPotion);
+  if (enemy) {
+    // Combat!
+    const dmg = Math.max(1, player.atk - Math.floor(enemy.atk * 0.2));
+    enemy.hp -= dmg;
+    spawnParticles(enemy.x, enemy.y, '#f00');
+    addMsg(`Hit ${enemy.name} for ${dmg}!`, '#f80');
+
+    if (enemy.hp <= 0) {
+      score += enemy.xp;
+      kills++;
+      addMsg(`${enemy.name} defeated! +${enemy.xp}`, '#ff0');
+      entities = entities.filter(e => e !== enemy);
+      spawnParticles(enemy.x, enemy.y, '#ff0', 15);
+      // Lifesteal
+      if (upgrades.includes('💀 Lifesteal') && hp < maxHp) { hp++; addMsg('Lifesteal! +1 HP', '#0f0'); }
+    } else {
+      // Enemy hits back
+      const eDmg = Math.max(1, enemy.atk - player.def);
+      hp -= eDmg;
+      addMsg(`${enemy.name} hits you for ${eDmg}!`, '#f00');
+      spawnParticles(player.x, player.y, '#f00');
+      if (hp <= 0) { showGameOver(); return; }
+    }
+    moveEnemies();
+    return;
+  }
+
+  // Check potion
+  const potion = entities.find(e => e.x === nx && e.y === ny && e.isPotion);
+  if (potion) {
+    const heal = 3;
+    hp = Math.min(maxHp, hp + heal);
+    addMsg(`Drank potion! +${heal} HP`, '#0f0');
+    entities = entities.filter(e => e !== potion);
+  }
+
+  // Check oblong
+  if (oblongItem && nx === oblongItem.x && ny === oblongItem.y) {
+    hasOblong = true;
+    addMsg(`Found ${oblongItem.name}!`, '#ff0');
+    oblongItem = null;
+  }
+
+  // Check Matt
+  if (matt && nx === matt.x && ny === matt.y) {
+    if (hasOblong) {
+      matt.satisfied = true;
+      hasOblong = false;
+      score += 50 + floor * 20;
+      addMsg(`Inserted into Matt! 🏺✨ +${50 + floor * 20}`, '#f80');
+      spawnParticles(matt.x, matt.y, '#f80', 25);
+      // Show upgrade picker then next floor
+      setTimeout(() => showUpgradeScreen(), 300);
+      return;
+    } else {
+      mattAnger++;
+      const mattLines = [
+        "Matt grumbles... 'Bring me something oblong!'",
+        "Matt sighs... 'I am empty. Find the oblong!'",
+        "Matt vibrates angrily... 'OBLONG. NOW.'",
+        "Matt: 'I'm a vessel. I need to be filled. OBLONG!'",
+        "Matt: '...do I look satisfied to you?'"
+      ];
+      addMsg(mattLines[Math.floor(Math.random() * mattLines.length)], '#f80');
+    }
+    return;
+  }
+
+  player.x = nx;
+  player.y = ny;
+  moveEnemies();
+}
+
+function moveEnemies() {
+  entities.forEach(e => {
+    if (e.isPotion) return;
+    // Speed check - higher player speed = more misses
+    if (player.speed > 1 && Math.random() < (player.speed - 1) * 0.15) return;
+
+    const dx = Math.sign(player.x - e.x);
+    const dy = Math.sign(player.y - e.y);
+    // Try to move toward player
+    const moves = Math.random() > 0.5 ? [[dx, 0], [0, dy]] : [[0, dy], [dx, 0]];
+    for (const [mx, my] of moves) {
+      if (mx === 0 && my === 0) continue;
+      const nx = e.x + mx;
+      const ny = e.y + my;
+      if (nx > 0 && nx < ROOM_W-1 && ny > 0 && ny < ROOM_H-1 && map[ny][nx] === 0 &&
+          !(nx === player.x && ny === player.y) &&
+          !entities.some(o => o !== e && o.x === nx && o.y === ny) &&
+          !(oblongItem && nx === oblongItem.x && ny === oblongItem.y) &&
+          !(matt && nx === matt.x && ny === matt.y)) {
+        e.x = nx; e.y = ny;
+        break;
+      }
+    }
+  });
+}
+
+function spawnParticles(gx, gy, color, count = 8) {
+  for (let i = 0; i < count; i++) {
+    particles.push({
+      x: gx * TILE + TILE/2, y: gy * TILE + TILE/2,
+      dx: (Math.random() - 0.5) * 6, dy: (Math.random() - 0.5) * 6,
+      life: 1, color, size: Math.random() * 4 + 2
+    });
+  }
+}
+
+// Input
+let keys = {};
+window.addEventListener('keydown', e => {
+  if (state !== 'playing') return;
+  if (e.key === 'ArrowUp' || e.key === 'w') tryMove(0, -1);
+  if (e.key === 'ArrowDown' || e.key === 's') tryMove(0, 1);
+  if (e.key === 'ArrowLeft' || e.key === 'a') tryMove(-1, 0);
+  if (e.key === 'ArrowRight' || e.key === 'd') tryMove(1, 0);
+  e.preventDefault();
+});
+
+// Mobile controls
+['ml','mr','mu','md'].forEach(id => {
+  const el = document.getElementById(id);
+  const dirs = { ml: [-1,0], mr: [1,0], mu: [0,-1], md: [0,1] };
+  let interval;
+  const start = e => { e.preventDefault(); tryMove(...dirs[id]); interval = setInterval(() => tryMove(...dirs[id]), 200); };
+  const stop = () => clearInterval(interval);
+  el.addEventListener('touchstart', start, { passive: false });
+  el.addEventListener('touchend', stop);
+  el.addEventListener('mousedown', start);
+  el.addEventListener('mouseup', stop);
+});
+
+// Touch swipe
+let touchStart = null;
+canvas.addEventListener('touchstart', e => { touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }, { passive: false });
+canvas.addEventListener('touchend', e => {
+  if (!touchStart || state !== 'playing') return;
+  const dx = e.changedTouches[0].clientX - touchStart.x;
+  const dy = e.changedTouches[0].clientY - touchStart.y;
+  if (Math.abs(dx) < 20 && Math.abs(dy) < 20) return;
+  if (Math.abs(dx) > Math.abs(dy)) tryMove(dx > 0 ? 1 : -1, 0);
+  else tryMove(0, dy > 0 ? 1 : -1);
+  touchStart = null;
+});
+
+function showMenu() {
+  state = 'menu';
+  ui.innerHTML = `
+    <div class="ui-panel">
+      <h1>🏺 MATT'S VESSEL</h1>
+      <p>Explore the dungeon. Find the oblong object.<br>
+      Insert it into Matt (the vessel).<br>
+      Fight enemies. Get upgrades. Go deeper.<br><br>
+      Matt is hungry. Matt needs oblongs.<br>
+      Don't keep Matt waiting.</p>
+      <p>⌨️ WASD / Arrows / Swipe / D-pad</p>
+      <button class="btn" id="startBtn">ENTER THE DUNGEON</button>
+    </div>`;
+  document.getElementById('startBtn').onclick = () => {
+    ui.innerHTML = ''; state = 'playing';
+    score = 0; floor = 0; hp = 5; maxHp = 5; kills = 0;
+    player.atk = 1; player.def = 0; player.speed = 1;
+    upgrades = []; mattAnger = 0; msgs = [];
+    generateFloor();
+  };
+}
+
+function showUpgradeScreen() {
+  state = 'upgrade';
+  const choices = [...ALL_UPGRADES].sort(() => Math.random() - 0.5).slice(0, 3);
+  ui.innerHTML = `
+    <div class="ui-panel">
+      <h2>🏺 Matt is pleased. Choose a gift.</h2>
+      <p>Floor ${floor} complete • Score ${score} • Kills ${kills}</p>
+      <div id="choices"></div>
+    </div>`;
+  const div = document.getElementById('choices');
+  choices.forEach(up => {
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-upgrade';
+    btn.innerHTML = `<span class="up-name">${up.name}</span><span class="up-desc">${up.desc}</span>`;
+    btn.onclick = () => {
+      up.apply();
+      upgrades.push(up.name);
+      ui.innerHTML = '';
+      state = 'playing';
+      generateFloor();
+      addMsg(`Floor ${floor} - find the oblong!`, '#f80');
+    };
+    div.appendChild(btn);
+  });
+}
+
+function showGameOver() {
+  state = 'gameover';
+  ui.innerHTML = `
+    <div class="ui-panel">
+      <h1>💀 YOU DIED</h1>
+      <h2>Score: ${score}</h2>
+      <p>Floor ${floor} • Kills ${kills}<br>
+      Upgrades: ${upgrades.join(', ') || 'None'}<br>
+      Matt anger level: ${mattAnger > 3 ? '😡🔥' : mattAnger > 0 ? '😤' : '😌'}</p>
+      <input type="text" id="nameInput" placeholder="Your name" maxlength="16">
+      <br><button class="btn" id="submitBtn" style="margin-top:10px">SUBMIT SCORE</button>
+      <div id="lbArea"></div>
+      <button class="btn" id="replayBtn" style="margin-top:10px">TRY AGAIN</button>
+    </div>`;
+  document.getElementById('submitBtn').onclick = async () => {
+    const name = document.getElementById('nameInput').value.trim() || 'Anonymous';
+    document.getElementById('submitBtn').textContent = '...';
+    await submitScore(name, score);
+    const scores = await getLeaderboard();
+    document.getElementById('lbArea').innerHTML = '<div class="leaderboard"><h2>🏆 TOP 10</h2>' +
+      scores.map((s, i) => `<div><span class="lb-rank">#${i+1}</span> ${s.playerName} <span class="lb-score">${s.score}</span></div>`).join('') +
+      '</div>';
+    document.getElementById('submitBtn').style.display = 'none';
+  };
+  document.getElementById('replayBtn').onclick = () => { ui.innerHTML = ''; showMenu(); };
+}
+
+function draw() {
+  ctx.fillStyle = '#1a0a2e';
+  ctx.fillRect(0, 0, W, H);
+
+  // Background stars
+  for (let i = 0; i < 60; i++) {
+    const sx = (i * 137 + Math.sin(Date.now() * 0.0003 + i) * 3) % W;
+    const sy = (i * 97 + Math.cos(Date.now() * 0.0002 + i) * 2) % H;
+    ctx.fillStyle = `rgba(255,255,255,${0.2 + Math.sin(Date.now() * 0.002 + i) * 0.15})`;
+    ctx.fillRect(sx, sy, 1.5, 1.5);
+  }
+
+  if (state === 'menu' || state === 'gameover' || state === 'upgrade') {
+    requestAnimationFrame(draw);
+    return;
+  }
+
+  // Center the map
+  const mapPxW = ROOM_W * TILE * SCALE;
+  const mapPxH = ROOM_H * TILE * SCALE;
+  const offX = Math.floor((W - mapPxW) / 2);
+  const offY = Math.floor((H - mapPxH) / 2) - 20;
+
+  ctx.save();
+  ctx.translate(offX, offY);
+  ctx.scale(SCALE, SCALE);
+
+  // Draw tiles
+  for (let y = 0; y < ROOM_H; y++) {
+    for (let x = 0; x < ROOM_W; x++) {
+      if (map[y][x] === 1) {
+        ctx.fillStyle = '#2a1a4e';
+        ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
+        ctx.fillStyle = '#3a2a5e';
+        ctx.fillRect(x * TILE + 2, y * TILE + 2, TILE - 4, TILE - 4);
+      } else {
+        ctx.fillStyle = '#0f0820';
+        ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
+        ctx.fillStyle = '#150b28';
+        ctx.fillRect(x * TILE + 1, y * TILE + 1, TILE - 2, TILE - 2);
+      }
+    }
+  }
+
+  const fs = Math.floor(TILE * 0.75);
+  ctx.font = `${fs}px serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Draw oblong item
+  if (oblongItem) {
+    const glow = 0.5 + Math.sin(Date.now() * 0.005) * 0.3;
+    ctx.shadowColor = '#ff0';
+    ctx.shadowBlur = 10 * glow;
+    ctx.fillText(oblongItem.emoji, oblongItem.x * TILE + TILE/2, oblongItem.y * TILE + TILE/2);
+    ctx.shadowBlur = 0;
+  }
+
+  // Draw Matt
+  if (matt) {
+    const bob = Math.sin(Date.now() * 0.003) * 2;
+    ctx.shadowColor = matt.satisfied ? '#0f0' : '#f80';
+    ctx.shadowBlur = 12;
+    ctx.fillText(matt.emoji, matt.x * TILE + TILE/2, matt.y * TILE + TILE/2 + bob);
+    // Label
+    ctx.font = `${Math.floor(TILE * 0.3)}px "Press Start 2P"`;
+    ctx.fillStyle = '#f80';
+    ctx.fillText('MATT', matt.x * TILE + TILE/2, matt.y * TILE - 4);
+    ctx.shadowBlur = 0;
+  }
+
+  // Draw enemies
+  ctx.font = `${fs}px serif`;
+  entities.forEach(e => {
+    if (e.isPotion) {
+      ctx.fillText(e.emoji, e.x * TILE + TILE/2, e.y * TILE + TILE/2);
+    } else {
+      ctx.fillText(e.emoji, e.x * TILE + TILE/2, e.y * TILE + TILE/2);
+      // HP bar
+      const bw = TILE * 0.8;
+      const bh = 3;
+      const bx = e.x * TILE + (TILE - bw) / 2;
+      const by = e.y * TILE - 2;
+      ctx.fillStyle = '#300';
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.fillStyle = '#f00';
+      ctx.fillRect(bx, by, bw * (e.hp / e.maxHp), bh);
+    }
+  });
+
+  // Draw player
+  ctx.font = `${fs}px serif`;
+  ctx.shadowColor = '#0ff';
+  ctx.shadowBlur = 8;
+  ctx.fillText(player.emoji, player.x * TILE + TILE/2, player.y * TILE + TILE/2);
+  ctx.shadowBlur = 0;
+
+  // Carrying indicator
+  if (hasOblong) {
+    ctx.font = `${Math.floor(TILE * 0.35)}px serif`;
+    ctx.fillText('📦', player.x * TILE + TILE - 4, player.y * TILE + 6);
+  }
+
+  // Particles (in grid space)
+  particles.forEach(p => {
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x + p.dx * (1 - p.life) * 5, p.y + p.dy * (1 - p.life) * 5, p.size, p.size);
+  });
+  ctx.globalAlpha = 1;
+
+  ctx.restore();
+
+  // HUD
+  ctx.font = '12px "Press Start 2P"';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#f80';
+  ctx.fillText(`F${floor}`, 10, 24);
+  ctx.fillStyle = '#ff0';
+  ctx.fillText(`${score}`, 10, 42);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#f55';
+  ctx.fillText('❤️'.repeat(hp) + '🖤'.repeat(maxHp - hp), W - 10, 24);
+  ctx.fillStyle = hasOblong ? '#0f0' : '#555';
+  ctx.fillText(hasOblong ? '📦 Oblong!' : 'Find oblong...', W - 10, 42);
+
+  // ATK/DEF
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#aaa';
+  ctx.font = '8px "Press Start 2P"';
+  ctx.fillText(`ATK:${player.atk} DEF:${player.def}`, 10, 58);
+
+  // Messages
+  ctx.textAlign = 'center';
+  msgs.forEach((m, i) => {
+    ctx.globalAlpha = Math.min(1, m.life / 30);
+    ctx.fillStyle = m.color;
+    ctx.font = '8px "Press Start 2P"';
+    ctx.fillText(m.text, W / 2, H - 60 - i * 16);
+    m.life--;
+  });
+  ctx.globalAlpha = 1;
+  msgs = msgs.filter(m => m.life > 0);
+
+  // Update particles
+  particles.forEach(p => { p.life -= 0.03; });
+  particles = particles.filter(p => p.life > 0);
+
+  requestAnimationFrame(draw);
+}
+
+showMenu();
+draw();
+</script>
+</body>
+</html>
