@@ -161,6 +161,14 @@
       "date": "2026-02-20T14:20:26.208Z",
       "model": "codex",
       "archived": true
+    },
+    {
+      "slug": "campfire-guardians-c9f2",
+      "title": "Campfire Guardians",
+      "description": "A tower-defense survival game where you protect a woodland campfire from wolves and spirits.",
+      "creator": "discord-user",
+      "date": "2026-02-21T08:42:42.254Z",
+      "model": "codex"
     }
   ]
 }

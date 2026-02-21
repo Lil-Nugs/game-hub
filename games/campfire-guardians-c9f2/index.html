@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Campfire Guardians</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: radial-gradient(circle at 50% 30%, #1a3a1a 0%, #0a1a0a 70%);
+      display: flex; justify-content: center; align-items: center;
+      width: 100vw; height: 100vh; overflow: hidden; touch-action: none;
+      font-family: 'Cinzel', serif;
+    }
+    #ui-overlay {
+      position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+      z-index: 50; background: rgba(0,0,0,0.75);
+    }
+    #card {
+      width: min(520px, 92vw); background: #132a13; border: 2px solid #f1c40f; border-radius: 14px;
+      padding: 20px; color: #f6f4df; box-shadow: 0 0 26px rgba(241,196,15,0.28);
+    }
+    #card h2 { font-size: 30px; margin-bottom: 10px; color: #ffd166; }
+    #final-score { font-size: 24px; margin-bottom: 12px; }
+    #name-input {
+      width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #2ecc71;
+      background: #0f1f0f; color: #fff; margin-bottom: 10px;
+    }
+    .btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    button {
+      padding: 10px 14px; border: none; border-radius: 8px; cursor: pointer;
+      font-weight: 700;
+    }
+    #submit-btn { background: #2ecc71; color: #081508; }
+    #replay-btn { background: #f1c40f; color: #201804; }
+    #leaderboard { margin-top: 12px; font-size: 14px; line-height: 1.45; max-height: 220px; overflow: auto; }
+    #leaderboard .row { display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.08); padding: 4px 0; }
+  </style>
+</head>
+<body>
+  <div id="ui-overlay">
+    <div id="card">
+      <h2>Campfire Fades...</h2>
+      <div id="final-score">Score: 0</div>
+      <input id="name-input" maxlength="18" placeholder="Your name" />
+      <div class="btn-row">
+        <button id="submit-btn">Submit Score</button>
+        <button id="replay-btn">Play Again</button>
+      </div>
+      <div id="leaderboard">Leaderboard loading...</div>
+    </div>
+  </div>
+
+<script>
+const GAME_ID = 'campfire-guardians-c9f2';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch (e) {
+    console.warn('Leaderboard unavailable:', e);
+    return null;
+  }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch (e) {
+    console.warn('Leaderboard unavailable:', e);
+    return [];
+  }
+}
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playSound(type, freq, duration, volume = 0.25, sweep = null) {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  if (sweep) osc.frequency.exponentialRampToValueAtTime(sweep, audioCtx.currentTime + duration);
+  gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  osc.start(); osc.stop(audioCtx.currentTime + duration);
+}
+const sfxStart = () => { playSound('triangle', 420, 0.08, 0.2); playSound('triangle', 620, 0.12, 0.15); };
+const sfxShoot = () => playSound('square', 240, 0.07, 0.14, 130);
+const sfxHit = () => playSound('sawtooth', 180, 0.16, 0.24, 80);
+const sfxEnemyDown = () => playSound('sine', 620, 0.08, 0.16);
+const sfxDeath = () => { playSound('sawtooth', 280, 0.55, 0.28, 90); playSound('square', 140, 0.45, 0.2, 60); };
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+function easeInOut(t) { return t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2)/2; }
+
+let currentScene = null;
+let lastScore = 0;
+
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+  create() {
+    const w = this.scale.width, h = this.scale.height;
+    const g = this.add.graphics();
+    g.fillGradientStyle(0x0a1a0a, 0x0a1a0a, 0x1a3a1a, 0x1a3a1a, 1);
+    g.fillRect(0,0,w,h);
+
+    this.add.text(w/2, 110, 'Campfire Guardians', { fontFamily: 'Cinzel', fontSize: '56px', color: '#ffd166' }).setOrigin(0.5);
+    this.add.text(w/2, 190, 'Defend the forest fire from wolves and spirits', { fontSize: '20px', color: '#f6f4df' }).setOrigin(0.5);
+    this.add.text(w/2, 250,
+      'Move: WASD / Arrows / Drag\nAim: Mouse or touch\nShoot: Click / Tap (auto-repeat)\nSurvive as long as you can.',
+      { align: 'center', fontSize: '22px', color: '#b5d6a5', lineSpacing: 8 }).setOrigin(0.5);
+
+    const prompt = this.add.text(w/2, h - 120, 'Tap or Press Any Key to Start', { fontSize: '26px', color: '#f1c40f' }).setOrigin(0.5);
+    this.tweens.add({ targets: prompt, alpha: 0.3, yoyo: true, repeat: -1, duration: 800 });
+
+    const start = () => {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      sfxStart();
+      this.scene.start('GameScene');
+    };
+    this.input.once('pointerdown', start);
+    this.input.keyboard.once('keydown', start);
+  }
+}
+
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  create() {
+    currentScene = this;
+    this.dead = false;
+    this.gameStartTime = this.time.now;
+    this.score = 0;
+    this.bonus = 0;
+    this.lastShot = 0;
+
+    const w = this.scale.width, h = this.scale.height;
+
+    // Design notes: tower-defense survival around central campfire.
+    // Shape language: circular hero + ember bullets, jagged wolf/phantom enemies.
+    // Motion: subtle bobbing and torch flicker; enemy speed/volume scales over 120s.
+
+    this.bg = this.add.tileSprite(w/2, h/2, w, h, null).setTint(0x102610);
+
+    const ambient = this.add.particles(0,0,'ember',{ x:{min:0,max:w}, y:{min:0,max:h}, lifespan: 2200,
+      speedY:{min:-10,max:-25}, speedX:{min:-4,max:4}, quantity:1, frequency:110, scale:{start:0.8,end:0}, tint:[0x77aa55,0xaad17c], alpha:{start:0.2,end:0}
+    });
+    ambient.stop();
+
+    const pg = this.make.graphics({ x:0, y:0, add:false });
+    pg.fillStyle(0x2ecc71,1); pg.fillCircle(24,24,18);
+    pg.lineStyle(4,0x143f14,1); pg.strokeCircle(24,24,18);
+    pg.fillStyle(0xffffff,0.35); pg.fillCircle(30,18,5);
+    pg.generateTexture('hero',48,48); pg.clear();
+
+    pg.fillStyle(0xe67e22,1); pg.fillCircle(20,20,14);
+    pg.fillStyle(0xf1c40f,1); pg.fillCircle(20,20,7);
+    pg.generateTexture('ember',40,40); pg.clear();
+
+    pg.fillStyle(0x4a2c16,1); pg.fillCircle(40,40,34);
+    pg.fillStyle(0xe67e22,1); pg.fillCircle(40,40,20);
+    pg.fillStyle(0xf9d65c,1); pg.fillCircle(40,40,11);
+    pg.fillStyle(0xffffff,0.4); pg.fillCircle(45,33,4);
+    pg.generateTexture('campfire',80,80); pg.clear();
+
+    pg.fillStyle(0x6e8b3d,1); pg.beginPath();
+    pg.moveTo(8,34); pg.lineTo(28,8); pg.lineTo(58,14); pg.lineTo(70,36); pg.lineTo(54,64); pg.lineTo(24,60); pg.closePath(); pg.fillPath();
+    pg.lineStyle(4,0x263915,1); pg.strokePath(); pg.generateTexture('wolf',78,72); pg.clear();
+
+    pg.fillStyle(0x8d6cab,0.9); pg.fillEllipse(34,34,44,52);
+    pg.fillStyle(0xc7a5e8,0.45); pg.fillEllipse(42,26,18,20);
+    pg.lineStyle(3,0x3a2750,1); pg.strokeEllipse(34,34,44,52);
+    pg.generateTexture('spirit',68,68); pg.destroy();
+
+    this.campfire = this.physics.add.sprite(w/2, h/2, 'campfire').setImmovable(true);
+    this.campfireHealth = 100;
+
+    this.player = this.physics.add.sprite(w/2, h/2 + 130, 'hero');
+    this.player.setCollideWorldBounds(true);
+    this.player.body.setSize(30,30).setOffset(9,9);
+
+    this.bullets = this.physics.add.group({ maxSize: 70 });
+    this.enemies = this.physics.add.group();
+
+    this.fireParticles = this.add.particles(this.campfire.x, this.campfire.y - 8, 'ember', {
+      speed: { min: 20, max: 70 }, angle: { min: 230, max: 310 },
+      lifespan: { min: 260, max: 520 }, scale: { start: 0.65, end: 0 }, quantity: 2, frequency: 80,
+      tint: [0xe67e22,0xf1c40f,0xffef99], blendMode: 'ADD'
+    });
+
+    this.cursors = this.input.keyboard.createCursorKeys();
+    this.keys = this.input.keyboard.addKeys('W,A,S,D');
+    this.pointerDown = false;
+    this.input.on('pointerdown', ()=> this.pointerDown = true);
+    this.input.on('pointerup', ()=> this.pointerDown = false);
+
+    this.physics.add.overlap(this.bullets, this.enemies, this.hitEnemy, null, this);
+    this.physics.add.overlap(this.enemies, this.campfire, this.enemyAtFire, null, this);
+
+    this.time.addEvent({ delay: 500, loop: true, callback: () => {
+      this.tweens.add({ targets: this.campfire, scaleX: 1.03, scaleY: 0.98, yoyo: true, duration: 260 });
+    }});
+
+    this.scoreText = this.add.text(14, 10, 'Score: 0', { fontSize: '24px', color: '#f5f5dc' }).setDepth(20);
+    this.hpText = this.add.text(14, 42, 'Fire: 100%', { fontSize: '22px', color: '#ffd166' }).setDepth(20);
+  }
+
+  spawnEnemy(difficulty) {
+    const w = this.scale.width, h = this.scale.height;
+    const edge = Phaser.Math.Between(0,3);
+    let x = 0, y = 0;
+    if (edge===0) { x = Phaser.Math.Between(0,w); y = -30; }
+    if (edge===1) { x = w+30; y = Phaser.Math.Between(0,h); }
+    if (edge===2) { x = Phaser.Math.Between(0,w); y = h+30; }
+    if (edge===3) { x = -30; y = Phaser.Math.Between(0,h); }
+
+    const nearFire = Phaser.Math.Distance.Between(x, y, this.campfire.x, this.campfire.y) < 180;
+    if (nearFire) return;
+
+    const spiritChance = lerp(0.2, 0.55, difficulty);
+    const tex = Math.random() < spiritChance ? 'spirit' : 'wolf';
+    const e = this.enemies.create(x, y, tex);
+    e.type = tex;
+    e.hp = tex === 'spirit' ? 2 : 3;
+    const speed = tex === 'spirit' ? lerp(30, 105, difficulty) : lerp(22, 88, difficulty);
+    this.physics.moveToObject(e, this.campfire, speed);
+    e.body.setSize(e.width*0.76, e.height*0.76, true);
+  }
+
+  shootAt(pointerX, pointerY) {
+    const now = this.time.now;
+    if (now - this.lastShot < 180) return;
+    this.lastShot = now;
+
+    const b = this.bullets.get(this.player.x, this.player.y, 'ember');
+    if (!b) return;
+    b.setActive(true).setVisible(true);
+    b.body.enable = true;
+    b.body.setCircle(9, 11, 11);
+    this.physics.moveTo(b, pointerX, pointerY, 430);
+    b.lifespan = 900;
+    sfxShoot();
+  }
+
+  hitEnemy(bullet, enemy) {
+    bullet.destroy();
+    enemy.hp -= 1;
+    enemy.setTint(0xffffff);
+    this.time.delayedCall(80, () => enemy.clearTint());
+    if (enemy.hp <= 0) {
+      this.bonus += enemy.type === 'spirit' ? 32 : 24;
+      sfxEnemyDown();
+      const puff = this.add.particles(enemy.x, enemy.y, 'ember', {
+        speed: { min: 20, max: 120 }, lifespan: 400, scale: { start: 0.5, end: 0 }, quantity: 10,
+        tint: enemy.type === 'spirit' ? [0xc7a5e8,0x8d6cab] : [0x6e8b3d,0x9dbc5a]
+      });
+      this.time.delayedCall(120, () => puff.destroy());
+      enemy.destroy();
+    }
+  }
+
+  enemyAtFire(enemy) {
+    enemy.destroy();
+    this.campfireHealth -= 9;
+    sfxHit();
+    this.cameras.main.shake(120, 0.004);
+    this.campfire.setTint(0xffaaaa);
+    this.time.delayedCall(120, ()=> this.campfire.clearTint());
+    if (this.campfireHealth <= 0 && !this.dead) this.gameOver();
+  }
+
+  gameOver() {
+    this.dead = true;
+    sfxDeath();
+    this.cameras.main.shake(250, 0.012);
+    this.cameras.main.flash(260, 255, 180, 80);
+    const boom = this.add.particles(this.campfire.x, this.campfire.y, 'ember', {
+      speed: { min: 40, max: 240 }, lifespan: 680, scale: { start: 1.0, end: 0 }, quantity: 36,
+      tint: [0xe67e22,0xffef99,0x7a1f2a]
+    });
+    this.time.delayedCall(500, () => {
+      this.scene.pause();
+      boom.destroy();
+      showGameOverUI(Math.floor(this.score));
+    });
+  }
+
+  update(time, delta) {
+    if (this.dead) return;
+    const dt = delta / 16.667;
+    const elapsed = (time - this.gameStartTime) / 1000;
+    const t = Math.min(elapsed / 120, 1);
+    const difficulty = easeInOut(t);
+
+    this.bg.tilePositionX += 0.15 * dt;
+
+    let vx = 0, vy = 0;
+    const speed = 220;
+    if (this.cursors.left.isDown || this.keys.A.isDown) vx = -speed;
+    if (this.cursors.right.isDown || this.keys.D.isDown) vx = speed;
+    if (this.cursors.up.isDown || this.keys.W.isDown) vy = -speed;
+    if (this.cursors.down.isDown || this.keys.S.isDown) vy = speed;
+
+    if (this.input.activePointer.isDown) {
+      const p = this.input.activePointer;
+      const dx = p.worldX - this.player.x;
+      const dy = p.worldY - this.player.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > 26) {
+        vx = (dx / dist) * speed;
+        vy = (dy / dist) * speed;
+      }
+      this.shootAt(p.worldX, p.worldY);
+    }
+
+    this.player.setVelocity(vx, vy);
+
+    if (this.cursors.space?.isDown || this.pointerDown) {
+      const p = this.input.activePointer;
+      this.shootAt(p.worldX, p.worldY);
+    }
+
+    this.bullets.children.each((b) => {
+      if (!b.active) return;
+      b.lifespan -= delta;
+      if (b.lifespan <= 0) b.destroy();
+    });
+
+    const spawnPerSec = lerp(0.5, 2.9, difficulty);
+    this.spawnAccumulator = (this.spawnAccumulator || 0) + (delta / 1000) * spawnPerSec;
+    while (this.spawnAccumulator >= 1) {
+      this.spawnAccumulator -= 1;
+      this.spawnEnemy(difficulty);
+    }
+
+    this.score += delta / 100 + this.enemies.countActive(true) * 0.001;
+    const finalScore = Math.floor(this.score + this.bonus);
+    this.scoreText.setText(`Score: ${finalScore}`);
+    this.hpText.setText(`Fire: ${Math.max(0, this.campfireHealth)}%`);
+
+    if (elapsed > 5 && this.campfireHealth <= 0 && !this.dead) this.gameOver();
+    if (this.player.active) this.player.rotation += 0.01 * dt;
+  }
+}
+
+const config = {
+  type: Phaser.AUTO,
+  width: 960,
+  height: 640,
+  backgroundColor: '#0a1a0a',
+  physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: false } },
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: [MenuScene, GameScene]
+};
+
+new Phaser.Game(config);
+
+const overlay = document.getElementById('ui-overlay');
+const finalScoreEl = document.getElementById('final-score');
+const leaderboardEl = document.getElementById('leaderboard');
+const nameInput = document.getElementById('name-input');
+
+document.getElementById('submit-btn').addEventListener('click', async () => {
+  const name = (nameInput.value || 'Ranger').trim().slice(0, 18) || 'Ranger';
+  const score = lastScore;
+  await submitScore(name, score);
+  const scores = await getLeaderboard(10);
+  if (!scores.length) {
+    leaderboardEl.innerHTML = 'Leaderboard unavailable right now.';
+    return;
+  }
+  leaderboardEl.innerHTML = '<b>Top Guardians</b>' + scores.map((s, i) =>
+    `<div class="row"><span>${i+1}. ${String(s.playerName || 'Anon').replace(/[<>]/g,'')}</span><span>${s.score}</span></div>`).join('');
+});
+
+document.getElementById('replay-btn').addEventListener('click', () => {
+  overlay.style.display = 'none';
+  if (currentScene) currentScene.scene.restart();
+});
+
+async function showGameOverUI(finalScore) {
+  lastScore = finalScore;
+  finalScoreEl.textContent = `Score: ${finalScore}`;
+  overlay.style.display = 'flex';
+  nameInput.focus();
+  const scores = await getLeaderboard(10);
+  leaderboardEl.innerHTML = scores.length
+    ? '<b>Top Guardians</b>' + scores.map((s, i) => `<div class="row"><span>${i+1}. ${String(s.playerName || 'Anon').replace(/[<>]/g,'')}</span><span>${s.score}</span></div>`).join('')
+    : 'No scores yet. Be the first to submit!';
+}
+</script>
+</body>
+</html>
