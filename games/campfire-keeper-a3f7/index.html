@@ -1,0 +1,1142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Campfire Keeper</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a1a0a;
+    display: flex; justify-content: center; align-items: center;
+    height: 100vh; overflow: hidden; touch-action: none;
+  }
+  #ui-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    display: none; justify-content: center; align-items: center;
+    z-index: 10; background: rgba(0,0,0,0.85);
+    font-family: 'Fredoka One', cursive;
+    flex-direction: column; gap: 12px;
+  }
+  #ui-overlay.active { display: flex; }
+  #over-title { color: #f4a460; font-size: 42px; text-shadow: 0 0 20px #ff6600; letter-spacing: 2px; }
+  #over-score { color: #ffd700; font-size: 28px; }
+  #over-subtitle { color: #aaa; font-size: 16px; }
+  #name-input {
+    padding: 10px 18px; font-size: 18px; border: 2px solid #f4a460;
+    background: #1a1a0a; color: #ffd700; border-radius: 8px;
+    font-family: 'Fredoka One', cursive; text-align: center; width: 240px;
+    outline: none;
+  }
+  #submit-btn, #replay-btn {
+    padding: 12px 28px; font-size: 20px; border: none; border-radius: 10px;
+    cursor: pointer; font-family: 'Fredoka One', cursive; transition: transform 0.1s;
+  }
+  #submit-btn { background: #f4a460; color: #1a0a00; }
+  #submit-btn:hover { transform: scale(1.05); }
+  #replay-btn { background: #2ecc71; color: #0a1a0a; margin-top: 6px; }
+  #replay-btn:hover { transform: scale(1.05); }
+  #leaderboard {
+    background: rgba(244,164,96,0.08); border: 1px solid #f4a46055;
+    border-radius: 10px; padding: 14px 24px; min-width: 280px; max-width: 340px;
+  }
+  #leaderboard h3 { color: #f4a460; text-align: center; font-size: 18px; margin-bottom: 8px; }
+  #lb-entries { color: #ffd; font-size: 14px; line-height: 1.8; }
+</style>
+</head>
+<body>
+<div id="ui-overlay">
+  <div id="over-title">🔥 CAMPFIRE FELL! 🔥</div>
+  <div id="over-score">Score: <span id="final-score">0</span></div>
+  <div id="over-subtitle">The forest claimed the night...</div>
+  <input id="name-input" type="text" maxlength="20" placeholder="Your name..." />
+  <button id="submit-btn">Submit Score</button>
+  <div id="leaderboard"><h3>🏆 Leaderboard</h3><div id="lb-entries">Loading...</div></div>
+  <button id="replay-btn">🔥 Play Again</button>
+</div>
+
+<script>
+/*
+ * =====================================================
+ * DESIGN HEADER — Campfire Keeper
+ * =====================================================
+ * CONTROLS: WASD/Arrow keys to move ranger. Mouse to aim + left-click to shoot.
+ *           Press [F] or tap fire button to place a fire trap (tower) at your position.
+ *           Touch: virtual joystick left, tap right half to shoot, tap F-button for trap.
+ * CORE LOOP: Defend the central campfire from forest creatures. Campfire has 100 HP.
+ *            If it hits 0, game over. You die if the campfire dies (you never die directly).
+ * DEATH CONDITION: Campfire HP reaches 0.
+ * HAZARDS:
+ *   1. Wolves — medium speed, direct beeline to campfire, medium HP
+ *   2. Bats — fast, zigzag erratic movement, low HP but numerous
+ *   3. Trolls (appear ~45s) — slow, very high HP, deal heavy campfire damage
+ * PICKUPS / RISK-REWARD:
+ *   - Logs: dropped by slain enemies (50% chance). Walk over to collect.
+ *     Press [E] near campfire to burn logs, restoring campfire HP (+15 each, max 5 stored).
+ *   - Fire Trap: press [F] to deploy (max 3 active at once), damages enemies passing through.
+ *     Traps expire after 20s or 5 hits. Strategic placement is the tower defense element.
+ * SCORING: score = Math.floor(timeAlive * 10 + killBonus) — monotonic, never decreases.
+ *          Kill bonus: wolf=25, bat=15, troll=60. Log collect=+5.
+ * DIFFICULTY: Smooth lerp over 120s. Spawn rate 0.5→4/s. Speed 1.0→3.0x. Troll frequency rises.
+ * VISUAL: Forest/Nature theme. Dark woods (#0a1a0a→#1a3a1a). Campfire as warm amber glow.
+ *         Tree silhouettes at edges. Particle embers rising from campfire.
+ * AUDIO: Web Audio API. Crackle hum, shoot pew, enemy hit crunch, death roar, campfire hit.
+ * FONT: Fredoka One — warm, playful forest feel.
+ * =====================================================
+ */
+
+const GAME_ID = 'campfire-keeper-a3f7';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+// ---- Audio ----
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playSound(type, freq, duration, volume, freqEnd) {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  if (freqEnd) osc.frequency.linearRampToValueAtTime(freqEnd, audioCtx.currentTime + duration);
+  gain.gain.setValueAtTime(Math.min(volume || 0.3, 1), audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  osc.start();
+  osc.stop(audioCtx.currentTime + duration);
+}
+function sfxShoot()    { playSound('square', 900, 0.08, 0.15, 400); }
+function sfxHitEnemy() { playSound('sawtooth', 200, 0.1, 0.2); }
+function sfxFireHit()  { playSound('sawtooth', 120, 0.25, 0.35); playSound('sine', 60, 0.3, 0.2); }
+function sfxDeath()    { playSound('sawtooth', 280, 0.6, 0.3, 60); playSound('square', 80, 0.8, 0.25); }
+function sfxCollect()  { playSound('sine', 700, 0.12, 0.2, 1100); }
+function sfxTrap()     { playSound('triangle', 500, 0.15, 0.2, 900); }
+function sfxTrapHit()  { playSound('sawtooth', 300, 0.12, 0.25, 100); }
+function sfxMilestone(){ playSound('sine', 880, 0.15, 0.3); playSound('sine', 1100, 0.2, 0.25); }
+
+// Ambient campfire crackle — low noise bursts
+let crackleTimeout = null;
+function startCrackle() {
+  if (crackleTimeout) return;
+  function doCrackle() {
+    if (audioCtx.state === 'suspended') { crackleTimeout = setTimeout(doCrackle, 500); return; }
+    playSound('sawtooth', 40 + Math.random()*30, 0.05 + Math.random()*0.08, 0.04);
+    crackleTimeout = setTimeout(doCrackle, 80 + Math.random()*220);
+  }
+  doCrackle();
+}
+function stopCrackle() { if (crackleTimeout) { clearTimeout(crackleTimeout); crackleTimeout = null; } }
+
+// ---- Leaderboard ----
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch (e) { console.warn('Leaderboard unavailable:', e); return null; }
+}
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch (e) { console.warn('Leaderboard unavailable:', e); return []; }
+}
+
+// ---- Game Over UI ----
+let _gameSceneRef = null;
+function showGameOverUI(finalScore) {
+  stopCrackle();
+  document.getElementById('final-score').textContent = finalScore;
+  document.getElementById('ui-overlay').classList.add('active');
+  document.getElementById('lb-entries').textContent = 'Loading...';
+  getLeaderboard().then(scores => {
+    const el = document.getElementById('lb-entries');
+    if (!scores || scores.length === 0) { el.textContent = 'No scores yet — you go first!'; return; }
+    el.innerHTML = scores.map((s, i) =>
+      `<div>${i+1}. <b>${s.playerName}</b> — ${s.score}</div>`
+    ).join('');
+  });
+}
+document.getElementById('submit-btn').addEventListener('click', async () => {
+  const name = document.getElementById('name-input').value.trim() || 'Anonymous';
+  const score = parseInt(document.getElementById('final-score').textContent, 10);
+  document.getElementById('submit-btn').disabled = true;
+  document.getElementById('submit-btn').textContent = 'Submitting...';
+  await submitScore(name, score);
+  const scores = await getLeaderboard();
+  const el = document.getElementById('lb-entries');
+  if (!scores || scores.length === 0) { el.textContent = 'No scores yet!'; }
+  else {
+    el.innerHTML = scores.map((s, i) =>
+      `<div>${i+1}. <b>${s.playerName}</b> — ${s.score}</div>`
+    ).join('');
+  }
+  document.getElementById('submit-btn').textContent = '✓ Submitted!';
+});
+document.getElementById('replay-btn').addEventListener('click', () => {
+  document.getElementById('ui-overlay').classList.remove('active');
+  document.getElementById('submit-btn').disabled = false;
+  document.getElementById('submit-btn').textContent = 'Submit Score';
+  document.getElementById('name-input').value = '';
+  if (_gameSceneRef) _gameSceneRef.scene.restart();
+});
+
+// ---- Lerp helpers ----
+function lerp(a, b, t) { return a + (b - a) * t; }
+function easeIn(t) { return t * t; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// ============================================================
+//  MENU SCENE
+// ============================================================
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+  preload() {}
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+    const CX = W/2, CY = H/2;
+
+    // Dark forest background
+    const bg = this.add.graphics();
+    bg.fillGradientStyle(0x040c04, 0x040c04, 0x0d2010, 0x0d2010, 1);
+    bg.fillRect(0, 0, W, H);
+
+    // Draw trees silhouettes
+    this._drawTrees(W, H);
+
+    // Campfire glow
+    this._drawCampfireGlow(CX, CY + 60);
+
+    // Title
+    this.add.text(CX, CY - 120, '🔥 CAMPFIRE KEEPER 🔥', {
+      fontFamily: 'Fredoka One', fontSize: '38px', color: '#ffd700',
+      stroke: '#8B4513', strokeThickness: 4,
+      shadow: { color: '#ff6600', blur: 20, fill: true }
+    }).setOrigin(0.5);
+
+    this.add.text(CX, CY - 60, 'Defend the campfire from the forest creatures!', {
+      fontFamily: 'Fredoka One', fontSize: '16px', color: '#d4a060'
+    }).setOrigin(0.5);
+
+    const instrLines = [
+      '🎮 WASD / Arrows — Move ranger',
+      '🖱️ Mouse Aim + Click — Shoot',
+      '[F] — Place Fire Trap (max 3)',
+      '[E] near fire — Burn logs to heal campfire',
+      '',
+      'Wolves 🐺  Bats 🦇  Trolls 👹 attack the campfire',
+      'Campfire HP hits 0 = Game Over!',
+    ];
+    this.add.text(CX, CY + 20, instrLines.join('\n'), {
+      fontFamily: 'Fredoka One', fontSize: '14px', color: '#a8d8a8',
+      align: 'center', lineSpacing: 4
+    }).setOrigin(0.5);
+
+    const tapText = this.add.text(CX, CY + 190, '— CLICK OR PRESS ANY KEY TO START —', {
+      fontFamily: 'Fredoka One', fontSize: '18px', color: '#f4a460'
+    }).setOrigin(0.5);
+
+    this.tweens.add({ targets: tapText, alpha: 0.2, duration: 800, yoyo: true, repeat: -1 });
+
+    const start = () => {
+      audioCtx.resume();
+      startCrackle();
+      this.scene.start('GameScene');
+    };
+    this.input.once('pointerdown', start);
+    this.input.keyboard.once('keydown', start);
+  }
+
+  _drawCampfireGlow(cx, cy) {
+    // Outer glow rings
+    for (let r = 90; r >= 20; r -= 10) {
+      const g = this.add.graphics();
+      const alpha = (90 - r) / 90 * 0.18;
+      g.fillStyle(0xff6600, alpha);
+      g.fillCircle(cx, cy, r);
+    }
+    // Campfire logs
+    const lg = this.add.graphics();
+    lg.fillStyle(0x5c3d1e, 1);
+    lg.fillRect(cx - 22, cy + 8, 44, 8);
+    lg.fillRect(cx - 16, cy + 12, 8, 6);
+    lg.fillRect(cx + 8, cy + 12, 8, 6);
+    // Flame
+    lg.fillStyle(0xff4400, 1);
+    lg.fillTriangle(cx, cy - 18, cx - 14, cy + 10, cx + 14, cy + 10);
+    lg.fillStyle(0xff9900, 1);
+    lg.fillTriangle(cx, cy - 10, cx - 8, cy + 8, cx + 8, cy + 8);
+    lg.fillStyle(0xffee00, 1);
+    lg.fillTriangle(cx, cy - 4, cx - 5, cy + 6, cx + 5, cy + 6);
+  }
+
+  _drawTrees(W, H) {
+    const tg = this.add.graphics();
+    tg.fillStyle(0x0a1a08, 1);
+    // Scatter trees around edges
+    const treePositions = [
+      [30,H*0.6],[80,H*0.5],[140,H*0.65],[0,H*0.75],[60,H*0.8],
+      [W-30,H*0.6],[W-80,H*0.5],[W-140,H*0.65],[W,H*0.75],[W-60,H*0.8],
+      [W*0.15,H*0.9],[W*0.3,H*0.95],[W*0.5,H*0.98],[W*0.7,H*0.95],[W*0.85,H*0.9],
+      [W*0.1,H*0.1],[W*0.9,H*0.1],[W*0.25,H*0.05],[W*0.75,H*0.05]
+    ];
+    for (const [tx,ty] of treePositions) {
+      const h = 60 + Math.random()*40;
+      const w = 30 + Math.random()*20;
+      tg.fillTriangle(tx, ty - h, tx - w, ty + 10, tx + w, ty + 10);
+      tg.fillRect(tx - 5, ty + 8, 10, 20);
+    }
+  }
+}
+
+// ============================================================
+//  GAME SCENE
+// ============================================================
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  preload() {
+    // We generate all textures procedurally
+  }
+
+  create() {
+    _gameSceneRef = this;
+    const W = this.scale.width, H = this.scale.height;
+    this.W = W; this.H = H;
+    this.CX = W/2; this.CY = H/2;
+
+    this.score = 0;
+    this.killBonus = 0;
+    this.gameStartTime = this.time.now;
+    this.campfireHP = 100;
+    this.maxCampfireHP = 100;
+    this.logs = 0;          // collected logs (fuel for campfire)
+    this.maxLogs = 5;
+    this.trapCount = 0;     // active traps
+    this.maxTraps = 3;
+    this.nextSpawnTime = this.time.now + 1000;
+    this.alive = true;
+    this.lastTrollSpawn = -999;
+
+    // Resume audio
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    startCrackle();
+
+    // --- Background ---
+    const bg = this.add.graphics();
+    bg.fillGradientStyle(0x040e04, 0x040e04, 0x0d2010, 0x0d2010, 1);
+    bg.fillRect(0, 0, W, H);
+
+    // Forest floor (subtle)
+    const floor = this.add.graphics();
+    floor.fillStyle(0x0a1a08, 0.5);
+    floor.fillEllipse(W/2, H/2, W*1.1, H*0.9);
+
+    // Draw tree border
+    this._makeTrees();
+
+    // --- Campfire (center) ---
+    this._makeCampfireTexture();
+    this.campfire = this.add.image(W/2, H/2, 'campfire').setDepth(2);
+
+    // Campfire glow (under campfire)
+    this.cfGlow = this.add.graphics().setDepth(1);
+    this._drawCfGlow(1.0);
+
+    // Campfire ember particles
+    this.emberParticles = this.add.particles(W/2, H/2 - 10, 'ember', {
+      speed: { min: 20, max: 70 },
+      angle: { min: 250, max: 290 },
+      scale: { start: 0.8, end: 0 },
+      alpha: { start: 1, end: 0 },
+      lifespan: { min: 400, max: 900 },
+      frequency: 80,
+      tint: [0xff4400, 0xff9900, 0xffcc00, 0xffffff],
+      gravityY: -50,
+      blendMode: 'ADD'
+    }).setDepth(5);
+
+    // --- Player ---
+    this._makePlayerTexture();
+    this.player = this.physics.add.image(W/2, H/2 - 130, 'player').setDepth(10);
+    this.player.body.setSize(32, 32);
+    this.player.setDepth(10);
+
+    // Player shadow
+    this.playerShadow = this.add.ellipse(W/2, H/2 - 115, 38, 10, 0x000000, 0.35).setDepth(9);
+
+    // --- Physics groups ---
+    this.enemies    = this.physics.add.group();
+    this.bullets    = this.physics.add.group();
+    this.logDrops   = this.physics.add.group();
+    this.traps      = this.physics.add.group();
+
+    // --- Collisions ---
+    // Bullet hits enemy
+    this.physics.add.overlap(this.bullets, this.enemies, this._bulletHitEnemy, null, this);
+    // Enemy hits campfire
+    this.physics.add.overlap(this.enemies, this.campfire, this._enemyHitFire, null, this);
+    // Player collects log
+    this.physics.add.overlap(this.player, this.logDrops, this._collectLog, null, this);
+    // Enemy hits fire trap
+    this.physics.add.overlap(this.enemies, this.traps, this._enemyHitTrap, null, this);
+
+    // --- Input ---
+    this.cursors = this.input.keyboard.createCursorKeys();
+    this.wasd = {
+      up:    this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W),
+      left:  this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
+      down:  this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
+      right: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
+    };
+    this.keyF = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F);
+    this.keyE = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
+
+    // Shooting
+    this.lastShot = 0;
+    this.shootCooldown = 250; // ms
+    this.input.on('pointerdown', () => this._tryShoot());
+
+    // Key F — place trap
+    this.keyF.on('down', () => this._placeTrap());
+    // Key E — burn logs at campfire
+    this.keyE.on('down', () => this._burnLog());
+
+    // --- HUD ---
+    this._buildHUD();
+
+    // --- Touch virtual controls ---
+    this._buildTouchControls();
+
+    // --- Campfire flicker tween ---
+    this.tweens.add({
+      targets: this.campfire,
+      scaleX: { from: 0.97, to: 1.03 },
+      scaleY: { from: 1.02, to: 0.98 },
+      duration: 200, yoyo: true, repeat: -1,
+      ease: 'Sine.easeInOut'
+    });
+
+    // Score milestones
+    this.nextMilestone = 500;
+  }
+
+  // -------- Texture generation --------
+
+  _makePlayerTexture() {
+    // Ranger: warm orange/green character
+    const g = this.add.graphics({ x: 0, y: 0 });
+    // Shadow/base
+    g.fillStyle(0x3a2010, 1);
+    g.fillCircle(24, 28, 14);
+    // Body (cloak)
+    g.fillStyle(0x5c3a1e, 1);
+    g.fillCircle(24, 26, 13);
+    // Face
+    g.fillStyle(0xe8c090, 1);
+    g.fillCircle(24, 18, 9);
+    // Hat
+    g.fillStyle(0x2e4a20, 1);
+    g.fillRect(16, 9, 16, 4);
+    g.fillTriangle(24, 2, 18, 12, 30, 12);
+    // Eyes
+    g.fillStyle(0x1a0a00, 1);
+    g.fillCircle(21, 17, 2);
+    g.fillCircle(27, 17, 2);
+    // Axe
+    g.fillStyle(0x8b6533, 1);
+    g.fillRect(35, 16, 3, 20);
+    g.fillStyle(0xaaaaaa, 1);
+    g.fillTriangle(35, 16, 35, 26, 43, 21);
+    g.generateTexture('player', 50, 50);
+    g.destroy();
+  }
+
+  _makeCampfireTexture() {
+    // Campfire sprite (will be drawn dynamically too for glow)
+    const g = this.add.graphics();
+    // Logs (X pattern)
+    g.fillStyle(0x5c3d1e, 1);
+    g.fillRect(12, 32, 40, 8);
+    g.fillRect(18, 28, 28, 12);
+    // Stone ring
+    g.lineStyle(4, 0x555555, 1);
+    g.strokeCircle(32, 34, 22);
+    g.fillStyle(0x777777, 0.4);
+    g.fillCircle(32, 34, 22);
+    // Flame layers
+    g.fillStyle(0xff2200, 0.9);
+    g.fillTriangle(32, 6, 14, 34, 50, 34);
+    g.fillStyle(0xff6600, 1);
+    g.fillTriangle(32, 12, 18, 32, 46, 32);
+    g.fillStyle(0xffaa00, 1);
+    g.fillTriangle(32, 18, 22, 30, 42, 30);
+    g.fillStyle(0xffee00, 0.9);
+    g.fillTriangle(32, 22, 26, 30, 38, 30);
+    g.fillStyle(0xffffff, 0.5);
+    g.fillCircle(32, 26, 4);
+    g.generateTexture('campfire', 64, 48);
+    g.destroy();
+  }
+
+  _makeEmbersTexture() {
+    const g = this.add.graphics();
+    g.fillStyle(0xffffff, 1);
+    g.fillCircle(4, 4, 4);
+    g.generateTexture('ember', 8, 8);
+    g.destroy();
+  }
+
+  preload() {
+    // Hack: generate ember here since preload is called before create
+  }
+
+  _makeEnemyTexture(key, type) {
+    const g = this.add.graphics();
+    if (type === 'wolf') {
+      // Wolf — elongated body, grey-blue
+      g.fillStyle(0x445566, 1);
+      g.fillEllipse(24, 26, 36, 22);
+      g.fillStyle(0x6699aa, 1);
+      g.fillEllipse(36, 22, 22, 18);
+      // Head
+      g.fillStyle(0x8aabbb, 1);
+      g.fillCircle(42, 18, 12);
+      // Snout
+      g.fillStyle(0x6699aa, 1);
+      g.fillEllipse(50, 20, 14, 8);
+      // Ears
+      g.fillStyle(0x445566, 1);
+      g.fillTriangle(36, 8, 32, 18, 42, 18);
+      g.fillTriangle(46, 6, 42, 16, 50, 16);
+      // Eye
+      g.fillStyle(0xff4400, 1);
+      g.fillCircle(44, 15, 3);
+      g.fillStyle(0xffffff, 1);
+      g.fillCircle(45, 14, 1);
+      // Tail
+      g.fillStyle(0x6699aa, 1);
+      g.fillEllipse(8, 20, 12, 6);
+      g.generateTexture(key, 64, 42);
+    } else if (type === 'bat') {
+      // Bat — dark purple wings, small body
+      g.fillStyle(0x3a1a5c, 1);
+      g.fillEllipse(28, 24, 40, 14); // left wing
+      g.fillEllipse(48, 24, 40, 14); // right wing
+      g.fillStyle(0x220a40, 1);
+      g.fillEllipse(28, 22, 56, 18);
+      g.fillEllipse(48, 22, 56, 18);
+      // Body
+      g.fillStyle(0x6644aa, 1);
+      g.fillCircle(38, 26, 11);
+      // Eyes
+      g.fillStyle(0xff2200, 1);
+      g.fillCircle(33, 23, 3);
+      g.fillCircle(43, 23, 3);
+      g.fillStyle(0xffffff, 0.8);
+      g.fillCircle(34, 22, 1);
+      g.fillCircle(44, 22, 1);
+      // Ears
+      g.fillStyle(0x3a1a5c, 1);
+      g.fillTriangle(31, 14, 28, 26, 36, 22);
+      g.fillTriangle(45, 14, 40, 22, 48, 26);
+      g.generateTexture(key, 76, 48);
+    } else if (type === 'troll') {
+      // Troll — chunky green monster
+      g.fillStyle(0x2d5c1e, 1);
+      g.fillRect(8, 16, 48, 40);
+      g.fillCircle(32, 24, 24);
+      // Belly
+      g.fillStyle(0x4a7a30, 1);
+      g.fillCircle(32, 34, 16);
+      // Head
+      g.fillStyle(0x2d5c1e, 1);
+      g.fillCircle(32, 14, 20);
+      // Horns
+      g.fillStyle(0x1a3a10, 1);
+      g.fillTriangle(22, 2, 18, 16, 28, 14);
+      g.fillTriangle(42, 2, 36, 14, 46, 16);
+      // Eyes — glowing amber
+      g.fillStyle(0xff8800, 1);
+      g.fillCircle(25, 12, 5);
+      g.fillCircle(39, 12, 5);
+      g.fillStyle(0xffcc00, 1);
+      g.fillCircle(25, 12, 3);
+      g.fillCircle(39, 12, 3);
+      // Mouth
+      g.fillStyle(0x111, 1);
+      g.fillRect(22, 20, 20, 4);
+      g.fillStyle(0xdddddd, 1);
+      g.fillRect(23, 20, 3, 5); // teeth
+      g.fillRect(29, 20, 3, 5);
+      g.fillRect(35, 20, 3, 5);
+      g.generateTexture(key, 64, 64);
+    }
+    g.destroy();
+  }
+
+  _makeTrapTexture() {
+    const g = this.add.graphics();
+    // Fire trap — glowing circle ring
+    g.lineStyle(4, 0xff6600, 1);
+    g.strokeCircle(20, 20, 16);
+    g.fillStyle(0xff2200, 0.6);
+    g.fillCircle(20, 20, 10);
+    g.fillStyle(0xffee00, 0.8);
+    g.fillCircle(20, 20, 5);
+    g.generateTexture('firetrap', 40, 40);
+    g.destroy();
+  }
+
+  _makeLogTexture() {
+    const g = this.add.graphics();
+    g.fillStyle(0x8B4513, 1);
+    g.fillEllipse(18, 10, 32, 12);
+    g.lineStyle(2, 0x5c3010, 1);
+    g.strokeEllipse(18, 10, 32, 12);
+    g.fillStyle(0xa0522d, 1);
+    g.fillRect(4, 8, 28, 6);
+    g.generateTexture('log', 36, 20);
+    g.destroy();
+  }
+
+  _makeBulletTexture() {
+    const g = this.add.graphics();
+    g.fillStyle(0xffd700, 1);
+    g.fillCircle(6, 6, 6);
+    g.fillStyle(0xffffff, 0.7);
+    g.fillCircle(7, 5, 2);
+    g.generateTexture('bullet', 12, 12);
+    g.destroy();
+  }
+
+  _makeTrees() {
+    const tg = this.add.graphics().setDepth(8);
+    tg.fillStyle(0x0a1808, 1);
+    const W = this.W, H = this.H;
+    const positions = [
+      [0, H*0.5],[30,H*0.6],[70,H*0.45],[110,H*0.7],[20,H*0.8],
+      [W,H*0.5],[W-30,H*0.6],[W-70,H*0.45],[W-110,H*0.7],[W-20,H*0.8],
+      [W*0.1,H],[W*0.25,H*0.95],[W*0.4,H*0.98],[W*0.6,H*0.98],[W*0.75,H*0.95],[W*0.9,H],
+      [W*0.1,0],[W*0.25,H*0.05],[W*0.4,H*0.02],[W*0.6,H*0.02],[W*0.75,H*0.05],[W*0.9,0]
+    ];
+    for (const [tx, ty] of positions) {
+      const h = 70 + Math.random()*60;
+      const w = 32 + Math.random()*24;
+      tg.fillTriangle(tx, ty - h, tx - w, ty + 10, tx + w, ty + 10);
+      tg.fillRect(tx - 5, ty + 8, 10, 22);
+    }
+  }
+
+  _drawCfGlow(intensity) {
+    // intensity 0..1
+    this.cfGlow.clear();
+    const cx = this.CX, cy = this.CY;
+    for (let r = 100; r >= 20; r -= 10) {
+      const alpha = (100 - r) / 100 * 0.25 * intensity;
+      this.cfGlow.fillStyle(0xff6600, alpha);
+      this.cfGlow.fillCircle(cx, cy, r);
+    }
+  }
+
+  _buildHUD() {
+    const W = this.W;
+    // Score text
+    this.scoreTxt = this.add.text(12, 10, 'Score: 0', {
+      fontFamily: 'Fredoka One', fontSize: '22px', color: '#ffd700',
+      stroke: '#000', strokeThickness: 3
+    }).setDepth(20);
+
+    // Timer text
+    this.timeTxt = this.add.text(W - 12, 10, 'Time: 0s', {
+      fontFamily: 'Fredoka One', fontSize: '18px', color: '#a8d8a8',
+      stroke: '#000', strokeThickness: 2
+    }).setOrigin(1, 0).setDepth(20);
+
+    // Campfire HP bar
+    this.add.text(W/2, 14, '🔥 Campfire', {
+      fontFamily: 'Fredoka One', fontSize: '14px', color: '#f4a460'
+    }).setOrigin(0.5, 0).setDepth(20);
+
+    this.cfHPBarBg = this.add.rectangle(W/2, 38, 160, 14, 0x333333).setDepth(20);
+    this.cfHPBar = this.add.rectangle(W/2 - 73, 38, 146, 10, 0xff4400).setOrigin(0, 0.5).setDepth(21);
+
+    // Log counter
+    this.logTxt = this.add.text(12, 40, '🪵 Logs: 0/5', {
+      fontFamily: 'Fredoka One', fontSize: '16px', color: '#d4a060',
+      stroke: '#000', strokeThickness: 2
+    }).setDepth(20);
+
+    // Trap counter
+    this.trapTxt = this.add.text(12, 62, '🔥 Traps: 0/3', {
+      fontFamily: 'Fredoka One', fontSize: '16px', color: '#ff9900',
+      stroke: '#000', strokeThickness: 2
+    }).setDepth(20);
+
+    // Hint
+    this.hintTxt = this.add.text(W/2, this.H - 14, '[F] Trap  [E] near fire = Heal', {
+      fontFamily: 'Fredoka One', fontSize: '13px', color: '#888', stroke: '#000', strokeThickness: 2
+    }).setOrigin(0.5, 1).setDepth(20);
+  }
+
+  _buildTouchControls() {
+    // Mobile virtual joystick — pointer held on left half
+    this.touchDir = { x: 0, y: 0 };
+    this.touchPointer = null;
+    // We handle pointer events for movement on left side
+    // Shooting handled by right side tap
+  }
+
+  _buildMissingTextures() {
+    // Called in create after all generators
+    if (!this.textures.exists('ember')) {
+      const g = this.add.graphics();
+      g.fillStyle(0xffffff, 1);
+      g.fillCircle(4, 4, 4);
+      g.generateTexture('ember', 8, 8);
+      g.destroy();
+    }
+  }
+
+  // -------- Spawning --------
+
+  _spawnEnemy(elapsed, difficulty) {
+    const W = this.W, H = this.H;
+    const CX = this.CX, CY = this.CY;
+
+    // Pick spawn edge
+    const edge = Phaser.Math.Between(0, 3);
+    let sx, sy;
+    if (edge === 0) { sx = Phaser.Math.Between(0, W); sy = -30; }
+    else if (edge === 1) { sx = W + 30; sy = Phaser.Math.Between(0, H); }
+    else if (edge === 2) { sx = Phaser.Math.Between(0, W); sy = H + 30; }
+    else { sx = -30; sy = Phaser.Math.Between(0, H); }
+
+    // Choose enemy type
+    // Trolls appear after 45s, bats after 10s
+    const trollChance = elapsed > 45 ? clamp((elapsed - 45) / 120, 0, 0.25) : 0;
+    const batChance = elapsed > 10 ? 0.4 : 0.1;
+    const r = Math.random();
+    let type;
+    if (r < trollChance) type = 'troll';
+    else if (r < trollChance + batChance) type = 'bat';
+    else type = 'wolf';
+
+    let key = type;
+    if (!this.textures.exists(key)) {
+      this._makeEnemyTexture(key, type);
+    }
+
+    const enemy = this.enemies.create(sx, sy, key);
+    enemy.enemyType = type;
+    enemy.setDepth(6);
+
+    // Physics body size (forgiving, 80% of sprite)
+    if (type === 'wolf')       { enemy.body.setSize(50, 34); enemy.setScale(0.85); }
+    else if (type === 'bat')   { enemy.body.setSize(60, 36); enemy.setScale(0.75); }
+    else if (type === 'troll') { enemy.body.setSize(50, 52); enemy.setScale(1.0); }
+
+    // Stats scaled by difficulty
+    const speedMult = lerp(0.8, 2.6, easeIn(difficulty));
+    if (type === 'wolf')  { enemy.hp = 2 + Math.floor(difficulty * 4); enemy.speed = 80 * speedMult; enemy.dmg = 8; }
+    if (type === 'bat')   { enemy.hp = 1; enemy.speed = 110 * speedMult; enemy.dmg = 4; enemy.zigzag = true; enemy.zigTimer = 0; enemy.zigAngle = 0; }
+    if (type === 'troll') { enemy.hp = 8 + Math.floor(difficulty * 8); enemy.speed = 40 * speedMult; enemy.dmg = 22; }
+
+    enemy.hitFlashTimer = 0;
+    enemy.lastFireDmgTime = 0;
+    // Idle bob tween
+    this.tweens.add({
+      targets: enemy, y: enemy.y - 3,
+      duration: 300 + Math.random()*200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+  }
+
+  // -------- Combat --------
+
+  _tryShoot() {
+    if (!this.alive) return;
+    const now = this.time.now;
+    if (now - this.lastShot < this.shootCooldown) return;
+    this.lastShot = now;
+
+    if (!this.textures.exists('bullet')) this._makeBulletTexture();
+
+    const px = this.player.x, py = this.player.y;
+    const ptr = this.input.activePointer;
+
+    // Get world-space pointer position (accounting for camera)
+    const worldPt = this.cameras.main.getWorldPoint(ptr.x, ptr.y);
+    const mx = worldPt.x, my = worldPt.y;
+
+    const angle = Math.atan2(my - py, mx - px);
+    const spd = 520;
+    const bullet = this.bullets.create(px, py, 'bullet');
+    bullet.setDepth(11);
+    bullet.body.setCircle(5);
+    bullet.setVelocity(Math.cos(angle) * spd, Math.sin(angle) * spd);
+    bullet.setRotation(angle);
+    // Auto-destroy after 1.5s
+    this.time.delayedCall(1500, () => { if (bullet && bullet.active) bullet.destroy(); });
+    sfxShoot();
+  }
+
+  _bulletHitEnemy(bullet, enemy) {
+    bullet.destroy();
+    enemy.hp -= 1;
+    sfxHitEnemy();
+    // Hit flash
+    enemy.setTint(0xff4444);
+    this.time.delayedCall(100, () => { if (enemy.active) enemy.clearTint(); });
+    // Tiny shake
+    this.cameras.main.shake(40, 0.003);
+
+    if (enemy.hp <= 0) {
+      this._killEnemy(enemy);
+    }
+  }
+
+  _killEnemy(enemy) {
+    if (!enemy.active) return;
+    const ex = enemy.x, ey = enemy.y;
+    const type = enemy.enemyType;
+
+    // Score bonus
+    const bonus = type === 'wolf' ? 25 : type === 'bat' ? 15 : 60;
+    this.killBonus += bonus;
+
+    // Explosion particles
+    if (this.textures.exists('ember')) {
+      const emitter = this.add.particles(ex, ey, 'ember', {
+        speed: { min: 40, max: 140 },
+        scale: { start: 1.2, end: 0 },
+        alpha: { start: 1, end: 0 },
+        lifespan: 500,
+        quantity: 12,
+        tint: type === 'troll' ? [0x44cc44, 0x228822] : (type === 'bat' ? [0xaa44cc, 0x6622aa] : [0x88aacc, 0x4466aa]),
+        blendMode: 'ADD'
+      });
+      this.time.delayedCall(600, () => emitter.destroy());
+    }
+
+    // Score popup
+    const pts = this.add.text(ex, ey - 16, `+${bonus}`, {
+      fontFamily: 'Fredoka One', fontSize: '18px', color: '#ffd700',
+      stroke: '#000', strokeThickness: 3
+    }).setDepth(25).setOrigin(0.5);
+    this.tweens.add({ targets: pts, y: pts.y - 40, alpha: 0, duration: 700, onComplete: () => pts.destroy() });
+
+    // Drop log (50% chance)
+    if (Math.random() < 0.5) {
+      if (!this.textures.exists('log')) this._makeLogTexture();
+      const log = this.logDrops.create(ex + Phaser.Math.Between(-20, 20), ey + Phaser.Math.Between(-10, 10), 'log');
+      log.setDepth(3);
+      log.body.setSize(28, 14);
+      // Logs disappear after 15s
+      this.time.delayedCall(15000, () => { if (log && log.active) log.destroy(); });
+    }
+
+    enemy.destroy();
+  }
+
+  _enemyHitFire(enemy, campfire) {
+    const now = this.time.now;
+    if (!enemy.lastFireHit) enemy.lastFireHit = 0;
+    if (now - enemy.lastFireHit < 600) return; // rate limit damage
+    enemy.lastFireHit = now;
+
+    this.campfireHP = Math.max(0, this.campfireHP - enemy.dmg);
+    sfxFireHit();
+    this.cameras.main.shake(120, 0.008);
+    this.cameras.main.flash(80, 255, 80, 0, false); // orange-ish flash
+
+    // Campfire flashes
+    this.campfire.setTint(0xff2200);
+    this.time.delayedCall(150, () => { if (this.campfire.active) this.campfire.clearTint(); });
+
+    // If CF reaches 0, game over
+    if (this.campfireHP <= 0 && this.alive) {
+      this._gameOver();
+    }
+  }
+
+  _collectLog(player, log) {
+    if (!log.active) return;
+    log.destroy();
+    this.logs = Math.min(this.logs + 1, this.maxLogs);
+    this.killBonus += 5;
+    sfxCollect();
+
+    const txt = this.add.text(player.x, player.y - 20, '🪵 +Log!', {
+      fontFamily: 'Fredoka One', fontSize: '16px', color: '#d4a060', stroke: '#000', strokeThickness: 2
+    }).setDepth(25).setOrigin(0.5);
+    this.tweens.add({ targets: txt, y: txt.y - 30, alpha: 0, duration: 700, onComplete: () => txt.destroy() });
+  }
+
+  _placeTrap() {
+    if (!this.alive) return;
+    if (this.trapCount >= this.maxTraps) return;
+    if (!this.textures.exists('firetrap')) this._makeTrapTexture();
+
+    const trap = this.traps.create(this.player.x, this.player.y, 'firetrap');
+    trap.setDepth(4);
+    trap.body.setCircle(18, 2, 2);
+    trap.hits = 0;
+    trap.maxHits = 5;
+    this.trapCount++;
+    sfxTrap();
+
+    // Pulsing glow effect
+    this.tweens.add({
+      targets: trap, scaleX: 1.15, scaleY: 1.15,
+      duration: 400, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+
+    // Expire after 20s
+    this.time.delayedCall(20000, () => {
+      if (trap && trap.active) { trap.destroy(); this.trapCount = Math.max(0, this.trapCount - 1); }
+    });
+  }
+
+  _enemyHitTrap(enemy, trap) {
+    if (!trap.active || !enemy.active) return;
+    const now = this.time.now;
+    if (!enemy.lastTrapHit) enemy.lastTrapHit = 0;
+    if (now - enemy.lastTrapHit < 500) return;
+    enemy.lastTrapHit = now;
+
+    enemy.hp -= 2;
+    sfxTrapHit();
+    enemy.setTint(0xff6600);
+    this.time.delayedCall(120, () => { if (enemy.active) enemy.clearTint(); });
+
+    trap.hits++;
+    // Flicker trap
+    this.tweens.add({ targets: trap, alpha: 0.3, duration: 100, yoyo: true });
+
+    if (enemy.hp <= 0) this._killEnemy(enemy);
+    if (trap.hits >= trap.maxHits) {
+      trap.destroy();
+      this.trapCount = Math.max(0, this.trapCount - 1);
+    }
+  }
+
+  _burnLog() {
+    if (!this.alive) return;
+    // Must be within 80px of campfire
+    const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, this.CX, this.CY);
+    if (dist > 100) {
+      const hint = this.add.text(this.player.x, this.player.y - 24, 'Get closer to campfire!', {
+        fontFamily: 'Fredoka One', fontSize: '14px', color: '#ff8888', stroke: '#000', strokeThickness: 2
+      }).setDepth(25).setOrigin(0.5);
+      this.tweens.add({ targets: hint, y: hint.y - 20, alpha: 0, duration: 900, onComplete: () => hint.destroy() });
+      return;
+    }
+    if (this.logs <= 0) {
+      const hint = this.add.text(this.player.x, this.player.y - 24, 'No logs!', {
+        fontFamily: 'Fredoka One', fontSize: '14px', color: '#ff8888', stroke: '#000', strokeThickness: 2
+      }).setDepth(25).setOrigin(0.5);
+      this.tweens.add({ targets: hint, y: hint.y - 20, alpha: 0, duration: 900, onComplete: () => hint.destroy() });
+      return;
+    }
+    this.logs--;
+    this.campfireHP = Math.min(this.maxCampfireHP, this.campfireHP + 15);
+    sfxMilestone();
+    const heal = this.add.text(this.CX, this.CY - 50, '🔥 +15 HP', {
+      fontFamily: 'Fredoka One', fontSize: '20px', color: '#ff9900', stroke: '#000', strokeThickness: 3
+    }).setDepth(25).setOrigin(0.5);
+    this.tweens.add({ targets: heal, y: heal.y - 40, alpha: 0, duration: 900, onComplete: () => heal.destroy() });
+  }
+
+  // -------- Game Over --------
+
+  _gameOver() {
+    this.alive = false;
+    sfxDeath();
+    this.cameras.main.shake(600, 0.02);
+    this.cameras.main.flash(400, 255, 60, 0);
+    stopCrackle();
+
+    // Campfire dies (particles)
+    if (this.textures.exists('ember')) {
+      const em = this.add.particles(this.CX, this.CY, 'ember', {
+        speed: { min: 60, max: 250 },
+        scale: { start: 2, end: 0 },
+        alpha: { start: 1, end: 0 },
+        lifespan: 1200,
+        quantity: 30,
+        tint: [0xff4400, 0xff9900, 0x666666],
+        blendMode: 'ADD'
+      });
+      this.time.delayedCall(1400, () => em.destroy());
+    }
+    this.campfire.setVisible(false);
+    this.emberParticles.stop();
+
+    const elapsed = (this.time.now - this.gameStartTime) / 1000;
+    const finalScore = Math.floor(elapsed * 10 + this.killBonus);
+
+    this.time.delayedCall(900, () => {
+      this.scene.pause();
+      showGameOverUI(finalScore);
+    });
+  }
+
+  // -------- Update --------
+
+  update(time, delta) {
+    if (!this.alive) return;
+
+    const dt = delta / 16.667;
+    const elapsed = (time - this.gameStartTime) / 1000;
+    const difficulty = Math.min(easeIn(elapsed / 120), 1.0);
+
+    // Score (time-based, monotonic)
+    this.score = Math.floor(elapsed * 10 + this.killBonus);
+
+    // Score milestones
+    if (this.score >= this.nextMilestone) {
+      sfxMilestone();
+      this.nextMilestone += 500;
+    }
+
+    // --- Player movement ---
+    const spd = 200;
+    let vx = 0, vy = 0;
+    if (this.cursors.left.isDown || this.wasd.left.isDown)  vx -= spd;
+    if (this.cursors.right.isDown || this.wasd.right.isDown) vx += spd;
+    if (this.cursors.up.isDown || this.wasd.up.isDown)   vy -= spd;
+    if (this.cursors.down.isDown || this.wasd.down.isDown) vy += spd;
+
+    // Normalize diagonal
+    if (vx !== 0 && vy !== 0) { vx *= 0.707; vy *= 0.707; }
+
+    this.player.setVelocity(vx * dt, vy * dt);
+
+    // Clamp player to bounds
+    this.player.x = clamp(this.player.x, 20, this.W - 20);
+    this.player.y = clamp(this.player.y, 20, this.H - 20);
+
+    // Player faces mouse
+    const worldPt = this.cameras.main.getWorldPoint(this.input.activePointer.x, this.input.activePointer.y);
+    const angle = Math.atan2(worldPt.y - this.player.y, worldPt.x - this.player.x);
+    this.player.setRotation(angle + Math.PI / 2);
+
+    // Shadow follows player
+    this.playerShadow.x = this.player.x;
+    this.playerShadow.y = this.player.y + 20;
+
+    // Auto-shoot at nearest enemy if pointer not held (optional: continuous mouse hold)
+    if (this.input.activePointer.isDown) {
+      this._tryShoot();
+    }
+
+    // --- Enemy spawning ---
+    const spawnRate = lerp(0.6, 4.0, easeIn(difficulty)); // enemies per second
+    const spawnInterval = 1000 / spawnRate;
+    if (time > this.nextSpawnTime) {
+      this._spawnEnemy(elapsed, difficulty);
+      this.nextSpawnTime = time + spawnInterval;
+    }
+
+    // --- Enemy movement ---
+    this.enemies.getChildren().forEach(enemy => {
+      if (!enemy.active) return;
+
+      const dx = this.CX - enemy.x;
+      const dy = this.CY - enemy.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+
+      if (enemy.enemyType === 'bat') {
+        // Bats zigzag erratically
+        enemy.zigTimer += delta;
+        if (enemy.zigTimer > 400) {
+          enemy.zigTimer = 0;
+          enemy.zigAngle = (Math.random() - 0.5) * 1.5;
+        }
+        const baseAngle = Math.atan2(dy, dx);
+        const finalAngle = baseAngle + enemy.zigAngle;
+        const s = enemy.speed * dt;
+        enemy.x += Math.cos(finalAngle) * s * 0.06;
+        enemy.y += Math.sin(finalAngle) * s * 0.06;
+      } else {
+        // Wolves & trolls go direct
+        if (dist > 25) {
+          const s = enemy.speed * dt * 0.06;
+          enemy.x += (dx/dist) * s;
+          enemy.y += (dy/dist) * s;
+        }
+      }
+
+      // Face campfire
+      const ea = Math.atan2(dy, dx);
+      enemy.setRotation(ea);
+    });
+
+    // --- Update HUD ---
+    this.scoreTxt.setText(`Score: ${this.score}`);
+    this.timeTxt.setText(`Time: ${Math.floor(elapsed)}s`);
+    this.logTxt.setText(`🪵 Logs: ${this.logs}/${this.maxLogs}`);
+    this.trapTxt.setText(`🔥 Traps: ${this.trapCount}/${this.maxTraps}`);
+
+    // Campfire HP bar
+    const hpFrac = this.campfireHP / this.maxCampfireHP;
+    this.cfHPBar.width = 146 * hpFrac;
+    const hpColor = hpFrac > 0.5 ? 0xff4400 : hpFrac > 0.25 ? 0xff8800 : 0xff0000;
+    this.cfHPBar.setFillStyle(hpColor);
+
+    // Campfire glow pulses with HP
+    this._drawCfGlow(0.3 + hpFrac * 0.7);
+
+    // Campfire danger warning
+    if (hpFrac < 0.3 && Math.floor(time / 500) % 2 === 0) {
+      this.campfire.setTint(0xff2222);
+    } else {
+      this.campfire.clearTint();
+    }
+  }
+}
+
+// ---- Phaser config ----
+const config = {
+  type: Phaser.AUTO,
+  width: 800,
+  height: 600,
+  backgroundColor: '#040e04',
+  physics: {
+    default: 'arcade',
+    arcade: { gravity: { y: 0 }, debug: false }
+  },
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
+  scene: [MenuScene, GameScene]
+};
+
+// Generate textures that GameScene needs in preload — we override preload in GameScene
+// Actually we generate all in create(), which is correct.
+// But ember needs to be created before particles — handle in create() ordering.
+
+// Patch: Override GameScene.preload to generate 'ember' early
+const origCreate = GameScene.prototype.create;
+GameScene.prototype.create = function() {
+  // Generate ember texture first (needed for particle emitter)
+  const eg = this.add.graphics();
+  eg.fillStyle(0xffffff, 1);
+  eg.fillCircle(4, 4, 4);
+  eg.generateTexture('ember', 8, 8);
+  eg.destroy();
+
+  origCreate.call(this);
+};
+
+const game = new Phaser.Game(config);
+</script>
+</body>
+</html>
