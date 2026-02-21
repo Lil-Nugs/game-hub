@@ -3,144 +3,263 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Game Hub</title>
+<title>Game Hub — AI Model Showdown</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#0a0a0f;color:#e0e0e0;font-family:'DM Sans',sans-serif;min-height:100vh}
-header{text-align:center;padding:2.5rem 1rem 1rem;border-bottom:1px solid rgba(108,92,231,.25)}
-h1{font-family:'Space Mono',monospace;font-size:2.3rem;color:#fff} h1 span{color:#6c5ce7}
-header p{margin-top:.5rem;color:#9aa;font-size:.95rem}
-#controls{max-width:1120px;margin:1rem auto;padding:0 1rem;display:flex;gap:.6rem;flex-wrap:wrap;justify-content:center}
-.chip{border:1px solid #2f3150;background:#12121a;color:#9aa;padding:.45rem .8rem;border-radius:999px;cursor:pointer;font-size:.85rem}
+
+/* ── Header ── */
+header{text-align:center;padding:2.5rem 1rem 1.5rem;border-bottom:1px solid rgba(108,92,231,.2)}
+h1{font-family:'Space Mono',monospace;font-size:2.3rem;color:#fff;letter-spacing:-1px}
+h1 span{color:#6c5ce7}
+.tagline{margin-top:.5rem;color:#888;font-size:.95rem}
+.tagline em{color:#aaa;font-style:normal}
+
+/* ── Nav ── */
+nav{text-align:center;padding:.7rem}
+nav a{color:#6c5ce7;text-decoration:none;font-family:'Space Mono',monospace;font-size:.9rem;
+  padding:.45rem 1rem;border:1px solid rgba(108,92,231,.35);border-radius:8px;transition:all .2s}
+nav a:hover{background:rgba(108,92,231,.1);border-color:#6c5ce7}
+
+/* ── Model filter ── */
+#model-filter{max-width:1120px;margin:.8rem auto 0;padding:0 1rem;display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center}
+.chip{border:1px solid #2f3150;background:#12121a;color:#9aa;padding:.45rem .85rem;border-radius:999px;
+  cursor:pointer;font-size:.82rem;font-family:'Space Mono',monospace;transition:all .2s}
+.chip:hover{border-color:#6c5ce7;color:#ddd}
 .chip.active{border-color:#6c5ce7;color:#fff;background:#1a1730}
-#gallery{max-width:1120px;margin:1rem auto 2rem;padding:0 1rem;display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:1rem}
-.card{background:#12121a;border:1px solid #1f2134;border-radius:12px;padding:1rem;display:flex;flex-direction:column;gap:.7rem}
-.card:hover{border-color:#6c5ce7;box-shadow:0 0 24px rgba(108,92,231,.18)}
-.row{display:flex;justify-content:space-between;align-items:center;gap:.6rem}
-.model{font-size:.72rem;border:1px solid #38406d;padding:.22rem .5rem;border-radius:999px;color:#bcd}
-.model.codex{border-color:#5eead4;color:#5eead4}.model.claude{border-color:#a78bfa;color:#c4b5fd}.model.unknown{border-color:#666;color:#999}
-h2{font-family:'Space Mono',monospace;font-size:1.05rem;color:#fff}
-.desc{font-size:.88rem;line-height:1.45;color:#b1b1bf;min-height:2.4rem}
-.meta{font-size:.78rem;color:#7f8094}
-.play{display:inline-block;text-align:center;padding:.55rem 1rem;background:#6c5ce7;color:#fff;text-decoration:none;border-radius:8px;font-family:'Space Mono',monospace;font-size:.85rem}
-.rating{border-top:1px solid #1f2134;padding-top:.55rem}
-.rline{font-size:.75rem;color:#9aa;display:flex;justify-content:space-between}
-.rate-grid{display:grid;grid-template-columns:1fr 1fr;gap:.35rem .6rem;margin-top:.35rem}
-.rate-item{display:flex;align-items:center;justify-content:space-between;font-size:.72rem;color:#9aa}
-.stars button{background:none;border:none;color:#444;cursor:pointer;font-size:.85rem;padding:0 .03rem}
-.stars button.on{color:#ffd166}
-.small{font-size:.7rem;color:#777}
-#empty{text-align:center;color:#666;padding:4rem 1rem}
+.chip.model-claude{border-color:#7c3aed}.chip.model-claude.active{background:#2e1065;border-color:#a78bfa;color:#c4b5fd}
+.chip.model-codex{border-color:#0d9488}.chip.model-codex.active{background:#042f2e;border-color:#5eead4;color:#5eead4}
+.chip.model-gemini{border-color:#1e40af}.chip.model-gemini.active{background:#0f172a;border-color:#93c5fd;color:#93c5fd}
+.chip.model-grok{border-color:#9d174d}.chip.model-grok.active{background:#2d0a1e;border-color:#f9a8d4;color:#f9a8d4}
+
+/* ── Gallery ── */
+#gallery{max-width:1120px;margin:1.2rem auto 0;padding:0 1rem;
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:1rem}
+
+/* ── Cards ── */
+.card{background:#12121a;border:1px solid #1f2134;border-radius:12px;padding:1rem;
+  display:flex;flex-direction:column;gap:.65rem;transition:border-color .2s,box-shadow .2s}
+.card:hover{border-color:#6c5ce7;box-shadow:0 0 24px rgba(108,92,231,.15)}
+.card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:.5rem}
+.card-title{font-family:'Space Mono',monospace;font-size:1rem;color:#fff;line-height:1.3}
+.model-badge{font-size:.7rem;padding:.22rem .55rem;border-radius:999px;white-space:nowrap;flex-shrink:0;font-family:'Space Mono',monospace;text-transform:uppercase}
+.model-claude{background:rgba(167,139,250,.1);border:1px solid #a78bfa;color:#c4b5fd}
+.model-codex{background:rgba(94,234,212,.08);border:1px solid #5eead4;color:#5eead4}
+.model-gemini{background:rgba(147,197,253,.08);border:1px solid #93c5fd;color:#93c5fd}
+.model-grok{background:rgba(249,168,212,.08);border:1px solid #f9a8d4;color:#f9a8d4}
+.model-unknown{background:rgba(150,150,160,.08);border:1px solid #555;color:#888}
+.card-desc{font-size:.88rem;line-height:1.5;color:#aaa;flex:1}
+.card-meta{font-size:.75rem;color:#666;display:flex;justify-content:space-between}
+.play-btn{display:block;text-align:center;padding:.55rem 1rem;background:#6c5ce7;color:#fff;
+  text-decoration:none;border-radius:8px;font-family:'Space Mono',monospace;font-size:.82rem;
+  transition:background .2s}
+.play-btn:hover{background:#7c6cf7}
+
+/* ── Empty state ── */
+#empty-state{max-width:1120px;margin:3rem auto;padding:0 1rem;text-align:center;color:#555}
+#empty-state .icon{font-size:2.5rem;display:block;margin-bottom:.75rem}
+#empty-state h3{color:#777;font-family:'Space Mono',monospace;font-size:1rem;margin-bottom:.5rem}
+#empty-state p{font-size:.9rem;line-height:1.6;color:#555}
+
+/* ── Archive section ── */
+#archive-section{max-width:1120px;margin:3rem auto 2rem;padding:0 1rem}
+#archive-toggle{width:100%;padding:.9rem 1.2rem;background:transparent;border:1px dashed #2a2a3a;
+  border-radius:10px;color:#555;font-family:'Space Mono',monospace;font-size:.85rem;cursor:pointer;
+  display:flex;align-items:center;justify-content:space-between;transition:all .2s}
+#archive-toggle:hover{border-color:#4a4a5a;color:#888;background:rgba(255,255,255,.02)}
+#archive-toggle .arrow{transition:transform .25s}
+#archive-toggle.open .arrow{transform:rotate(180deg)}
+#archive-grid{display:none;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:.8rem;margin-top:.8rem}
+#archive-grid.open{display:grid}
+.archive-card{background:#0d0d14;border:1px solid #17171f;border-radius:10px;padding:.9rem;
+  display:flex;flex-direction:column;gap:.5rem;opacity:.7;transition:opacity .2s}
+.archive-card:hover{opacity:1;border-color:#2a2a3a}
+.archive-card .card-title{font-size:.92rem;color:#ccc}
+.archive-card .card-desc{font-size:.82rem;color:#777}
+.archive-card .card-meta{font-size:.72rem;color:#555}
+.archive-badge{font-size:.65rem;padding:.18rem .45rem;border-radius:999px;
+  background:rgba(150,150,160,.06);border:1px solid #333;color:#666;font-family:'Space Mono',monospace;text-transform:uppercase}
+.archive-play{display:block;text-align:center;padding:.4rem .8rem;background:transparent;color:#555;
+  text-decoration:none;border-radius:6px;font-family:'Space Mono',monospace;font-size:.75rem;
+  border:1px solid #2a2a3a;transition:all .2s}
+.archive-play:hover{color:#aaa;border-color:#555}
+
+/* ── Footer ── */
+footer{text-align:center;padding:2rem 1rem;color:#444;font-size:.78rem;border-top:1px solid #111}
+
+@media(max-width:600px){
+  h1{font-size:1.7rem}
+  #gallery{grid-template-columns:1fr}
+  #archive-grid{grid-template-columns:1fr}
+}
 </style>
 </head>
 <body>
+
 <header>
   <h1><span>&gt;</span> Game Hub</h1>
-  <p>Filter by model + lightweight ratings (visuals / balance / fun / stability)</p>
+  <p class="tagline">AI-generated games — <em>each tagged by the model that built it</em></p>
 </header>
-<nav style="text-align:center;padding:.7rem"><a href="leaderboard.html" style="color:#6c5ce7;text-decoration:none;font-family:'Space Mono',monospace;font-size:.9rem;padding:.45rem 1rem;border:1px solid rgba(108,92,231,.35);border-radius:8px">🏆 Leaderboards</a></nav>
-<div id="controls"></div>
-<div id="gallery"></div>
-<script>
-const CATS=['visuals','balance','entertainment','stability'];
-const MODEL_OPTIONS=['all','codex','claude','unknown'];
-let currentModel='all';
-let games=[];
-let seedRatings={};
-const localRatings=JSON.parse(localStorage.getItem('gameHubRatings')||'{}');
 
-(async()=>{
-  const [gRes,rRes]=await Promise.allSettled([fetch('games.json'),fetch('ratings-seed.json')]);
-  if(gRes.status==='fulfilled'){const data=await gRes.value.json();games=(data.games||[]).map(withModel)}
-  if(rRes.status==='fulfilled'){try{seedRatings=await rRes.value.json()}catch{seedRatings={}}}
-  renderControls(); renderGallery();
+<nav>
+  <a href="leaderboard.html">🏆 Leaderboards</a>
+</nav>
+
+<div id="model-filter"></div>
+<div id="gallery"></div>
+<div id="empty-state" style="display:none">
+  <span class="icon">🎮</span>
+  <h3>No games yet for this filter</h3>
+  <p>The model showdown hasn't started.<br>Games will appear here once agents start generating.</p>
+</div>
+
+<div id="archive-section">
+  <button id="archive-toggle">
+    <span>📦 Archive — <span id="archive-count">0</span> pre-study games</span>
+    <span class="arrow">▼</span>
+  </button>
+  <div id="archive-grid"></div>
+</div>
+
+<footer>game-hub · AI model comparison platform · <a href="https://github.com/Lil-Nugs/game-hub" style="color:#555;text-decoration:none">github</a></footer>
+
+<script>
+const MODEL_COLORS = {
+  claude:  { badge: 'model-claude',  chip: 'model-claude'  },
+  codex:   { badge: 'model-codex',   chip: 'model-codex'   },
+  gemini:  { badge: 'model-gemini',  chip: 'model-gemini'  },
+  grok:    { badge: 'model-grok',    chip: 'model-grok'    },
+  unknown: { badge: 'model-unknown', chip: ''               },
+};
+
+function modelClass(model, type) {
+  const m = (model || 'unknown').toLowerCase();
+  const entry = MODEL_COLORS[m] || MODEL_COLORS.unknown;
+  return entry[type] || MODEL_COLORS.unknown[type];
+}
+
+let allGames = [];
+let currentModel = 'all';
+
+(async () => {
+  try {
+    const res = await fetch('games.json');
+    const data = await res.json();
+    allGames = data.games || [];
+  } catch (e) {
+    console.error('Failed to load games.json', e);
+  }
+
+  renderFilter();
+  renderGallery();
+  renderArchive();
 })();
 
-function withModel(g){
-  // Use explicit model if present; otherwise infer conservatively
-  let model=(g.model||'').toLowerCase();
-  if(!model){
-    const s=(g.slug||'').toLowerCase();
-    if(s.includes('claude')) model='claude';
-    else if(s.includes('codex')||s.includes('v3')||s.includes('turbo')) model='codex';
-    else model='unknown';
+function activeGames() {
+  return allGames.filter(g => !g.archived).sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+function renderFilter() {
+  const active = activeGames();
+  const models = [...new Set(active.map(g => (g.model || 'unknown').toLowerCase()))].sort();
+  const options = ['all', ...models];
+
+  const el = document.getElementById('model-filter');
+  el.innerHTML = '';
+
+  options.forEach(m => {
+    const btn = document.createElement('button');
+    btn.className = 'chip' + (m === currentModel ? ' active' : '') + (m !== 'all' ? ' model-' + m : '');
+    btn.textContent = m === 'all' ? 'ALL MODELS' : m.toUpperCase();
+    btn.onclick = () => { currentModel = m; renderFilter(); renderGallery(); };
+    el.appendChild(btn);
+  });
+}
+
+function renderGallery() {
+  const gallery = document.getElementById('gallery');
+  const emptyState = document.getElementById('empty-state');
+  const active = activeGames();
+  const filtered = currentModel === 'all'
+    ? active
+    : active.filter(g => (g.model || 'unknown').toLowerCase() === currentModel);
+
+  if (filtered.length === 0) {
+    gallery.innerHTML = '';
+    emptyState.style.display = 'block';
+    return;
   }
-  return {...g,model};
-}
 
-function renderControls(){
-  const c=document.getElementById('controls');
-  c.innerHTML='';
-  MODEL_OPTIONS.forEach(m=>{
-    const b=document.createElement('button');
-    b.className='chip'+(m===currentModel?' active':'');
-    b.textContent=m.toUpperCase();
-    b.onclick=()=>{currentModel=m;renderControls();renderGallery()};
-    c.appendChild(b);
+  emptyState.style.display = 'none';
+  gallery.innerHTML = '';
+  filtered.forEach(game => {
+    const model = (game.model || 'unknown').toLowerCase();
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="card-top">
+        <span class="card-title">${esc(game.title)}</span>
+        <span class="model-badge ${modelClass(model, 'badge')}">${esc(model)}</span>
+      </div>
+      <p class="card-desc">${esc(game.description || '')}</p>
+      <div class="card-meta">
+        <span>by ${esc(game.creator || 'unknown')}</span>
+        <span>${fmt(game.date)}</span>
+      </div>
+      <a class="play-btn" href="games/${encodeURIComponent(game.slug)}/index.html">▶ PLAY</a>
+    `;
+    gallery.appendChild(card);
   });
 }
 
-function mergedRatings(slug){
-  const seed=seedRatings[slug]||{};
-  const local=localRatings[slug]||{};
-  const out={};
-  CATS.forEach(cat=>{
-    const s=seed[cat]||{sum:0,count:0};
-    const v=local[cat];
-    out[cat]={sum:s.sum+(v||0),count:s.count+(v?1:0),mine:v||0};
-  });
-  return out;
-}
+function renderArchive() {
+  const archived = allGames.filter(g => g.archived).sort((a, b) => new Date(b.date) - new Date(a.date));
+  document.getElementById('archive-count').textContent = archived.length;
 
-function avg(obj){return obj.count? (obj.sum/obj.count).toFixed(1):'—'}
+  const grid = document.getElementById('archive-grid');
+  grid.innerHTML = '';
 
-function renderGallery(){
-  const g=document.getElementById('gallery');
-  const list=[...games].sort((a,b)=>new Date(b.date)-new Date(a.date)).filter(x=>currentModel==='all'||x.model===currentModel);
-  if(!list.length){g.innerHTML='<div id="empty">No games in this filter.</div>';return}
-  g.innerHTML='';
-  list.forEach(game=>{
-    const r=mergedRatings(game.slug);
-    const card=document.createElement('div');card.className='card';
-    card.innerHTML=`
-      <div class="row"><h2>${esc(game.title)}</h2><span class="model ${game.model}">${game.model}</span></div>
-      <p class="desc">${esc(game.description||'')}</p>
-      <div class="meta row"><span>by ${esc(game.creator||'unknown')}</span><span>${fmt(game.date)}</span></div>
-      <a class="play" href="games/${encodeURIComponent(game.slug)}/index.html">PLAY</a>
-      <div class="rating">
-        <div class="rline"><span>Ratings</span><span class="small">local votes now · seed file for shared baseline</span></div>
-        <div class="rate-grid">
-          ${CATS.map(cat=>`<div class='rate-item'><span>${cat}</span><span>${avg(r[cat])}</span></div><div class='stars' data-slug='${game.slug}' data-cat='${cat}'>${renderStars(r[cat].mine)}</div>`).join('')}
-        </div>
-      </div>`;
-    g.appendChild(card);
-  });
-  document.querySelectorAll('.stars').forEach(el=>bindStars(el));
-}
-
-function renderStars(mine){
-  let s='';
-  for(let i=1;i<=5;i++) s+=`<button data-v='${i}' class='${mine>=i?'on':''}'>★</button>`;
-  return s;
-}
-
-function bindStars(el){
-  const slug=el.dataset.slug,cat=el.dataset.cat;
-  el.querySelectorAll('button').forEach(b=>{
-    b.onclick=()=>{
-      const v=Number(b.dataset.v);
-      localRatings[slug]=localRatings[slug]||{};
-      localRatings[slug][cat]=v;
-      localStorage.setItem('gameHubRatings',JSON.stringify(localRatings));
-      renderGallery();
-    };
+  archived.forEach(game => {
+    const model = (game.model || 'unknown').toLowerCase();
+    const card = document.createElement('div');
+    card.className = 'archive-card';
+    card.innerHTML = `
+      <div class="card-top">
+        <span class="card-title">${esc(game.title)}</span>
+        <span class="archive-badge">${esc(model)}</span>
+      </div>
+      <p class="card-desc">${esc(game.description || '')}</p>
+      <div class="card-meta">
+        <span>by ${esc(game.creator || 'unknown')}</span>
+        <span>${fmt(game.date)}</span>
+      </div>
+      <a class="archive-play" href="games/${encodeURIComponent(game.slug)}/index.html">play →</a>
+    `;
+    grid.appendChild(card);
   });
 }
 
-function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
-function fmt(iso){if(!iso)return'';const d=new Date(iso);return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}
+document.getElementById('archive-toggle').addEventListener('click', () => {
+  const btn = document.getElementById('archive-toggle');
+  const grid = document.getElementById('archive-grid');
+  const isOpen = grid.classList.toggle('open');
+  btn.classList.toggle('open', isOpen);
+});
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+function fmt(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
 </script>
-</body></html>
+</body>
+</html>

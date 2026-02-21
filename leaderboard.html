@@ -211,7 +211,7 @@
 <body>
 <header>
   <h1>🏆 <span>Leaderboards</span></h1>
-  <p>See who's on top across all games</p>
+  <p>Top scores across all active games</p>
 </header>
 <nav>
   <a href="index.html">← Back to Games</a>
@@ -240,12 +240,12 @@ const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
   }
 
   if (games.length === 0) {
-    panelsEl.innerHTML = '<div class="empty-lb"><span>🎮</span>No games yet — ask the bot to make one!</div>';
+    panelsEl.innerHTML = '<div class="empty-lb"><span>🎮</span>No games yet — the model showdown is coming soon!</div>';
     return;
   }
 
-  // Sort newest first
-  games.sort((a, b) => new Date(b.date) - new Date(a.date));
+  // Only show active (non-archived) games; sort newest first
+  games = games.filter(g => !g.archived).sort((a, b) => new Date(b.date) - new Date(a.date));
 
   // Create tabs and panels
   games.forEach((game, i) => {
