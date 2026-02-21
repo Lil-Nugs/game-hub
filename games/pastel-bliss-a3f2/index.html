@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Pastel Bliss</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d0b1a;
+    display: flex; justify-content: center; align-items: center;
+    height: 100vh; overflow: hidden; touch-action: none;
+    font-family: 'Fredoka One', cursive;
+  }
+  #ui-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    display: none; justify-content: center; align-items: center;
+    z-index: 10; background: rgba(10, 8, 24, 0.88);
+    font-family: 'Fredoka One', cursive; flex-direction: column;
+  }
+  .overlay-box {
+    background: rgba(32, 22, 56, 0.97);
+    border: 2px solid rgba(200, 170, 255, 0.25);
+    border-radius: 22px; padding: 32px 44px;
+    text-align: center; max-width: 420px; width: 92%;
+    box-shadow: 0 0 60px rgba(180, 140, 255, 0.15);
+  }
+  .ov-title { font-size: 2.2em; color: #e8d4ff; margin-bottom: 6px; text-shadow: 0 0 18px rgba(200,160,255,0.4); }
+  .ov-sub { font-size: 0.9em; color: #9080b8; margin-bottom: 4px; }
+  .ov-score { font-size: 3em; color: #ffd9a0; margin: 10px 0 18px; text-shadow: 0 0 12px rgba(255,210,120,0.4); }
+  .name-input {
+    width: 100%; padding: 10px 16px;
+    font-family: 'Fredoka One', cursive; font-size: 1.05em;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(200,175,255,0.35);
+    border-radius: 10px; color: #fff; text-align: center; margin-bottom: 12px; outline: none;
+  }
+  .name-input::placeholder { color: rgba(200,175,255,0.35); }
+  .btn {
+    font-family: 'Fredoka One', cursive; font-size: 1.05em;
+    padding: 10px 26px; border: none; border-radius: 12px;
+    cursor: pointer; transition: transform 0.12s, opacity 0.2s; margin: 4px;
+  }
+  .btn:hover { transform: scale(1.06); }
+  .btn:disabled { opacity: 0.6; cursor: default; }
+  .btn-submit { background: linear-gradient(135deg, #b07de8, #8b6be0); color: #fff; }
+  .btn-play   { background: linear-gradient(135deg, #f47db0, #f09060); color: #fff; font-size: 1.25em; margin-top: 14px; }
+  .lb-wrap { margin-top: 16px; width: 100%; font-size: 0.82em; color: #b0a0d8; }
+  .lb-title { font-size: 1em; color: #ddc8ff; margin-bottom: 8px; }
+  .lb-entry { display: flex; justify-content: space-between; padding: 4px 8px; border-bottom: 1px solid rgba(200,180,255,0.1); }
+  .lb-entry.me { color: #ffd9a0; }
+</style>
+</head>
+<body>
+
+<div id="ui-overlay">
+  <div class="overlay-box">
+    <div class="ov-title">🌸 Bliss Over</div>
+    <div class="ov-sub">Final Score</div>
+    <div class="ov-score" id="final-score">0</div>
+    <input class="name-input" id="name-input" type="text" placeholder="Your name..." maxlength="20">
+    <div>
+      <button class="btn btn-submit" id="submit-btn">✨ Submit Score</button>
+    </div>
+    <div id="lb-area" class="lb-wrap"></div>
+    <button class="btn btn-play" id="replay-btn">🌸 Play Again</button>
+  </div>
+</div>
+
+<script>
+/*
+ * ═══════════════════════════════════════════════════════════════
+ * DESIGN HEADER – Pastel Bliss
+ * ═══════════════════════════════════════════════════════════════
+ * Inspiration : Geometry Wars structural loop (twin-stick arena shooter)
+ * Controls    : WASD / Arrows = move | Mouse aim + hold LMB = shoot | Space = Bloom Bomb
+ * Touch       : Left-half drag = virtual joystick | Right-half hold = aim + shoot
+ * Core Loop   : Survive in a bounded softly-glowing arena; shoot geometric enemies.
+ *               Player always eventually dies — no win condition.
+ * Death       : Any enemy body overlaps the player's circle hitbox.
+ * Hazards:
+ *   1. Drifters   (mint green circles) — lazily drift toward player; 2 HP; split on 1st hit
+ *   2. Trackers   (lavender diamonds)  — lock-on acceleration; faster with difficulty
+ *   3. Spinners   (peach pentagons)   — spiral-orbit approach; appear after ~30 s
+ * Pickups:
+ *   - Bloom Petal (8-pointed pink star) — auto-bombs screen on collection (clears all enemies)
+ *     Risk: must navigate enemies to collect; Reward: big point bonus + screen clear
+ * Scoring     : Math.floor(timeAlive * 10 + bonusPoints) — always monotonic
+ *               Drifter kill +25, MiniDrifter +15, Tracker +50, Spinner +75
+ * Difficulty  : Smooth pow(t, 0.6) curve over 120 s
+ *               spawnRate 0.4 → 3.5 /s | enemy speed 55 → 230 px/s
+ * Visual      : Dark twilight bg (#1a1230), pastel enemy tints, soft-glow grid, Fredoka One
+ *               Particle bursts on every kill and death; ambient floating shapes on menu
+ * Audio       : Sine chimes (shoot), bell pops (kill), cascading descend (death),
+ *               chord bloom (bomb), sparkle arpeggio (petal), sustained CMaj pad (ambient)
+ * ═══════════════════════════════════════════════════════════════
+ */
+
+const GAME_ID       = 'pastel-bliss-a3f2';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+// ─── AUDIO ────────────────────────────────────────────────────
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let masterGain;
+(function initAudio() {
+  masterGain = audioCtx.createGain();
+  masterGain.gain.setValueAtTime(1, audioCtx.currentTime);
+  masterGain.connect(audioCtx.destination);
+})();
+
+function playTone(type, freq, dur, vol, freqEnd, delay) {
+  if (audioCtx.state === 'suspended') return;
+  const start = audioCtx.currentTime + (delay || 0);
+  const osc  = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain); gain.connect(masterGain);
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, start);
+  if (freqEnd) osc.frequency.exponentialRampToValueAtTime(freqEnd, start + dur * 0.7);
+  gain.gain.setValueAtTime(vol, start);
+  gain.gain.exponentialRampToValueAtTime(0.001, start + dur);
+  osc.start(start); osc.stop(start + dur + 0.01);
+}
+
+function sfxShoot()   { playTone('sine', 1100, 0.07, 0.06, 820); }
+function sfxHitFlash(){ playTone('sine', 900,  0.05, 0.05); }
+function sfxKillSm()  { playTone('sine', 820,  0.12, 0.10, 1200); }
+function sfxKillMd()  { playTone('sine', 620,  0.14, 0.13, 960); playTone('triangle',1100,0.08,0.06); }
+function sfxKillBg()  { playTone('sine', 520,  0.16, 0.15, 820); playTone('triangle',1300,0.10,0.07); playTone('sine',1600,0.05,0.04); }
+function sfxCollect() { [880,1100,1320,1760].forEach((f,i)=>playTone('sine',f,0.14,0.09,f*1.1,i*0.06)); }
+function sfxBomb()    { [330,415,494,660,830].forEach((f,i)=>playTone('sine',f,0.5,0.10,f*1.05,i*0.07)); }
+function sfxDeath()   { [760,600,440,330,220].forEach((f,i)=>playTone('sine',f,0.22,0.18,f*0.85,i*0.09)); setTimeout(()=>playTone('sawtooth',130,0.6,0.12,80),500); }
+
+// Ambient pad (CMaj sustained very quietly)
+let ambientNodes = [];
+function startAmbient() {
+  stopAmbient();
+  if (audioCtx.state === 'suspended') return;
+  [[130.81,164.81,196],[261.63,329.63,392]].forEach((chord,ci) => {
+    chord.forEach((f,i) => {
+      const osc  = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain); gain.connect(masterGain);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(f, audioCtx.currentTime);
+      gain.gain.setValueAtTime(0, audioCtx.currentTime);
+      gain.gain.linearRampToValueAtTime(ci===0?0.018:0.010, audioCtx.currentTime + 3);
+      osc.start(); ambientNodes.push({osc, gain});
+    });
+  });
+}
+function stopAmbient() {
+  ambientNodes.forEach(({osc,gain}) => {
+    gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.8);
+    try { osc.stop(audioCtx.currentTime + 0.9); } catch(e){}
+  });
+  ambientNodes = [];
+}
+
+// ─── LEADERBOARD ──────────────────────────────────────────────
+async function submitScore(playerName, score) {
+  try {
+    const r = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await r.json();
+  } catch(e) { console.warn('Leaderboard error:', e); return null; }
+}
+async function getLeaderboard(limit = 10) {
+  try {
+    const r = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const d = await r.json();
+    return d.scores || [];
+  } catch(e) { console.warn('Leaderboard error:', e); return []; }
+}
+
+// ─── MENU SCENE ───────────────────────────────────────────────
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+    this.drawSoftGrid(W, H);
+    this.ambientShapes = [];
+    for (let i = 0; i < 18; i++) this.spawnAmbientShape(W, H);
+
+    // Title
+    this.add.text(W/2, H/2 - 130, 'PASTEL BLISS', {
+      fontFamily: 'Fredoka One', fontSize: 58, color: '#e8d4ff',
+      stroke: '#6020b0', strokeThickness: 4,
+      shadow: { color: '#c090ff', blur: 28, fill: true }
+    }).setOrigin(0.5);
+
+    this.add.text(W/2, H/2 - 72, 'A Soothing Twin-Stick Shooter', {
+      fontFamily: 'Fredoka One', fontSize: 20, color: '#b09ad8'
+    }).setOrigin(0.5);
+
+    // Instructions panel
+    const lines = [
+      ['🎮', 'WASD / Arrows — Move'],
+      ['🖱️', 'Mouse aim + Hold Click — Shoot'],
+      ['🌸', 'Collect Petals — Bomb charge'],
+      ['SPACE', 'Bloom Bomb — Clear all enemies'],
+      ['💀', 'Don\'t let them touch you!'],
+    ];
+    lines.forEach(([icon, txt], i) => {
+      this.add.text(W/2, H/2 - 14 + i*30, `${icon}  ${txt}`, {
+        fontFamily: 'Fredoka One', fontSize: 16, color: '#9080b8'
+      }).setOrigin(0.5);
+    });
+
+    const startTxt = this.add.text(W/2, H/2 + 158, '🌸  Tap or Press Any Key to Begin  🌸', {
+      fontFamily: 'Fredoka One', fontSize: 22, color: '#ffd9a0',
+      stroke: '#5a2080', strokeThickness: 2
+    }).setOrigin(0.5);
+
+    this.tweens.add({ targets: startTxt, alpha: 0.35, duration: 850, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+
+    this.input.once('pointerdown', () => { audioCtx.resume(); this.scene.start('GameScene'); });
+    this.input.keyboard.once('keydown', () => { audioCtx.resume(); this.scene.start('GameScene'); });
+  }
+
+  drawSoftGrid(W, H) {
+    const g = this.add.graphics();
+    g.lineStyle(1, 0x5040a0, 0.18);
+    for (let x = 0; x <= W; x += 40) g.lineBetween(x, 0, x, H);
+    for (let y = 0; y <= H; y += 40) g.lineBetween(0, y, W, y);
+    g.lineStyle(2, 0x7050c0, 0.3);
+    g.strokeRect(3, 3, W-6, H-6);
+  }
+
+  spawnAmbientShape(W, H) {
+    const g = this.add.graphics();
+    const tints = [0x80e8b0, 0xd0b8f8, 0xffc8d8, 0xa8d8ea, 0xffeaa0, 0xffb0c8];
+    const color = Phaser.Utils.Array.GetRandom(tints);
+    const sz = Phaser.Math.Between(8, 22);
+    const type = Phaser.Math.Between(0, 2);
+    g.fillStyle(color, Phaser.Math.FloatBetween(0.12, 0.38));
+    if (type === 0) g.fillCircle(0, 0, sz);
+    else if (type === 1) g.fillPoints([{x:0,y:-sz},{x:sz,y:0},{x:0,y:sz},{x:-sz,y:0}], true);
+    else g.fillRect(-sz, -sz, sz*2, sz*2);
+    g.x = Phaser.Math.Between(0, W);
+    g.y = Phaser.Math.Between(0, H);
+    g.rotation = Phaser.Math.FloatBetween(0, Math.PI*2);
+    const angle = Phaser.Math.FloatBetween(0, Math.PI*2);
+    const dur = Phaser.Math.Between(8000, 18000);
+    this.tweens.add({
+      targets: g, x: g.x + Math.cos(angle)*W, y: g.y + Math.sin(angle)*H,
+      duration: dur, ease: 'Linear',
+      onComplete: () => { g.destroy(); this.spawnAmbientShape(W, H); }
+    });
+    this.tweens.add({
+      targets: g, rotation: g.rotation + Math.PI*2, duration: dur*0.8, ease: 'Linear', repeat: -1
+    });
+  }
+
+  update() {}
+}
+
+// ─── GAME SCENE ───────────────────────────────────────────────
+let _gameSceneRef = null;
+
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  preload() {
+    // All textures are procedural; no external assets needed.
+  }
+
+  create() {
+    _gameSceneRef = this;
+    const W = this.scale.width, H = this.scale.height;
+
+    // ── State ──
+    this.timeAlive    = 0;
+    this.bonusPoints  = 0;
+    this.score        = 0;
+    this.bombs        = 0;
+    this.isDead       = false;
+    this.spawnAccum   = 0;
+    this.petalCooldown = Phaser.Math.Between(12000, 20000);
+    this.petalElapsed  = 0;
+    this.lastScoreMilestone = 0;
+
+    // ── Expanded physics world so enemies can enter from off-screen ──
+    this.physics.world.setBounds(-80, -80, W+160, H+160);
+
+    // ── Background grid ──
+    this.drawGrid(W, H);
+
+    // ── Generate all textures ──
+    this.genTextures();
+
+    // ── Groups ──
+    this.bullets     = this.physics.add.group({ maxSize: 120 });
+    this.drifters    = this.physics.add.group();
+    this.miniDrifters= this.physics.add.group();
+    this.trackers    = this.physics.add.group();
+    this.spinners    = this.physics.add.group();
+    this.petals      = this.physics.add.group();
+
+    // ── Player ──
+    this.player = this.physics.add.sprite(W/2, H/2, 'txPlayer');
+    this.player.body.setCircle(18, 14, 14);  // forgiveness: 18 < 32 visual radius
+    this.player.setDepth(10);
+    this.playerDead = false;
+
+    // Player idle bob
+    this.tweens.add({
+      targets: this.player, scaleY: 0.93, scaleX: 1.06,
+      duration: 650, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+
+    // Player particle trail
+    this.trailEmitter = this.add.particles(0, 0, 'txBullet', {
+      speed: { min: 5, max: 30 },
+      lifespan: 320, scale: { start: 0.35, end: 0 },
+      alpha: { start: 0.45, end: 0 },
+      tint: [0xffd9a0, 0xffeec0, 0xc8a8ff],
+      frequency: 45, quantity: 1,
+      follow: this.player,
+      blendMode: 'ADD'
+    }).setDepth(5);
+
+    // ── Colliders / Overlaps ──
+    const enemyGroups = [this.drifters, this.miniDrifters, this.trackers, this.spinners];
+    enemyGroups.forEach(g => {
+      this.physics.add.overlap(this.bullets, g, this.onBulletHitEnemy, null, this);
+      this.physics.add.overlap(this.player, g, this.onPlayerHitEnemy, null, this);
+    });
+    this.physics.add.overlap(this.player, this.petals, this.onPetalCollect, null, this);
+
+    // ── Input ──
+    this.cursors = this.input.keyboard.createCursorKeys();
+    this.keys    = this.input.keyboard.addKeys({ w:'W', a:'A', s:'S', d:'D', space:'SPACE' });
+    this.keys.space.on('down', () => this.useBomb());
+
+    this.fireRate  = 140;  // ms per shot
+    this.lastFired = 0;
+
+    // Touch controls
+    this.touchLeft  = null;  // pointer tracking left half (move)
+    this.touchRight = null;  // pointer tracking right half (aim+fire)
+    this.touchAim   = { x: W/2 + 1, y: H/2 };
+
+    this.input.on('pointerdown', (p) => {
+      if (p.x < W/2) { this.touchLeft = { id: p.id, startX: p.x, startY: p.y, x: p.x, y: p.y }; }
+      else { this.touchRight = { id: p.id, x: p.x, y: p.y }; this.touchAim.x = p.x; this.touchAim.y = p.y; }
+    });
+    this.input.on('pointermove', (p) => {
+      if (this.touchLeft  && p.id === this.touchLeft.id)  { this.touchLeft.x  = p.x; this.touchLeft.y  = p.y; }
+      if (this.touchRight && p.id === this.touchRight.id) { this.touchRight.x = p.x; this.touchRight.y = p.y; this.touchAim.x = p.x; this.touchAim.y = p.y; }
+    });
+    this.input.on('pointerup', (p) => {
+      if (this.touchLeft  && p.id === this.touchLeft.id)  this.touchLeft  = null;
+      if (this.touchRight && p.id === this.touchRight.id) this.touchRight = null;
+    });
+
+    // ── HUD ──
+    this.scoreTxt = this.add.text(14, 12, 'Score: 0', {
+      fontFamily:'Fredoka One', fontSize:26, color:'#ffd9a0',
+      stroke:'#2a1060', strokeThickness:3
+    }).setDepth(20);
+    this.bombTxt = this.add.text(14, 44, '🌸 Bombs: 0', {
+      fontFamily:'Fredoka One', fontSize:18, color:'#f9a8d4',
+      stroke:'#2a1060', strokeThickness:2
+    }).setDepth(20);
+    this.timeTxt = this.add.text(W - 14, 12, '0.0s', {
+      fontFamily:'Fredoka One', fontSize:20, color:'#c4b0e8',
+      stroke:'#2a1060', strokeThickness:2
+    }).setOrigin(1, 0).setDepth(20);
+
+    // Resume audio and start ambient
+    audioCtx.resume().then(() => startAmbient());
+  }
+
+  // ─── Texture Generation ──────────────────────────────────────
+  genTextures() {
+    if (!this.textures.exists('txPlayer')) {
+      const g = this.make.graphics({x:0,y:0,add:false});
+      // outer glow
+      g.fillStyle(0xffd9a0, 0.2); g.fillCircle(32,32,31);
+      // body
+      g.fillStyle(0xfff8e0, 1);   g.fillCircle(32,32,22);
+      g.fillStyle(0xffd9a0, 1);   g.fillCircle(32,32,14);
+      // highlight
+      g.fillStyle(0xffffff, 0.65);g.fillCircle(25,25,7);
+      // core pip
+      g.fillStyle(0xffaa50, 1);   g.fillCircle(32,32,5);
+      g.generateTexture('txPlayer', 64, 64); g.destroy();
+    }
+
+    if (!this.textures.exists('txBullet')) {
+      const g = this.make.graphics({x:0,y:0,add:false});
+      g.fillStyle(0xffffff, 0.9); g.fillCircle(6,6,5);
+      g.fillStyle(0xffd9a0, 0.4); g.fillCircle(6,6,7);
+      g.generateTexture('txBullet', 14, 14); g.destroy();
+    }
+
+    if (!this.textures.exists('txDrifter')) {
+      const g = this.make.graphics({x:0,y:0,add:false});
+      g.fillStyle(0x60d890, 0.25); g.fillCircle(32,32,31);
+      g.fillStyle(0x8ee8b4, 1);    g.fillCircle(32,32,24);
+      g.fillStyle(0xc0f0d8, 0.8);  g.fillCircle(32,32,15);
+      g.fillStyle(0xffffff, 0.5);  g.fillCircle(24,24,7);
+      g.generateTexture('txDrifter', 64, 64); g.destroy();
+    }
+
+    if (!this.textures.exists('txMiniDrifter')) {
+      const g = this.make.graphics({x:0,y:0,add:false});
+      g.fillStyle(0x60d890, 0.25); g.fillCircle(22,22,21);
+      g.fillStyle(0x8ee8b4, 1);    g.fillCircle(22,22,16);
+      g.fillStyle(0xd0f8e4, 0.8);  g.fillCircle(22,22,9);
+      g.fillStyle(0xffffff, 0.45); g.fillCircle(17,17,5);
+      g.generateTexture('txMiniDrifter', 44, 44); g.destroy();
+    }
+
+    if (!this.textures.exists('txTracker')) {
+      const g = this.make.graphics({x:0,y:0,add:false});
+      g.fillStyle(0xa880e0, 0.25);
+      g.fillPoints([{x:32,y:2},{x:62,y:32},{x:32,y:62},{x:2,y:32}], true);
+      g.fillStyle(0xcaaaf0, 1);
+      g.fillPoints([{x:32,y:8},{x:56,y:32},{x:32,y:56},{x:8,y:32}], true);
+      g.fillStyle(0xe4d4ff, 0.75);
+      g.fillPoints([{x:32,y:16},{x:48,y:32},{x:32,y:48},{x:16,y:32}], true);
+      g.fillStyle(0xffffff, 0.5); g.fillCircle(25,25,7);
+      g.generateTexture('txTracker', 64, 64); g.destroy();
+    }
+
+    if (!this.textures.exists('txSpinner')) {
+      const g = this.make.graphics({x:0,y:0,add:false});
+      const cx=32, cy=32;
+      const outerPts = [], innerPts = [], corePts = [];
+      for (let i=0;i<5;i++) {
+        const a = (i*72-90)*Math.PI/180;
+        outerPts.push({x:cx+30*Math.cos(a), y:cy+30*Math.sin(a)});
+        innerPts.push({x:cx+22*Math.cos(a), y:cy+22*Math.sin(a)});
+        corePts.push ({x:cx+13*Math.cos(a), y:cy+13*Math.sin(a)});
+      }
+      g.fillStyle(0xf490a8, 0.25); g.fillPoints(outerPts, true);
+      g.fillStyle(0xffc0d4, 1);    g.fillPoints(innerPts, true);
+      g.fillStyle(0xffe4ee, 0.8);  g.fillPoints(corePts,  true);
+      g.fillStyle(0xffffff, 0.5);  g.fillCircle(26,26,6);
+      g.generateTexture('txSpinner', 64, 64); g.destroy();
+    }
+
+    if (!this.textures.exists('txPetal')) {
+      const g = this.make.graphics({x:0,y:0,add:false});
+      const pts = [], inner = [];
+      for (let i=0;i<16;i++) {
+        const a = (i*22.5-90)*Math.PI/180;
+        const r = i%2===0 ? 22 : 11;
+        pts.push({x:24+r*Math.cos(a), y:24+r*Math.sin(a)});
+        const ri = i%2===0 ? 16 : 7;
+        inner.push({x:24+ri*Math.cos(a), y:24+ri*Math.sin(a)});
+      }
+      g.fillStyle(0xff88b0, 0.35); g.fillPoints(pts, true);
+      g.fillStyle(0xffaac8, 1);    g.fillPoints(inner, true);
+      g.fillStyle(0xffd8e8, 1);    g.fillCircle(24,24,7);
+      g.fillStyle(0xffffff, 0.65); g.fillCircle(20,20,4);
+      g.generateTexture('txPetal', 48, 48); g.destroy();
+    }
+
+    if (!this.textures.exists('txParticle')) {
+      const g = this.make.graphics({x:0,y:0,add:false});
+      g.fillStyle(0xffffff,1); g.fillCircle(4,4,4);
+      g.generateTexture('txParticle', 8, 8); g.destroy();
+    }
+  }
+
+  drawGrid(W, H) {
+    const g = this.add.graphics().setDepth(0);
+    g.lineStyle(1, 0x4a3588, 0.20);
+    for (let x=0; x<=W; x+=40) g.lineBetween(x,0,x,H);
+    for (let y=0; y<=H; y+=40) g.lineBetween(0,y,W,y);
+    g.lineStyle(3, 0x7050c0, 0.35);
+    g.strokeRect(3,3,W-6,H-6);
+    g.lineStyle(1, 0x5040a0, 0.25);
+    g.strokeRect(8,8,W-16,H-16);
+  }
+
+  // ─── Update Loop ────────────────────────────────────────────
+  update(time, delta) {
+    if (this.isDead) return;
+
+    const W = this.scale.width, H = this.scale.height;
+    const dt = delta / 1000; // seconds this frame
+
+    // ── Time + Score ──
+    this.timeAlive += dt;
+    this.score = Math.floor(this.timeAlive * 10 + this.bonusPoints);
+
+    // ── Difficulty ──
+    const t = Math.min(this.timeAlive / 120, 1);
+    const difficulty = Math.pow(t, 0.6);  // gentle curve
+    const enemySpeed  = this.lerp(55, 230, difficulty);
+    const spawnRate   = this.lerp(0.4, 3.5, difficulty);  // per second
+
+    // ── Player Movement ──
+    let mvx = 0, mvy = 0;
+    if (this.cursors.left.isDown  || this.keys.a.isDown) mvx -= 1;
+    if (this.cursors.right.isDown || this.keys.d.isDown) mvx += 1;
+    if (this.cursors.up.isDown    || this.keys.w.isDown) mvy -= 1;
+    if (this.cursors.down.isDown  || this.keys.s.isDown) mvy += 1;
+
+    // Touch movement (virtual joystick)
+    if (this.touchLeft) {
+      const dx = this.touchLeft.x - this.touchLeft.startX;
+      const dy = this.touchLeft.y - this.touchLeft.startY;
+      const dl = Math.sqrt(dx*dx+dy*dy);
+      if (dl > 10) { mvx = dx/dl; mvy = dy/dl; }
+    }
+
+    // Normalize diagonal and apply velocity
+    const SPEED = 230;
+    if (mvx === 0 && mvy === 0 && !this.touchLeft) {
+      this.player.setVelocity(0, 0);
+    } else {
+      const ml = Math.sqrt(mvx*mvx + mvy*mvy) || 1;
+      this.player.setVelocity((mvx/ml)*SPEED, (mvy/ml)*SPEED);
+    }
+
+    // Clamp player inside arena
+    this.player.x = Phaser.Math.Clamp(this.player.x, 20, W-20);
+    this.player.y = Phaser.Math.Clamp(this.player.y, 20, H-20);
+
+    // ── Player Aim / Rotation ──
+    const mouseX = this.input.activePointer.x;
+    const mouseY = this.input.activePointer.y;
+    const aimX = this.touchRight ? this.touchAim.x : mouseX;
+    const aimY = this.touchRight ? this.touchAim.y : mouseY;
+    this.player.rotation = Math.atan2(aimY - this.player.y, aimX - this.player.x) + Math.PI/2;
+
+    // ── Shooting ──
+    const firing = this.input.activePointer.isDown || (this.touchRight !== null);
+    if (firing && time - this.lastFired > this.fireRate) {
+      this.fireBullet(aimX, aimY);
+      this.lastFired = time;
+    }
+
+    // ── Recycle off-screen bullets ──
+    this.bullets.getChildren().forEach(b => {
+      if (!b.active) return;
+      if (b.x < -30 || b.x > W+30 || b.y < -30 || b.y > H+30 || time - b.born > 1800) {
+        b.setActive(false).setVisible(false);
+        b.body.setVelocity(0,0);
+      }
+    });
+
+    // ── Spawn Enemies ──
+    this.spawnAccum += dt;
+    const spawnInterval = 1 / spawnRate;
+    while (this.spawnAccum >= spawnInterval) {
+      this.spawnAccum -= spawnInterval;
+      this.spawnEnemy(W, H, enemySpeed);
+    }
+
+    // ── Petal Spawn ──
+    this.petalElapsed += delta;
+    if (this.petalElapsed >= this.petalCooldown) {
+      this.petalElapsed = 0;
+      this.petalCooldown = Phaser.Math.Between(14000, 26000);
+      this.spawnPetal(W, H);
+    }
+
+    // ── Enemy AI ──
+    this.updateEnemyAI(dt, enemySpeed);
+
+    // ── Petal bob ──
+    this.petals.getChildren().forEach(p => {
+      if (!p.active) return;
+      p.y += Math.sin(time/900 + p.phase) * 0.35;
+      p.rotation += 0.018;
+    });
+
+    // ── HUD ──
+    this.scoreTxt.setText(`Score: ${this.score.toLocaleString()}`);
+    this.bombTxt.setText(`🌸 Bombs: ${this.bombs}`);
+    this.timeTxt.setText(`${this.timeAlive.toFixed(1)}s`);
+
+    // ── Score milestone chime ──
+    const mil = Math.floor(this.score / 500);
+    if (mil > this.lastScoreMilestone) {
+      this.lastScoreMilestone = mil;
+      sfxCollect();
+    }
+  }
+
+  lerp(a, b, t) { return a + (b-a)*t; }
+
+  // ─── Fire Bullet ────────────────────────────────────────────
+  fireBullet(aimX, aimY) {
+    const b = this.bullets.get(this.player.x, this.player.y, 'txBullet');
+    if (!b) return;
+    b.setActive(true).setVisible(true).setDepth(7).setScale(1);
+    if (!b.body) this.physics.world.enable(b);
+    b.body.setCircle(4, 3, 3);
+    const ang = Math.atan2(aimY - this.player.y, aimX - this.player.x);
+    const spd = 500;
+    b.body.setVelocity(Math.cos(ang)*spd, Math.sin(ang)*spd);
+    b.born = this.time.now;
+    sfxShoot();
+  }
+
+  // ─── Spawn Enemy ────────────────────────────────────────────
+  spawnEnemy(W, H, baseSpeed) {
+    const side = Phaser.Math.Between(0, 3);
+    let x, y;
+    if      (side===0) { x=Phaser.Math.Between(0,W); y=-40; }
+    else if (side===1) { x=W+40; y=Phaser.Math.Between(0,H); }
+    else if (side===2) { x=Phaser.Math.Between(0,W); y=H+40; }
+    else               { x=-40;  y=Phaser.Math.Between(0,H); }
+
+    const elapsed = this.timeAlive;
+    const rng = Math.random();
+    let type;
+    if      (elapsed < 15)  type = 'drifter';
+    else if (elapsed < 30)  type = rng<0.72 ? 'drifter' : 'tracker';
+    else                    type = rng<0.44 ? 'drifter' : rng<0.72 ? 'tracker' : 'spinner';
+
+    if (type === 'drifter') {
+      const e = this.drifters.create(x, y, 'txDrifter');
+      e.setDepth(8); e.hp=2; e.spd=baseSpeed*0.62;
+      e.body.setCircle(20, 12, 12);
+    } else if (type === 'tracker') {
+      const e = this.trackers.create(x, y, 'txTracker');
+      e.setDepth(8); e.spd=baseSpeed*0.90;
+      e.body.setCircle(20, 12, 12);
+    } else {
+      const e = this.spinners.create(x, y, 'txSpinner');
+      e.setDepth(8); e.spd=baseSpeed*0.78;
+      e.orbitAng = Math.random()*Math.PI*2;
+      e.orbitDir = Math.random()<0.5 ? 1 : -1;
+      e.body.setCircle(20, 12, 12);
+    }
+  }
+
+  spawnPetal(W, H) {
+    let px, py, attempts = 0;
+    do {
+      px = Phaser.Math.Between(60, W-60);
+      py = Phaser.Math.Between(60, H-60);
+      attempts++;
+    } while (Phaser.Math.Distance.Between(px, py, this.player.x, this.player.y) < 140 && attempts < 10);
+
+    const p = this.petals.create(px, py, 'txPetal');
+    p.setDepth(9); p.phase = Math.random()*Math.PI*2;
+    p.body.setCircle(18, 6, 6);
+
+    // pop-in animation
+    p.setScale(0);
+    this.tweens.add({ targets: p, scale: 1, duration: 380, ease: 'Back.easeOut' });
+
+    // gentle glow pulse
+    this.tweens.add({ targets: p, alpha: 0.65, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+  }
+
+  // ─── Enemy AI ────────────────────────────────────────────────
+  updateEnemyAI(dt, baseSpeed) {
+    const px = this.player.x, py = this.player.y;
+
+    this.drifters.getChildren().forEach(e => {
+      if (!e.active) return;
+      const dx=px-e.x, dy=py-e.y, dl=Math.sqrt(dx*dx+dy*dy)||1;
+      e.body.setVelocity((dx/dl)*e.spd, (dy/dl)*e.spd);
+      e.rotation += 0.022;
+    });
+
+    this.miniDrifters.getChildren().forEach(e => {
+      if (!e.active) return;
+      const dx=px-e.x, dy=py-e.y, dl=Math.sqrt(dx*dx+dy*dy)||1;
+      e.body.setVelocity((dx/dl)*e.spd, (dy/dl)*e.spd);
+      e.rotation += 0.030;
+    });
+
+    this.trackers.getChildren().forEach(e => {
+      if (!e.active) return;
+      const dx=px-e.x, dy=py-e.y, dl=Math.sqrt(dx*dx+dy*dy)||1;
+      e.body.setVelocity((dx/dl)*e.spd, (dy/dl)*e.spd);
+      e.rotation += 0.055;
+    });
+
+    this.spinners.getChildren().forEach(e => {
+      if (!e.active) return;
+      e.orbitAng += 0.065 * e.orbitDir;
+      const dx=px-e.x, dy=py-e.y, dl=Math.sqrt(dx*dx+dy*dy)||1;
+      const vx = (dx/dl)*e.spd*0.82 + Math.cos(e.orbitAng+Math.PI/2)*e.spd*0.18;
+      const vy = (dy/dl)*e.spd*0.82 + Math.sin(e.orbitAng+Math.PI/2)*e.spd*0.18;
+      e.body.setVelocity(vx, vy);
+      e.rotation += 0.04;
+    });
+  }
+
+  // ─── Overlap Callbacks ───────────────────────────────────────
+  onBulletHitEnemy(bullet, enemy) {
+    if (!bullet.active || !enemy.active) return;
+    bullet.setActive(false).setVisible(false);
+    bullet.body.setVelocity(0,0);
+
+    const key = enemy.texture.key;
+
+    if (key === 'txDrifter') {
+      enemy.hp -= 1;
+      if (enemy.hp > 0) {
+        // First hit — flash and continue
+        enemy.setTint(0xffffff);
+        this.time.delayedCall(90, () => { if (enemy.active) enemy.clearTint(); });
+        this.burst(enemy.x, enemy.y, 0x8ee8b4, 6, 80, 200);
+        sfxHitFlash();
+        return;
+      }
+      // Second hit — split into mini drifters
+      this.spawnMiniDrifters(enemy.x, enemy.y, enemy.spd * 1.35);
+      this.bonusPoints += 25;
+      sfxKillSm();
+    } else if (key === 'txMiniDrifter') {
+      this.bonusPoints += 15;
+      sfxKillSm();
+    } else if (key === 'txTracker') {
+      this.bonusPoints += 50;
+      sfxKillMd();
+    } else if (key === 'txSpinner') {
+      this.bonusPoints += 75;
+      sfxKillBg();
+    }
+
+    this.burst(enemy.x, enemy.y, this.enemyColor(key), 16, 80, 220);
+    this.floatText(enemy.x, enemy.y, this.killLabel(key));
+    enemy.destroy();
+  }
+
+  onPlayerHitEnemy(player, enemy) {
+    if (this.isDead || !enemy.active) return;
+    this.triggerDeath();
+  }
+
+  onPetalCollect(player, petal) {
+    if (!petal.active) return;
+    const px = petal.x, py = petal.y;
+    petal.destroy();
+    sfxCollect();
+    this.burst(px, py, 0xffaac8, 24, 100, 250);
+    this.bombs = Math.min(this.bombs + 1, 5);
+    this.floatText(px, py, '🌸 Bomb +1!');
+  }
+
+  useBomb() {
+    if (this.isDead || this.bombs <= 0) return;
+    this.bombs--;
+    this.doBombClear(this.player.x, this.player.y);
+  }
+
+  doBombClear(cx, cy) {
+    sfxBomb();
+    this.cameras.main.flash(350, 255, 210, 240, false);
+
+    // Expanding ring
+    const ring = this.add.graphics().setDepth(18);
+    let r = 10;
+    const W = this.scale.width, H = this.scale.height;
+    const maxR = Math.sqrt(W*W+H*H);
+    const ev = this.time.addEvent({
+      delay: 14, loop: true,
+      callback: () => {
+        r += 28; ring.clear();
+        const alpha = Math.max(0, 1 - r/maxR);
+        ring.lineStyle(4, 0xffaac8, alpha);
+        ring.strokeCircle(cx, cy, r);
+        if (r >= maxR) { ring.destroy(); ev.remove(); }
+      }
+    });
+
+    // Kill enemies, award points
+    const allGroups = [this.drifters, this.miniDrifters, this.trackers, this.spinners];
+    allGroups.forEach(g => {
+      g.getChildren().slice().forEach(e => {
+        if (!e.active) return;
+        const pts = { txDrifter:25, txMiniDrifter:15, txTracker:50, txSpinner:75 }[e.texture.key] || 25;
+        this.bonusPoints += pts;
+        this.burst(e.x, e.y, this.enemyColor(e.texture.key), 12, 60, 200);
+        e.destroy();
+      });
+    });
+  }
+
+  // ─── Mini Drifter Spawn (on drifter death) ──────────────────
+  spawnMiniDrifters(x, y, speed) {
+    for (let i=0;i<2;i++) {
+      const a = (i*180 + Phaser.Math.Between(-35,35)) * Math.PI/180;
+      const e = this.miniDrifters.create(
+        x + Math.cos(a)*18, y + Math.sin(a)*18, 'txMiniDrifter'
+      );
+      e.setDepth(8); e.spd = speed;
+      e.body.setCircle(15, 7, 7);
+    }
+  }
+
+  // ─── Helpers ────────────────────────────────────────────────
+  burst(x, y, color, count, minSpd, maxSpd) {
+    this.add.particles(x, y, 'txParticle', {
+      speed: { min: minSpd, max: maxSpd },
+      lifespan: 480,
+      scale: { start: 0.7, end: 0 },
+      alpha: { start: 1, end: 0 },
+      tint: [color, 0xffffff, color],
+      quantity: count, emitting: false,
+      blendMode: 'ADD'
+    }).explode(count);
+  }
+
+  floatText(x, y, text) {
+    const t = this.add.text(x, y-8, text, {
+      fontFamily:'Fredoka One', fontSize:17, color:'#fff',
+      stroke:'#4a1880', strokeThickness:2
+    }).setOrigin(0.5).setDepth(25);
+    this.tweens.add({
+      targets: t, y: y-54, alpha: 0, duration: 850, ease: 'Quad.easeOut',
+      onComplete: () => t.destroy()
+    });
+  }
+
+  enemyColor(key) {
+    if (key==='txDrifter'||key==='txMiniDrifter') return 0x8ee8b4;
+    if (key==='txTracker')  return 0xcaaaf0;
+    if (key==='txSpinner')  return 0xffc0d4;
+    return 0xffffff;
+  }
+
+  killLabel(key) {
+    if (key==='txDrifter')     return '+25';
+    if (key==='txMiniDrifter') return '+15';
+    if (key==='txTracker')     return '+50';
+    if (key==='txSpinner')     return '+75';
+    return '+?';
+  }
+
+  // ─── Death ──────────────────────────────────────────────────
+  triggerDeath() {
+    if (this.isDead) return;
+    this.isDead = true;
+
+    sfxDeath();
+    stopAmbient();
+    this.cameras.main.shake(500, 0.018);
+    this.cameras.main.flash(280, 255, 200, 240, false);
+
+    // Big explosion burst
+    this.burst(this.player.x, this.player.y, 0xffd9a0, 50, 80, 340);
+
+    // Player vanishes
+    this.player.setVisible(false);
+    this.trailEmitter.stop();
+
+    this.time.delayedCall(650, () => {
+      this.scene.pause();
+      showGameOverUI(Math.floor(this.score));
+    });
+  }
+}
+
+// ─── GAME OVER UI ─────────────────────────────────────────────
+function showGameOverUI(finalScore) {
+  document.getElementById('final-score').textContent = finalScore.toLocaleString();
+  document.getElementById('name-input').value = localStorage.getItem('pastelBlissName') || '';
+  document.getElementById('lb-area').innerHTML = '';
+  document.getElementById('submit-btn').disabled = false;
+  document.getElementById('submit-btn').textContent = '✨ Submit Score';
+  document.getElementById('ui-overlay').style.display = 'flex';
+  setTimeout(() => document.getElementById('name-input').focus(), 120);
+}
+
+document.getElementById('submit-btn').addEventListener('click', async () => {
+  const name  = (document.getElementById('name-input').value.trim() || 'Anonymous').substring(0,20);
+  const score = parseInt(document.getElementById('final-score').textContent.replace(/,/g,'')) || 0;
+  localStorage.setItem('pastelBlissName', name);
+  document.getElementById('submit-btn').disabled = true;
+  document.getElementById('submit-btn').textContent = '✨ Submitting…';
+
+  await submitScore(name, score);
+  const scores = await getLeaderboard(10);
+
+  const lb = document.getElementById('lb-area');
+  lb.innerHTML = '<div class="lb-title">🌸 Top Scores 🌸</div>';
+  scores.forEach((s, i) => {
+    const row = document.createElement('div');
+    row.className = 'lb-entry' + (s.playerName===name && Number(s.score)===score ? ' me' : '');
+    row.innerHTML = `<span>#${i+1} ${s.playerName}</span><span>${Number(s.score).toLocaleString()}</span>`;
+    lb.appendChild(row);
+  });
+  document.getElementById('submit-btn').textContent = '✅ Submitted!';
+});
+
+document.getElementById('replay-btn').addEventListener('click', () => {
+  document.getElementById('ui-overlay').style.display = 'none';
+  _gameSceneRef = null;
+  const g = window._phaserGame;
+  if (g) {
+    g.scene.stop('GameScene');
+    g.scene.start('GameScene');
+  }
+});
+
+// ─── PHASER CONFIG ────────────────────────────────────────────
+const config = {
+  type: Phaser.AUTO,
+  width: 800,
+  height: 600,
+  backgroundColor: '#1a1230',
+  physics: {
+    default: 'arcade',
+    arcade: { gravity: { y: 0 }, debug: false }
+  },
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
+  scene: [MenuScene, GameScene]
+};
+
+window._phaserGame = new Phaser.Game(config);
+</script>
+</body>
+</html>
