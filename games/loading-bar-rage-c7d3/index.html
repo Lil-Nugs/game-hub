@@ -1,0 +1,1132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>LOADING: The Game</title>
+<link href="https://fonts.googleapis.com/css2?family=VT323&family=Rajdhani:wght@600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #3a6ea5;
+    display: flex; justify-content: center; align-items: center;
+    height: 100vh; overflow: hidden; touch-action: none;
+    font-family: 'VT323', monospace;
+  }
+  #ui-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    display: none; justify-content: center; align-items: center;
+    z-index: 100; background: rgba(0,0,50,0.82);
+  }
+  .win-box {
+    background: #ece9d8;
+    border: 2px solid #aca899;
+    box-shadow: inset 1px 1px 0 #fff, inset -1px -1px 0 #716e62, 4px 4px 8px rgba(0,0,0,0.5);
+    min-width: 340px; max-width: 440px; width: 92%;
+  }
+  .win-titlebar {
+    background: linear-gradient(to right, #0a246a 0%, #a6caf0 100%);
+    padding: 5px 8px; display: flex; align-items: center; gap: 6px;
+    color: #fff; font-size: 15px; font-family: Tahoma, sans-serif; font-weight: bold;
+    user-select: none;
+  }
+  .win-titlebar .win-close {
+    margin-left: auto; background: #d94040;
+    border: 1px solid #000; color: #fff; width: 18px; height: 18px;
+    font-size: 12px; line-height: 18px; text-align: center; cursor: pointer;
+    font-family: Tahoma, sans-serif; font-weight: bold;
+  }
+  .win-body { padding: 18px 20px 20px; text-align: center; }
+  .score-big { font-size: 56px; color: #000080; line-height: 1.1; }
+  .score-label { font-size: 22px; color: #333; margin-bottom: 6px; }
+  .win-input {
+    width: 100%; padding: 5px 8px; margin: 10px 0 8px;
+    font-family: 'VT323', monospace; font-size: 22px;
+    border: 2px inset #7a7674; background: #fff; color: #000;
+  }
+  .win-btn {
+    background: #ece9d8;
+    border: 2px solid; border-color: #fff #716e62 #716e62 #fff;
+    box-shadow: inset 1px 1px 0 #fff;
+    padding: 4px 18px; margin: 4px;
+    font-family: 'VT323', monospace; font-size: 22px;
+    cursor: pointer; min-width: 110px;
+  }
+  .win-btn:active { border-color: #716e62 #fff #fff #716e62; }
+  .win-btn.primary { border-color: #000 #716e62 #716e62 #000; }
+  .lb-wrap { margin-top: 10px; max-height: 180px; overflow-y: auto; text-align: left; }
+  .lb-title { font-size: 20px; color: #000080; margin-bottom: 4px; text-align: center; }
+  #lb-table { width: 100%; border-collapse: collapse; font-size: 18px; }
+  #lb-table th { border-bottom: 2px solid #7a7674; color: #000080; padding: 2px 6px; }
+  #lb-table td { padding: 2px 6px; }
+  #lb-table tr.me { font-weight: bold; color: #000080; }
+  #lb-table tr:nth-child(even) td { background: #d8d5cc; }
+  .status-msg { font-size: 18px; color: #555; margin: 6px 0; font-family: Tahoma, sans-serif; }
+</style>
+</head>
+<body>
+
+<div id="ui-overlay">
+  <div class="win-box">
+    <div class="win-titlebar">
+      ⚠️ Loading Error — Connection Terminated
+      <span class="win-close" id="close-overlay">✕</span>
+    </div>
+    <div class="win-body">
+      <div class="score-label">LOADING ABORTED AT</div>
+      <div class="score-big" id="final-score">0</div>
+      <div class="score-label">points</div>
+      <hr style="margin:10px 0; border-color:#aca899">
+      <input class="win-input" id="player-name" type="text" placeholder="Your name..." maxlength="20">
+      <div>
+        <button class="win-btn primary" id="submit-btn">Submit Score</button>
+        <button class="win-btn" id="replay-btn">▶ Retry</button>
+      </div>
+      <div id="status-msg" class="status-msg"></div>
+      <div id="lb-wrap" class="lb-wrap" style="display:none">
+        <div class="lb-title">🏆 HIGH SCORES</div>
+        <table id="lb-table">
+          <thead><tr><th>#</th><th>Name</th><th>Score</th></tr></thead>
+          <tbody id="lb-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/*
+ * DESIGN HEADER
+ * Title: LOADING: The Game
+ * Slug:  loading-bar-rage-c7d3
+ *
+ * Controls:
+ *   Keyboard: Arrow Left/Right or A/D to move the loading bar
+ *   Touch: tap/drag left or right of bar to move it
+ *
+ * Core loop:
+ *   You ARE the loading bar. It auto-fills from 0→100% over time.
+ *   Rage-click cursors fall from the top; dodge them by moving left/right.
+ *   Health = 3 hits. Reach 0 HP = LOADING CANCELLED.
+ *   Loading bar never actually wins — it just tries to survive as long as possible.
+ *
+ * Death condition:
+ *   3 rage-click hits deplete health to 0 → game over.
+ *
+ * Hazards (3):
+ *   1. Single Cursor (white arrow): slow, 1 damage
+ *   2. Double-Click Cursor (orange, 2 arrows): medium speed, 1 damage + 1.5s stun
+ *   3. Rage Refresh (red ⟳ circle): large, fast, 2 damage, appears after ~20s
+ *
+ * Pickups (2, with risk/reward):
+ *   1. Bandwidth Packet (blue wifi icon): 2× load speed for 5s, +25 bonus pts
+ *      Risk: spawns near center where cursors are denser
+ *   2. Ad Blocker Shield (gold shield): 3s invincibility, +50 bonus pts
+ *      Rare (20% chance), also center-biased
+ *
+ * Scoring:
+ *   score = Math.floor(timeAlive * 10 + bonusPoints)  [monotonic, never decreases]
+ *
+ * Difficulty ramp (time-based, easeIn curve over 120s):
+ *   spawnRate: lerp(0.8, 4.0, easeIn(t))  cursors/sec
+ *   cursorSpeed: lerp(130, 380, easeIn(t)) px/sec
+ *   pickupInterval: lerp(8000, 4500, t)   ms between pickups
+ *
+ * Visual theme:
+ *   Windows XP desktop aesthetic — teal/blue desktop bg, gray window chrome,
+ *   taskbar, desktop icons, decorative error dialogs. Classic inset/outset borders.
+ *   Font: VT323 (monospace retro) + Tahoma for UI chrome.
+ *
+ * Audio:
+ *   Procedural Web Audio — square/sine/sawtooth.
+ *   Sounds: cursor whoosh (on spawn), hit crunch, collect bloop, shield ping, death cascade.
+ */
+
+const GAME_ID = 'loading-bar-rage-c7d3';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+// ─── Audio ───────────────────────────────────────────────────────────────────
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playTone(type, freq, dur, vol, freqEnd) {
+  if (audioCtx.state === 'suspended') return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  if (freqEnd !== undefined)
+    osc.frequency.linearRampToValueAtTime(freqEnd, audioCtx.currentTime + dur);
+  gain.gain.setValueAtTime(vol || 0.25, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+  osc.start(); osc.stop(audioCtx.currentTime + dur);
+}
+
+function sfxHit() {
+  playTone('sawtooth', 220, 0.18, 0.35, 80);
+  playTone('square', 120, 0.25, 0.2);
+}
+function sfxCollect() {
+  playTone('sine', 550, 0.08, 0.2);
+  setTimeout(() => playTone('sine', 820, 0.12, 0.18), 80);
+}
+function sfxShield() {
+  playTone('sine', 700, 0.06, 0.25);
+  setTimeout(() => playTone('sine', 1050, 0.08, 0.2), 60);
+  setTimeout(() => playTone('sine', 1400, 0.1, 0.15), 130);
+}
+function sfxStun() {
+  playTone('square', 180, 0.12, 0.3, 100);
+}
+function sfxDeath() {
+  playTone('sawtooth', 350, 0.12, 0.35, 120);
+  setTimeout(() => playTone('sawtooth', 220, 0.18, 0.3, 80), 120);
+  setTimeout(() => playTone('square', 140, 0.45, 0.35, 50), 280);
+  setTimeout(() => playTone('sine', 80, 0.6, 0.2), 500);
+}
+function sfxStart() {
+  playTone('sine', 440, 0.1, 0.2);
+  setTimeout(() => playTone('sine', 550, 0.1, 0.2), 100);
+  setTimeout(() => playTone('sine', 660, 0.15, 0.25), 200);
+}
+function sfxClick() {
+  playTone('square', 280, 0.04, 0.18, 200);
+}
+
+// ─── Leaderboard ─────────────────────────────────────────────────────────────
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch (e) { console.warn('Leaderboard submit failed:', e); return null; }
+}
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch (e) { console.warn('Leaderboard fetch failed:', e); return []; }
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function lerp(a, b, t) { return a + (b - a) * t; }
+function easeIn(t) { return t * t; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MENU SCENE
+// ═══════════════════════════════════════════════════════════════════════════════
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+
+    // Desktop background (XP teal)
+    this.add.rectangle(W/2, H/2, W, H, 0x3b6ea5).setDepth(0);
+
+    // Decorative desktop icons (left column)
+    const desktopIcons = [
+      { emoji: '💻', label: 'My Computer' },
+      { emoji: '📁', label: 'My Docs' },
+      { emoji: '🌐', label: 'Internet' },
+      { emoji: '🗑️', label: 'Recycle Bin' },
+    ];
+    desktopIcons.forEach((ic, i) => {
+      const ix = 28, iy = 40 + i * 72;
+      this.add.text(ix, iy, ic.emoji, { fontSize: '32px' }).setOrigin(0.5, 0).setDepth(1);
+      this.add.text(ix, iy + 36, ic.label, {
+        fontSize: '11px', fontFamily: 'Tahoma, sans-serif',
+        color: '#ffffff', stroke: '#000', strokeThickness: 2
+      }).setOrigin(0.5, 0).setDepth(1);
+    });
+
+    // Taskbar
+    const tbH = 36;
+    const tb = this.add.graphics().setDepth(2);
+    tb.fillGradientStyle(0xd4d0c8, 0xd4d0c8, 0xb8b4ac, 0xb8b4ac, 1);
+    tb.fillRect(0, H - tbH, W, tbH);
+    tb.lineStyle(1, 0xffffff, 1);
+    tb.lineBetween(0, H - tbH, W, H - tbH);
+
+    // Start button
+    const sb = this.add.graphics().setDepth(3);
+    sb.fillGradientStyle(0x4ea04e, 0x3a8c3a, 0x2d7c2d, 0x1e6c1e, 1);
+    sb.fillRoundedRect(4, H - tbH + 4, 68, tbH - 8, 4);
+    this.add.text(38, H - tbH/2, '⊞ Start', {
+      fontSize: '15px', fontFamily: 'Tahoma, sans-serif',
+      color: '#fff', fontStyle: 'bold'
+    }).setOrigin(0.5).setDepth(4);
+
+    // Clock
+    const now = new Date();
+    const hh = now.getHours() % 12 || 12;
+    const mm = now.getMinutes().toString().padStart(2, '0');
+    const ampm = now.getHours() < 12 ? 'AM' : 'PM';
+    this.add.text(W - 6, H - tbH/2, `📶  ${hh}:${mm} ${ampm}`, {
+      fontSize: '13px', fontFamily: 'Tahoma, sans-serif', color: '#000'
+    }).setOrigin(1, 0.5).setDepth(4);
+
+    // Main window
+    const wx = W/2 - 260, wy = H/2 - 245;
+    const ww = 520, wh = 490;
+
+    // Shadow
+    this.add.rectangle(wx + 6, wy + 6 + wh/2, ww, wh, 0x000000, 0.35).setDepth(4);
+
+    // Window body
+    const winBg = this.add.graphics().setDepth(5);
+    winBg.fillStyle(0xece9d8);
+    winBg.fillRect(wx, wy, ww, wh);
+    winBg.lineStyle(1, 0xaca899);
+    winBg.strokeRect(wx, wy, ww, wh);
+    winBg.lineStyle(1, 0xffffff, 0.8);
+    winBg.lineBetween(wx + 1, wy + 1, wx + ww - 1, wy + 1);
+    winBg.lineBetween(wx + 1, wy + 1, wx + 1, wy + wh - 1);
+
+    // Title bar
+    const titleBar = this.add.graphics().setDepth(6);
+    titleBar.fillGradientStyle(0x0a246a, 0x0a246a, 0x3d6ba8, 0x3d6ba8, 1);
+    titleBar.fillRect(wx, wy, ww, 28);
+
+    this.add.text(wx + 8, wy + 5, '🖥️  LOADING: The Game', {
+      fontSize: '14px', fontFamily: 'Tahoma, sans-serif',
+      color: '#ffffff', fontStyle: 'bold'
+    }).setDepth(7);
+
+    // Window buttons
+    ['#c74e4e', '#d4a820', '#4a8a4a'].forEach((col, i) => {
+      const bx = wx + ww - 22 - (2-i)*22;
+      const btnG = this.add.graphics().setDepth(7);
+      btnG.fillStyle(parseInt(col.slice(1), 16));
+      btnG.fillRect(bx, wy + 5, 18, 18);
+      btnG.lineStyle(1, 0x000000, 0.4);
+      btnG.strokeRect(bx, wy + 5, 18, 18);
+    });
+
+    // Title text
+    this.add.text(W/2, wy + 62, 'LOADING:', {
+      fontSize: '58px', fontFamily: "'VT323', monospace",
+      color: '#000080', stroke: '#a0a0e0', strokeThickness: 3
+    }).setOrigin(0.5).setDepth(6);
+
+    this.add.text(W/2, wy + 112, 'T H E   G A M E', {
+      fontSize: '36px', fontFamily: "'VT323', monospace",
+      color: '#cc2200', stroke: '#ffffff', strokeThickness: 2
+    }).setOrigin(0.5).setDepth(6);
+
+    // Animated loading bar preview
+    const previewY = wy + 162;
+    const previewX = wx + 40;
+    const previewW = ww - 80;
+
+    const previewBg = this.add.graphics().setDepth(6);
+    previewBg.fillStyle(0xffffff);
+    previewBg.fillRect(previewX, previewY, previewW, 26);
+    previewBg.lineStyle(2, 0x9c9a94);
+    previewBg.strokeRect(previewX, previewY, previewW, 26);
+    previewBg.lineStyle(1, 0x6e6b65);
+    previewBg.strokeRect(previewX + 1, previewY + 1, previewW - 2, 24);
+
+    this.previewBarGfx = this.add.graphics().setDepth(7);
+    this.pvX = previewX; this.pvY = previewY; this.pvW = previewW;
+    this.pvFill = 0; this.pvDir = 1;
+
+    this.pvLabel = this.add.text(W/2, previewY + 13, '0%', {
+      fontSize: '18px', fontFamily: "'VT323', monospace", color: '#000000'
+    }).setOrigin(0.5).setDepth(8);
+
+    // Instructions box
+    const instrY = wy + 205;
+    const instrBg = this.add.graphics().setDepth(6);
+    instrBg.fillStyle(0xd4d0c8);
+    instrBg.fillRect(wx + 30, instrY, ww - 60, 200);
+    instrBg.lineStyle(1, 0x9c9a94);
+    instrBg.strokeRect(wx + 30, instrY, ww - 60, 200);
+
+    const lines = [
+      ['⚡', 'You ARE the loading bar.'],
+      ['🖱️', 'Rage-click cursors fall from above — DODGE them!'],
+      ['💀', '3 hits = LOADING CANCELLED'],
+      ['📶', 'Grab Bandwidth packets for 2× speed boost.'],
+      ['🛡️', 'Grab gold Shields for 3s invincibility.'],
+      ['⌨️', 'Arrow Keys / A-D / Touch-drag to move'],
+    ];
+    lines.forEach(([icon, text], i) => {
+      this.add.text(wx + 44, instrY + 10 + i * 30, icon + ' ' + text, {
+        fontSize: '20px', fontFamily: "'VT323', monospace", color: '#111111'
+      }).setDepth(7);
+    });
+
+    // Start prompt
+    const startTxt = this.add.text(W/2, wy + wh - 34, '[ Click or press any key to start ]', {
+      fontSize: '24px', fontFamily: "'VT323', monospace", color: '#000080'
+    }).setOrigin(0.5).setDepth(7);
+
+    this.tweens.add({
+      targets: startTxt, alpha: 0.1, duration: 520, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+
+    // Floating decor cursors
+    for (let i = 0; i < 6; i++) {
+      const cx = Phaser.Math.Between(80, W - 80);
+      const cy = Phaser.Math.Between(60, H - 80);
+      const c = this.add.text(cx, cy, '↖', {
+        fontSize: Phaser.Math.Between(14, 28) + 'px',
+        color: '#cc0000', alpha: 0.55
+      }).setDepth(2);
+      this.tweens.add({
+        targets: c, y: cy + Phaser.Math.Between(30, 80), alpha: 0,
+        duration: Phaser.Math.Between(1200, 3200), yoyo: true, repeat: -1,
+        delay: Phaser.Math.Between(0, 1000)
+      });
+    }
+
+    // Start triggers
+    this.input.once('pointerdown', () => this._startGame());
+    this.input.keyboard.once('keydown', () => this._startGame());
+  }
+
+  _startGame() {
+    audioCtx.resume();
+    sfxStart();
+    this.cameras.main.fade(300, 0, 0, 0);
+    this.time.delayedCall(320, () => this.scene.start('GameScene'));
+  }
+
+  update() {
+    // Animate preview bar
+    this.pvFill += 0.004 * this.pvDir;
+    if (this.pvFill >= 1) { this.pvFill = 1; this.pvDir = -1; }
+    if (this.pvFill <= 0) { this.pvFill = 0; this.pvDir = 1; }
+
+    this.previewBarGfx.clear();
+    const fw = (this.pvW - 4) * this.pvFill;
+    if (fw > 0) {
+      this.previewBarGfx.fillStyle(0x0078d7);
+      this.previewBarGfx.fillRect(this.pvX + 2, this.pvY + 2, fw, 22);
+      this.previewBarGfx.fillStyle(0x55aaff, 0.35);
+      this.previewBarGfx.fillRect(this.pvX + 2, this.pvY + 2, fw, 10);
+    }
+    this.pvLabel.setText(Math.floor(this.pvFill * 100) + '%');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GAME SCENE
+// ═══════════════════════════════════════════════════════════════════════════════
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  // ── Texture generation ────────────────────────────────────────────────────
+  _buildTextures() {
+    // ---- Bar frame (outer chrome) ----
+    const barG = this.make.graphics({ add: false });
+    barG.fillStyle(0xd4d0c8);
+    barG.fillRect(0, 0, 300, 42);
+    barG.lineStyle(2, 0xffffff);
+    barG.strokeRect(0, 0, 300, 42);
+    barG.lineStyle(1, 0x9c9a94);
+    barG.strokeRect(2, 2, 296, 38);
+    barG.fillStyle(0xffffff);
+    barG.fillRect(8, 8, 284, 26);
+    barG.lineStyle(1, 0xc0bdba);
+    barG.strokeRect(8, 8, 284, 26);
+    barG.generateTexture('barFrame', 300, 42);
+    barG.destroy();
+
+    // ---- Single cursor ----
+    const sg = this.make.graphics({ add: false });
+    sg.fillStyle(0xffffff);
+    // Arrow body
+    sg.fillTriangle(2, 2,  2, 28,  16, 20);
+    sg.fillRect(10, 18, 8, 14);
+    sg.lineStyle(2, 0x111111);
+    sg.strokeTriangle(2, 2,  2, 28,  16, 20);
+    sg.strokeRect(10, 18, 8, 14);
+    // Rage dot
+    sg.fillStyle(0xff2222);
+    sg.fillCircle(18, 5, 5);
+    sg.lineStyle(1, 0x880000);
+    sg.strokeCircle(18, 5, 5);
+    sg.generateTexture('cursorSingle', 26, 36);
+    sg.destroy();
+
+    // ---- Double-click cursor ----
+    const dg = this.make.graphics({ add: false });
+    dg.fillStyle(0xff8800);
+    // Arrow 1
+    dg.fillTriangle(1, 2,  1, 26,  13, 19);
+    dg.fillRect(9, 17, 8, 12);
+    // Arrow 2 (offset)
+    dg.fillStyle(0xffaa22);
+    dg.fillTriangle(10, 5, 10, 30, 22, 22);
+    dg.fillRect(18, 20, 8, 13);
+    dg.lineStyle(2, 0x882200);
+    dg.strokeTriangle(1, 2, 1, 26, 13, 19);
+    dg.strokeRect(9, 17, 8, 12);
+    // ×2 indicator
+    dg.fillStyle(0xff0000);
+    dg.fillCircle(28, 5, 5);
+    dg.lineStyle(1, 0x880000);
+    dg.strokeCircle(28, 5, 5);
+    dg.generateTexture('cursorDouble', 36, 44);
+    dg.destroy();
+
+    // ---- Rage refresh ----
+    const rg = this.make.graphics({ add: false });
+    rg.fillStyle(0xdd1111, 0.9);
+    rg.fillCircle(24, 24, 22);
+    rg.lineStyle(3, 0x880000);
+    rg.strokeCircle(24, 24, 22);
+    // Refresh icon (two arcs approximated with rects)
+    rg.fillStyle(0xffffff);
+    rg.fillArc = undefined; // Phaser doesn't have fillArc; use rects
+    rg.fillRect(14, 13, 16, 4);  // top
+    rg.fillRect(14, 31, 16, 4);  // bottom
+    rg.fillTriangle(30, 8,  38, 17,  30, 17); // top arrow
+    rg.fillTriangle(10, 31, 10, 40, 18, 31);  // bottom arrow
+    // Big "⟳" text drawn later via Phaser text
+    rg.generateTexture('rageRefresh', 48, 48);
+    rg.destroy();
+
+    // ---- Bandwidth packet ----
+    const bw = this.make.graphics({ add: false });
+    bw.fillStyle(0x0078d7);
+    bw.fillCircle(18, 18, 16);
+    bw.lineStyle(2, 0x003d8c);
+    bw.strokeCircle(18, 18, 16);
+    // WiFi bars
+    bw.fillStyle(0xffffff);
+    bw.fillRect(12, 20, 3, 8);   // small
+    bw.fillRect(17, 16, 3, 12);  // medium
+    bw.fillRect(22, 12, 3, 16);  // large
+    // Dot
+    bw.fillCircle(13, 27, 2);
+    bw.generateTexture('bandwidth', 36, 36);
+    bw.destroy();
+
+    // ---- Shield pickup ----
+    const shg = this.make.graphics({ add: false });
+    shg.fillStyle(0xffd700);
+    // Pentagon-shield shape
+    shg.fillTriangle(18, 0, 36, 10, 36, 28);
+    shg.fillTriangle(18, 0,  0, 10,  0, 28);
+    shg.fillRect(0, 10, 36, 18);
+    shg.fillTriangle(0, 28, 36, 28, 18, 42);
+    shg.lineStyle(2, 0xa07800);
+    shg.strokeTriangle(18, 0, 36, 10, 36, 28);
+    shg.strokeTriangle(18, 0,  0, 10,  0, 28);
+    shg.strokeRect(0, 10, 36, 18);
+    shg.strokeTriangle(0, 28, 36, 28, 18, 42);
+    shg.fillStyle(0xffffff, 0.85);
+    shg.fillRect(15, 14, 6, 14);
+    shg.fillRect(10, 19, 16, 5);
+    shg.generateTexture('shield', 36, 42);
+    shg.destroy();
+
+    // ---- Heart ----
+    const hg = this.make.graphics({ add: false });
+    hg.fillStyle(0xff2244);
+    hg.fillCircle(7, 7, 7);
+    hg.fillCircle(19, 7, 7);
+    hg.fillTriangle(0, 9, 26, 9, 13, 22);
+    hg.generateTexture('heart', 26, 22);
+    hg.destroy();
+
+    // ---- Empty heart ----
+    const ehg = this.make.graphics({ add: false });
+    ehg.lineStyle(2, 0xaa8888);
+    ehg.strokeCircle(7, 7, 7);
+    ehg.strokeCircle(19, 7, 7);
+    ehg.strokeTriangle(0, 9, 26, 9, 13, 22);
+    ehg.generateTexture('heartEmpty', 26, 22);
+    ehg.destroy();
+  }
+
+  // ── Scene create ──────────────────────────────────────────────────────────
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+    this._buildTextures();
+
+    // State
+    this.gameStartTime = this.time.now;
+    this.score       = 0;
+    this.bonusPoints = 0;
+    this.health      = 3;
+    this.progress    = 0;     // 0..100 loading %
+    this.isGameOver  = false;
+    this.stunned     = false;
+    this.shieldActive = false;
+    this.shieldMs    = 0;
+    this.boostActive = false;
+    this.boostMs     = 0;
+    this.lastSpawnMs = 0;
+    this.lastPickupMs = 0;
+    this.touchTargetX = null;
+
+    // ── Background: desktop ───────────────────────────────────────────────
+    this.add.rectangle(W/2, H/2, W, H, 0x3b6ea5).setDepth(0);
+
+    // Desktop icons (decorative)
+    [['💻','My Computer'],['📁','My Documents'],['🌐','Internet Explorer'],['🗑️','Recycle Bin']].forEach(([ic, lb], i) => {
+      this.add.text(28, 36 + i * 72, ic, { fontSize: '30px' }).setOrigin(0.5, 0).setDepth(1).setAlpha(0.8);
+      this.add.text(28, 70 + i * 72, lb, {
+        fontSize: '11px', fontFamily: 'Tahoma, sans-serif',
+        color: '#fff', stroke: '#000', strokeThickness: 2, align: 'center', wordWrap: { width: 56 }
+      }).setOrigin(0.5, 0).setDepth(1).setAlpha(0.8);
+    });
+
+    // ── Decorative background "error" dialogs ─────────────────────────────
+    const errDialogs = [
+      { x: W - 170, y: 60,  title: 'OutOfMemory.exe',    msg: 'Memory error at 0x0000' },
+      { x: 80,      y: 420, title: 'Kernel32 Error',      msg: 'Page fault in module...' },
+    ];
+    errDialogs.forEach(d => {
+      const g = this.add.graphics().setDepth(1).setAlpha(0.55);
+      g.fillStyle(0xece9d8);
+      g.fillRect(d.x - 90, d.y - 14, 180, 58);
+      g.lineStyle(1, 0xaca899);
+      g.strokeRect(d.x - 90, d.y - 14, 180, 58);
+      g.fillGradientStyle(0x0a246a, 0x0a246a, 0x3d6ba8, 0x3d6ba8, 1);
+      g.fillRect(d.x - 90, d.y - 14, 180, 18);
+      this.add.text(d.x - 84, d.y - 12, d.title, {
+        fontSize: '11px', fontFamily: 'Tahoma,sans-serif', color: '#fff', fontStyle: 'bold'
+      }).setDepth(1).setAlpha(0.55);
+      this.add.text(d.x - 84, d.y + 6, d.msg, {
+        fontSize: '11px', fontFamily: 'Tahoma,sans-serif', color: '#333'
+      }).setDepth(1).setAlpha(0.55);
+    });
+
+    // ── Taskbar ───────────────────────────────────────────────────────────
+    const tbH = 36;
+    const tbg = this.add.graphics().setDepth(8);
+    tbg.fillGradientStyle(0xd4d0c8, 0xd4d0c8, 0xb8b4ac, 0xb8b4ac, 1);
+    tbg.fillRect(0, H - tbH, W, tbH);
+    tbg.lineStyle(1, 0xffffff, 0.9);
+    tbg.lineBetween(0, H - tbH, W, H - tbH);
+
+    const sbg = this.add.graphics().setDepth(9);
+    sbg.fillGradientStyle(0x4ea04e, 0x3a8c3a, 0x2d7c2d, 0x1e6c1e, 1);
+    sbg.fillRoundedRect(4, H - tbH + 4, 68, tbH - 8, 4);
+    this.add.text(38, H - tbH/2, '⊞ Start', {
+      fontSize: '15px', fontFamily: 'Tahoma, sans-serif', color: '#fff', fontStyle: 'bold'
+    }).setOrigin(0.5).setDepth(10);
+
+    // Taskbar app button (the bar's "app")
+    const taskApp = this.add.graphics().setDepth(9);
+    taskApp.fillStyle(0xb8b4ac);
+    taskApp.fillRect(80, H - tbH + 4, 160, tbH - 8);
+    taskApp.lineStyle(1, 0x9c9a94);
+    taskApp.strokeRect(80, H - tbH + 4, 160, tbH - 8);
+    this.add.text(160, H - tbH/2, '🖥️ MyGame.exe', {
+      fontSize: '14px', fontFamily: 'Tahoma, sans-serif', color: '#000'
+    }).setOrigin(0.5).setDepth(10);
+
+    this.clockTxt = this.add.text(W - 6, H - tbH/2, '', {
+      fontSize: '13px', fontFamily: 'Tahoma, sans-serif', color: '#000'
+    }).setOrigin(1, 0.5).setDepth(10);
+    this._updateClock();
+    this.time.addEvent({ delay: 30000, callback: this._updateClock, callbackScope: this, loop: true });
+
+    // ── Score + HUD ───────────────────────────────────────────────────────
+    this.scoreTxt = this.add.text(88, 10, 'SCORE: 0', {
+      fontSize: '26px', fontFamily: "'VT323', monospace",
+      color: '#ffffff', stroke: '#000', strokeThickness: 3
+    }).setDepth(10);
+
+    // Hearts
+    this.hearts = [];
+    for (let i = 0; i < 3; i++) {
+      this.hearts.push(
+        this.add.image(W - 30 - i * 32, 14, 'heart').setDepth(10).setScale(1.1)
+      );
+    }
+
+    // Status message (temporary notices)
+    this.statusTxt = this.add.text(W/2, 44, '', {
+      fontSize: '22px', fontFamily: "'VT323', monospace",
+      color: '#ffff00', stroke: '#000', strokeThickness: 2
+    }).setOrigin(0.5).setDepth(10);
+
+    // ── Physics groups ────────────────────────────────────────────────────
+    this.cursorGroup = this.physics.add.group();
+    this.pickupGroup = this.physics.add.group();
+
+    // ── Player bar (invisible physics anchor) ─────────────────────────────
+    const barY = H - tbH - 54;
+    this.barBody = this.physics.add.image(W / 2, barY, 'barFrame');
+    this.barBody.setImmovable(true);
+    this.barBody.body.setSize(290, 34);
+    this.barBody.setCollideWorldBounds(true);
+    this.barBody.setAlpha(0); // visual drawn by graphics
+    this.barBody.setDepth(4);
+
+    // ── Overlap callbacks ──────────────────────────────────────────────────
+    this.physics.add.overlap(this.barBody, this.cursorGroup, this._onCursorHit, null, this);
+    this.physics.add.overlap(this.barBody, this.pickupGroup, this._onPickupCollect, null, this);
+
+    // ── Graphics layers for bar visuals ───────────────────────────────────
+    this.barGfx     = this.add.graphics().setDepth(5);
+    this.barFillGfx = this.add.graphics().setDepth(6);
+    this.shieldGfx  = this.add.graphics().setDepth(7);
+
+    this.barPctTxt = this.add.text(0, 0, '0%', {
+      fontSize: '19px', fontFamily: "'VT323', monospace", color: '#000000'
+    }).setOrigin(0.5).setDepth(7);
+
+    this.barLabelTxt = this.add.text(0, 0, 'Loading MyGame.exe...', {
+      fontSize: '13px', fontFamily: 'Tahoma, sans-serif', color: '#000000'
+    }).setOrigin(0.5).setDepth(7);
+
+    // ── Input ──────────────────────────────────────────────────────────────
+    this.cursors = this.input.keyboard.addKeys({
+      left:  Phaser.Input.Keyboard.KeyCodes.LEFT,
+      right: Phaser.Input.Keyboard.KeyCodes.RIGHT,
+      a:     Phaser.Input.Keyboard.KeyCodes.A,
+      d:     Phaser.Input.Keyboard.KeyCodes.D,
+    });
+
+    this.input.on('pointerdown',  (p) => { this.touchTargetX = p.x; });
+    this.input.on('pointermove',  (p) => { if (p.isDown) this.touchTargetX = p.x; });
+    this.input.on('pointerup',    ()  => { this.touchTargetX = null; });
+
+    // ── Spawn the first cursor soon (grace period) ────────────────────────
+    this.time.delayedCall(1200, () => { this.lastSpawnMs = this.time.now; });
+
+    // Camera fade in
+    this.cameras.main.setAlpha(0);
+    this.tweens.add({ targets: this.cameras.main, alpha: 1, duration: 300 });
+  }
+
+  _updateClock() {
+    const now = new Date();
+    const hh = now.getHours() % 12 || 12;
+    const mm = now.getMinutes().toString().padStart(2, '0');
+    const ap = now.getHours() < 12 ? 'AM' : 'PM';
+    if (this.clockTxt) this.clockTxt.setText(`📶  ${hh}:${mm} ${ap}`);
+  }
+
+  // ── Spawn cursor ──────────────────────────────────────────────────────────
+  _spawnCursor(type) {
+    const W = this.scale.width;
+    const key = (type === 'double') ? 'cursorDouble' : (type === 'refresh') ? 'rageRefresh' : 'cursorSingle';
+    const x = Phaser.Math.Between(50, W - 50);
+
+    const cur = this.physics.add.image(x, -50, key);
+    cur.setDepth(3);
+    cur.cursorType = type;
+    cur.hasHit = false;
+
+    const elapsed = (this.time.now - this.gameStartTime) / 1000;
+    const t = clamp(elapsed / 120, 0, 1);
+    const d = easeIn(t);
+
+    const speed = (type === 'cursor') ? lerp(130, 320, d) :
+                  (type === 'double') ? lerp(180, 400, d) :
+                                        lerp(220, 450, d);
+    cur.setVelocityY(speed);
+    cur.body.setSize(cur.width * 0.7, cur.height * 0.72);
+    this.cursorGroup.add(cur);
+
+    // Double-click sways
+    if (type === 'double') {
+      this.tweens.add({
+        targets: cur, x: x + Phaser.Math.Between(-40, 40),
+        duration: 350, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+      });
+    }
+    // Refresh spins
+    if (type === 'refresh') {
+      this.tweens.add({ targets: cur, angle: 360, duration: 600, repeat: -1, ease: 'Linear' });
+    }
+
+    sfxClick();
+  }
+
+  // ── Spawn pickup ──────────────────────────────────────────────────────────
+  _spawnPickup(type) {
+    const W = this.scale.width;
+    // Center-biased spawn (risky zone)
+    const x = Phaser.Math.Between(W/4, (3*W)/4);
+    const key = type === 'shield' ? 'shield' : 'bandwidth';
+
+    const pk = this.physics.add.image(x, -20, key);
+    pk.setDepth(3);
+    pk.pickupType = type;
+    pk.collected = false;
+    pk.setVelocityY(75);
+    pk.body.setSize(pk.width * 0.82, pk.height * 0.82);
+    this.pickupGroup.add(pk);
+
+    this.tweens.add({
+      targets: pk, angle: 360, duration: 1800, repeat: -1, ease: 'Linear'
+    });
+    this.tweens.add({
+      targets: pk, scaleX: 1.15, scaleY: 1.15,
+      duration: 600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+  }
+
+  // ── Collision handlers ────────────────────────────────────────────────────
+  _onCursorHit(barBody, cursor) {
+    if (cursor.hasHit || this.shieldActive || this.isGameOver) return;
+    cursor.hasHit = true;
+
+    const dmg = cursor.cursorType === 'refresh' ? 2 : 1;
+    this.health = Math.max(0, this.health - dmg);
+
+    sfxHit();
+    this.cameras.main.shake(120, 0.009);
+    this.cameras.main.flash(60, 255, 40, 0);
+
+    // Heart display
+    for (let i = 0; i < 3; i++) {
+      this.hearts[i].setTexture(i < this.health ? 'heart' : 'heartEmpty');
+    }
+
+    // Stun from double-click
+    if (cursor.cursorType === 'double' && !this.stunned) {
+      this.stunned = true;
+      sfxStun();
+      this._showFloat(this.barBody.x, this.barBody.y - 24, 'STUNNED! 1.5s', '#ff8800');
+      this.time.delayedCall(1500, () => { this.stunned = false; });
+    } else {
+      this._showFloat(cursor.x, cursor.y, dmg === 2 ? '-2 HP!!' : '-1 HP!', '#ff2200');
+    }
+
+    cursor.destroy();
+
+    if (this.health <= 0) this._triggerGameOver();
+  }
+
+  _onPickupCollect(barBody, pickup) {
+    if (pickup.collected || this.isGameOver) return;
+    pickup.collected = true;
+
+    if (pickup.pickupType === 'bandwidth') {
+      this.boostActive = true;
+      this.boostMs = 5000;
+      this.bonusPoints += 25;
+      sfxCollect();
+      this._showFloat(pickup.x, pickup.y - 20, '📶 +25 BANDWIDTH!', '#00aaff');
+      this._showStatus('📶 2× Speed Boost! (5s)');
+    } else {
+      this.shieldActive = true;
+      this.shieldMs = 3000;
+      this.bonusPoints += 50;
+      sfxShield();
+      this._showFloat(pickup.x, pickup.y - 20, '🛡️ +50 SHIELD!', '#ffd700');
+      this._showStatus('🛡️ Ad Blocker Active! (3s)');
+    }
+
+    pickup.destroy();
+  }
+
+  // ── Game over ─────────────────────────────────────────────────────────────
+  _triggerGameOver() {
+    if (this.isGameOver) return;
+    this.isGameOver = true;
+
+    sfxDeath();
+    this.cameras.main.shake(300, 0.016);
+    this.cameras.main.flash(180, 255, 60, 0);
+
+    const W = this.scale.width, H = this.scale.height;
+
+    // LOADING CANCELLED overlay
+    const overlay = this.add.graphics().setDepth(20);
+    overlay.fillStyle(0x000000, 0.6);
+    overlay.fillRect(0, 0, W, H);
+
+    const cancelled = this.add.text(W/2, H/2 - 20, 'LOADING CANCELLED', {
+      fontSize: '52px', fontFamily: "'VT323', monospace",
+      color: '#ff2200', stroke: '#000', strokeThickness: 4
+    }).setOrigin(0.5).setDepth(21).setAlpha(0).setScale(0.5);
+
+    this.tweens.add({
+      targets: cancelled, alpha: 1, scaleX: 1, scaleY: 1,
+      duration: 280, ease: 'Back.easeOut'
+    });
+
+    const sub = this.add.text(W/2, H/2 + 44, `Loaded ${Math.floor(this.progress)}% before rage-quit`, {
+      fontSize: '24px', fontFamily: "'VT323', monospace",
+      color: '#ffffff', stroke: '#000', strokeThickness: 2
+    }).setOrigin(0.5).setDepth(21).setAlpha(0);
+    this.tweens.add({ targets: sub, alpha: 1, duration: 400, delay: 200 });
+
+    this.time.delayedCall(900, () => {
+      this.scene.pause();
+      showGameOverUI(this.score);
+    });
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  _showFloat(x, y, text, color) {
+    const t = this.add.text(x, y, text, {
+      fontSize: '20px', fontFamily: "'VT323', monospace",
+      color: color || '#ffff00', stroke: '#000', strokeThickness: 2
+    }).setOrigin(0.5).setDepth(15);
+    this.tweens.add({
+      targets: t, y: y - 55, alpha: 0, duration: 900,
+      ease: 'Cubic.easeOut', onComplete: () => t.destroy()
+    });
+  }
+
+  _showStatus(msg) {
+    this.statusTxt.setText(msg).setAlpha(1);
+    this.tweens.add({ targets: this.statusTxt, alpha: 0, duration: 2200, delay: 800 });
+  }
+
+  // ── Main update loop ───────────────────────────────────────────────────────
+  update(time, delta) {
+    if (this.isGameOver) return;
+
+    const W = this.scale.width, H = this.scale.height;
+    const dt = delta / 16.667;
+    const elapsed = (time - this.gameStartTime) / 1000;
+    const t = clamp(elapsed / 120, 0, 1);
+    const difficulty = easeIn(t);
+
+    // ── Score (monotonic) ──────────────────────────────────────────────
+    this.score = Math.floor(elapsed * 10 + this.bonusPoints);
+    this.scoreTxt.setText('SCORE: ' + this.score);
+
+    // ── Timers ─────────────────────────────────────────────────────────
+    if (this.boostActive) {
+      this.boostMs -= delta;
+      if (this.boostMs <= 0) { this.boostActive = false; this.boostMs = 0; }
+    }
+    if (this.shieldActive) {
+      this.shieldMs -= delta;
+      if (this.shieldMs <= 0) { this.shieldActive = false; this.shieldMs = 0; }
+    }
+
+    // ── Loading progress ───────────────────────────────────────────────
+    const baseLoadRate = lerp(3.5, 8, difficulty);   // %/sec
+    const effectiveRate = baseLoadRate * (this.boostActive ? 2 : 1);
+    this.progress = Math.min(100, this.progress + effectiveRate * (delta / 1000));
+
+    // ── Move player bar ────────────────────────────────────────────────
+    const BAR_SPEED = 300;
+    if (this.stunned) {
+      this.barBody.setVelocityX(0);
+    } else {
+      const goLeft  = this.cursors.left.isDown  || this.cursors.a.isDown;
+      const goRight = this.cursors.right.isDown || this.cursors.d.isDown;
+      if (goLeft) {
+        this.barBody.setVelocityX(-BAR_SPEED);
+      } else if (goRight) {
+        this.barBody.setVelocityX(BAR_SPEED);
+      } else if (this.touchTargetX !== null) {
+        const diff = this.touchTargetX - this.barBody.x;
+        if (Math.abs(diff) > 8) {
+          this.barBody.setVelocityX(Math.sign(diff) * BAR_SPEED);
+        } else {
+          this.barBody.setVelocityX(0);
+        }
+      } else {
+        this.barBody.setVelocityX(0);
+      }
+    }
+
+    // Clamp bar horizontally
+    const halfW = 150;
+    this.barBody.x = clamp(this.barBody.x, halfW + 4, W - halfW - 4);
+
+    // ── Draw bar ───────────────────────────────────────────────────────
+    const bx = this.barBody.x, by = this.barBody.y;
+    const bw = 300, bh = 42;
+
+    this.barGfx.clear();
+    this.barFillGfx.clear();
+
+    // Chrome frame
+    this.barGfx.fillStyle(0xd4d0c8);
+    this.barGfx.fillRect(bx - bw/2, by - bh/2, bw, bh);
+    this.barGfx.lineStyle(2, 0xffffff);
+    this.barGfx.strokeRect(bx - bw/2, by - bh/2, bw, bh);
+    this.barGfx.lineStyle(1, 0x9c9a94);
+    this.barGfx.strokeRect(bx - bw/2 + 2, by - bh/2 + 2, bw - 4, bh - 4);
+
+    // Inner inset (white trough)
+    const ix = bx - bw/2 + 8, iy = by - bh/2 + 8, iw = bw - 16, ih = bh - 16;
+    this.barGfx.fillStyle(0xffffff);
+    this.barGfx.fillRect(ix, iy, iw, ih);
+    this.barGfx.lineStyle(1, 0xc0bdba);
+    this.barGfx.strokeRect(ix, iy, iw, ih);
+
+    // Fill
+    const fw = iw * (this.progress / 100);
+    if (fw > 0) {
+      this.barFillGfx.fillStyle(0x0078d7);
+      this.barFillGfx.fillRect(ix, iy, fw, ih);
+      // Highlight stripe
+      this.barFillGfx.fillStyle(0x55aaf0, 0.45);
+      this.barFillGfx.fillRect(ix, iy, fw, ih * 0.45);
+      // Shimmer when boosted
+      if (this.boostActive) {
+        const shimX = ((time / 160) % (iw + 24)) - 12;
+        this.barFillGfx.fillStyle(0xffffff, 0.35);
+        this.barFillGfx.fillRect(ix + shimX, iy, 10, ih);
+      }
+    }
+
+    this.barGfx.setDepth(5);
+    this.barFillGfx.setDepth(6);
+
+    // Percent text
+    this.barPctTxt.setPosition(bx, by).setDepth(7);
+    this.barPctTxt.setText(Math.floor(this.progress) + '%');
+
+    // Label above bar
+    this.barLabelTxt.setPosition(bx, by - 32).setDepth(7);
+
+    // ── Shield glow ────────────────────────────────────────────────────
+    this.shieldGfx.clear();
+    if (this.shieldActive) {
+      const pulse = 0.5 + 0.5 * Math.sin(time / 90);
+      this.shieldGfx.lineStyle(4 + pulse * 3, 0xffd700, 0.75 + pulse * 0.25);
+      this.shieldGfx.strokeRect(bx - bw/2 - 7, by - bh/2 - 7, bw + 14, bh + 14);
+      this.shieldGfx.lineStyle(2, 0xffffff, 0.4);
+      this.shieldGfx.strokeRect(bx - bw/2 - 12, by - bh/2 - 12, bw + 24, bh + 24);
+    }
+    this.shieldGfx.setDepth(7);
+
+    // Stun visual: bar flickers
+    if (this.stunned) {
+      this.barGfx.setAlpha(0.5 + 0.5 * Math.sin(time / 60));
+    } else {
+      this.barGfx.setAlpha(1);
+    }
+
+    // ── Spawn cursors ──────────────────────────────────────────────────
+    const spawnRate = lerp(0.8, 4.0, difficulty);  // cursors/sec
+    const spawnInterval = 1000 / spawnRate;
+    if (time - this.lastSpawnMs > spawnInterval && this.lastSpawnMs > 0) {
+      this.lastSpawnMs = time;
+      const r = Math.random();
+      if (r < 0.55) {
+        this._spawnCursor('cursor');
+      } else if (r < 0.82) {
+        this._spawnCursor('double');
+      } else if (difficulty > 0.15) {
+        this._spawnCursor('refresh');
+      } else {
+        this._spawnCursor('cursor');
+      }
+    }
+
+    // ── Spawn pickups ──────────────────────────────────────────────────
+    const pickupInterval = lerp(8000, 4500, t);
+    if (this.lastPickupMs > 0 && time - this.lastPickupMs > pickupInterval) {
+      this.lastPickupMs = time;
+      this._spawnPickup(Math.random() < 0.8 ? 'bandwidth' : 'shield');
+    } else if (this.lastPickupMs === 0 && elapsed > 3) {
+      this.lastPickupMs = time;
+    }
+
+    // ── Clean off-screen objects ───────────────────────────────────────
+    this.cursorGroup.getChildren().forEach(c => { if (c.y > H + 80) c.destroy(); });
+    this.pickupGroup.getChildren().forEach(p => { if (p.y > H + 80) p.destroy(); });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PHASER CONFIG
+// ═══════════════════════════════════════════════════════════════════════════════
+const config = {
+  type: Phaser.AUTO,
+  width: 800,
+  height: 600,
+  backgroundColor: '#3b6ea5',
+  physics: {
+    default: 'arcade',
+    arcade: { gravity: { y: 0 }, debug: false }
+  },
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
+  scene: [MenuScene, GameScene]
+};
+
+const game = new Phaser.Game(config);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GAME OVER UI (HTML overlay)
+// ═══════════════════════════════════════════════════════════════════════════════
+let _lastSubmittedName = '';
+
+function showGameOverUI(finalScore) {
+  document.getElementById('final-score').textContent = finalScore;
+  document.getElementById('ui-overlay').style.display = 'flex';
+  document.getElementById('lb-wrap').style.display = 'none';
+  document.getElementById('status-msg').textContent = '';
+  const submitBtn = document.getElementById('submit-btn');
+  submitBtn.textContent = 'Submit Score';
+  submitBtn.disabled = false;
+  if (_lastSubmittedName) document.getElementById('player-name').value = _lastSubmittedName;
+}
+
+document.getElementById('submit-btn').addEventListener('click', async () => {
+  const nameEl = document.getElementById('player-name');
+  const name = nameEl.value.trim() || 'Anonymous';
+  _lastSubmittedName = name;
+  const score = parseInt(document.getElementById('final-score').textContent);
+
+  const btn = document.getElementById('submit-btn');
+  btn.textContent = 'Submitting...';
+  btn.disabled = true;
+  document.getElementById('status-msg').textContent = '';
+
+  await submitScore(name, score);
+  const scores = await getLeaderboard(10);
+
+  const tbody = document.getElementById('lb-body');
+  tbody.innerHTML = '';
+  if (scores.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:#888">No scores yet!</td></tr>';
+  } else {
+    scores.forEach((s, i) => {
+      const tr = document.createElement('tr');
+      if (s.playerName === name) tr.className = 'me';
+      tr.innerHTML = `<td>${i + 1}</td><td>${escapeHtml(s.playerName)}</td><td>${s.score}</td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  document.getElementById('lb-wrap').style.display = 'block';
+  btn.textContent = '✔ Submitted!';
+});
+
+document.getElementById('replay-btn').addEventListener('click', () => {
+  document.getElementById('ui-overlay').style.display = 'none';
+  const gs = game.scene.getScene('GameScene');
+  if (gs) {
+    gs.scene.resume();
+    gs.scene.restart();
+  } else {
+    game.scene.start('GameScene');
+  }
+  sfxStart();
+  audioCtx.resume();
+});
+
+document.getElementById('close-overlay').addEventListener('click', () => {
+  document.getElementById('ui-overlay').style.display = 'none';
+});
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])
+  );
+}
+</script>
+</body>
+</html>

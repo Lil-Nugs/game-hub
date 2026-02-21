@@ -312,5 +312,13 @@
     "creator": "vimgo",
     "model": "claude",
     "date": "2026-02-21T15:38:35.742Z"
+  },
+  {
+    "slug": "loading-bar-rage-c7d3",
+    "title": "LOADING: The Game",
+    "description": "You ARE the loading bar! Dodge rage-click cursors raining from above while trying to reach 100% load. Grab bandwidth packets for speed boosts and shields for invincibility. 3 hits = LOADING CANCELLED.",
+    "creator": "vimgo",
+    "model": "claude",
+    "date": "2026-02-21T15:40:30.297Z"
   }
 ]
