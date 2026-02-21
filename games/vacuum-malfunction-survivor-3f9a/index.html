@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Malfunctioning Vacuum Survivor</title>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: radial-gradient(circle at 50% 25%, #1e3a5f 0%, #0a1628 65%, #06101c 100%);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+      touch-action: none;
+      font-family: 'Rajdhani', sans-serif;
+      color: #e6f9ff;
+    }
+    #ui-overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 20;
+      background: rgba(2, 10, 20, 0.84);
+      padding: 20px;
+    }
+    .panel {
+      width: min(460px, 92vw);
+      background: linear-gradient(160deg, rgba(7, 23, 40, 0.96), rgba(14, 44, 72, 0.96));
+      border: 2px solid #48cae4;
+      border-radius: 16px;
+      box-shadow: 0 0 28px rgba(72, 202, 228, 0.25);
+      padding: 22px;
+    }
+    h2 { font-size: 34px; color: #90e0ef; margin-bottom: 6px; }
+    #final-score { font-size: 26px; margin-bottom: 12px; color: #fff; }
+    input, button {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 9px;
+      border: none;
+      margin-top: 8px;
+      font-family: inherit;
+      font-size: 20px;
+    }
+    input { background: #e6f9ff; color: #04243a; }
+    button {
+      background: #00b4d8;
+      color: #06253a;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform .08s ease, filter .2s ease;
+    }
+    button:hover { filter: brightness(1.1); }
+    button:active { transform: scale(0.98); }
+    #leaderboard { margin-top: 14px; max-height: 210px; overflow: auto; }
+    #leaderboard ol { margin-left: 22px; font-size: 18px; color: #d7f7ff; }
+    #leaderboard li { margin-bottom: 5px; }
+    .muted { color: #9bc7d0; font-size: 17px; }
+  </style>
+</head>
+<body>
+  <div id="ui-overlay">
+    <div class="panel">
+      <h2>SYSTEM FAILURE</h2>
+      <div id="final-score">Score: 0</div>
+      <div class="muted">Enter your callsign to upload your dust-collection score.</div>
+      <input id="player-name" maxlength="20" placeholder="VAC-01" />
+      <button id="submit-score">Submit Score</button>
+      <div id="leaderboard" class="muted">No scores yet.</div>
+      <button id="play-again">Play Again</button>
+    </div>
+  </div>
+
+  <script>
+  // DESIGN HEADER
+  // Controls: WASD/Arrow keys for thrust movement, mouse/touch hold to steer toward pointer.
+  // Core loop/death: Survive in endless arena as a glitched robot vacuum; die on 3rd hit from hazards.
+  // Hazards: (1) Rogue pet-bots that chase, (2) laser mop lines sweeping across arena, (3) sticky spill blobs that drift then burst.
+  // Pickups/risk-reward: Battery cells heal +1 HP; overclock chips give large bonus but increase nearby spawn pressure briefly.
+  // Scoring: score = Math.floor(timeAlive*10 + bonusPoints), monotonic only upward.
+  // Difficulty: smooth ramp over 2+ minutes using eased time for spawn rate, hazard speed, and max active hazards.
+  // Visual/audio: Ocean-tech palette with Rajdhani font, moving tile floor + dust motes; synth beeps for collect/boost/hit/death.
+
+  const GAME_ID = 'vacuum-malfunction-survivor-3f9a';
+  const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+  const overlay = document.getElementById('ui-overlay');
+  const finalScoreEl = document.getElementById('final-score');
+  const playerNameInput = document.getElementById('player-name');
+  const submitBtn = document.getElementById('submit-score');
+  const playAgainBtn = document.getElementById('play-again');
+  const leaderboardEl = document.getElementById('leaderboard');
+
+  async function submitScore(playerName, score) {
+    try {
+      const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+      });
+      return await res.json();
+    } catch (e) {
+      console.warn('Leaderboard unavailable:', e);
+      return null;
+    }
+  }
+
+  async function getLeaderboard(limit = 10) {
+    try {
+      const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+      const data = await res.json();
+      return data.scores || [];
+    } catch (e) {
+      console.warn('Leaderboard unavailable:', e);
+      return [];
+    }
+  }
+
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  function beep(type, freq, duration, volume = 0.22, glide = 1) {
+    if (audioCtx.state === 'suspended') return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(30, freq * glide), audioCtx.currentTime + duration);
+    gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + duration);
+  }
+  const sfx = {
+    start: () => { beep('triangle', 420, 0.1, 0.17, 1.25); beep('triangle', 620, 0.11, 0.13, 1.15); },
+    collect: () => { beep('sine', 820, 0.1, 0.2, 1.35); },
+    overclock: () => { beep('square', 420, 0.17, 0.17, 2.1); beep('square', 660, 0.14, 0.11, 1.3); },
+    hit: () => { beep('sawtooth', 180, 0.2, 0.23, 0.55); },
+    death: () => { beep('sawtooth', 350, 0.5, 0.22, 0.28); beep('triangle', 120, 0.65, 0.19, 0.5); }
+  };
+
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+
+  let currentScene = null;
+  let lastFinalScore = 0;
+
+  class MenuScene extends Phaser.Scene {
+    constructor() { super('MenuScene'); }
+    create() {
+      const { width, height } = this.scale;
+      this.add.text(width / 2, height * 0.24, 'MALFUNCTIONING\nVACUUM SURVIVOR', {
+        fontFamily: 'Rajdhani, sans-serif', fontSize: '56px', align: 'center', color: '#90e0ef', fontStyle: '700'
+      }).setOrigin(0.5).setShadow(0, 4, '#00131f', 10, true, true);
+
+      this.add.text(width / 2, height * 0.57,
+        'Survive the smart-home arena.\nMove: WASD / Arrows or drag touch\nCollect batteries to heal.\nGrab overclock chips for bonus points (spawns surge!)',
+        { fontFamily: 'Rajdhani, sans-serif', fontSize: '30px', align: 'center', color: '#d6f7ff' }
+      ).setOrigin(0.5);
+
+      const pulse = this.add.text(width / 2, height * 0.84, 'TAP / CLICK / PRESS ANY KEY TO START', {
+        fontFamily: 'Rajdhani, sans-serif', fontSize: '30px', color: '#00b4d8', fontStyle: '700'
+      }).setOrigin(0.5);
+      this.tweens.add({ targets: pulse, alpha: 0.25, yoyo: true, repeat: -1, duration: 850 });
+
+      const start = () => {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        sfx.start();
+        this.scene.start('GameScene');
+      };
+      this.input.once('pointerdown', start);
+      this.input.keyboard.once('keydown', start);
+    }
+  }
+
+  class GameScene extends Phaser.Scene {
+    constructor() { super('GameScene'); }
+
+    create() {
+      currentScene = this;
+      overlay.style.display = 'none';
+      this.gameOverTriggered = false;
+      this.maxHp = 3;
+      this.hp = 3;
+      this.bonusPoints = 0;
+      this.overclockTimer = 0;
+      this.timeAlive = 0;
+      this.score = 0;
+      this.startTime = this.time.now;
+      this.spawnAccumulator = 0;
+      this.hazardCapBase = 8;
+
+      const w = this.scale.width, h = this.scale.height;
+
+      const g = this.add.graphics();
+      g.fillStyle(0x123a5e, 1); g.fillRect(0,0,128,128);
+      g.lineStyle(2, 0x1f5b87, 0.45);
+      for (let i=0;i<=128;i+=16){ g.moveTo(i,0); g.lineTo(i,128); g.moveTo(0,i); g.lineTo(128,i);} g.strokePath();
+      g.generateTexture('floor', 128, 128); g.clear();
+
+      g.fillStyle(0x1d6f8f, 1); g.fillCircle(48,48,42);
+      g.lineStyle(8, 0x90e0ef, 0.9); g.strokeCircle(48,48,34);
+      g.fillStyle(0x05293f, 1); g.fillCircle(48,48,17);
+      g.fillStyle(0xc7f8ff, 0.9); g.fillCircle(59,34,8);
+      g.fillStyle(0x00b4d8, 1); g.fillTriangle(48,17,56,33,40,33);
+      g.generateTexture('vac', 96, 96); g.clear();
+
+      g.fillStyle(0x65bfe8, 1); g.fillCircle(40,40,30);
+      g.lineStyle(5, 0xf0fdff, 1); g.strokeCircle(40,40,22);
+      g.fillStyle(0x0c2f49, 1); g.fillCircle(28,33,5); g.fillCircle(52,33,5);
+      g.fillStyle(0x92ebff, 1); g.fillRect(25,46,30,8);
+      g.generateTexture('petbot', 80, 80); g.clear();
+
+      g.fillStyle(0x6ad1ff, 1); g.fillRect(0,0,130,16);
+      g.lineStyle(2, 0xffffff, 0.5); g.strokeRect(0,0,130,16);
+      g.generateTexture('laser', 130, 16); g.clear();
+
+      g.fillStyle(0x2f8aad, 1); g.fillCircle(20,20,18);
+      g.fillStyle(0xb7eeff, 0.65); g.fillCircle(14,12,6);
+      g.generateTexture('blob', 40, 40); g.clear();
+
+      g.fillStyle(0x43ffcf, 1); g.fillCircle(16,16,14);
+      g.fillStyle(0x0f6a59, 1); g.fillRect(12,7,8,18);
+      g.generateTexture('battery', 32, 32); g.clear();
+
+      g.fillStyle(0xffdb66, 1);
+      g.fillTriangle(16,3,26,17,18,17); g.fillTriangle(14,15,6,29,15,29); g.fillRect(12,13,6,7);
+      g.generateTexture('chip', 32, 32); g.destroy();
+
+      this.floor = this.add.tileSprite(w/2, h/2, w+100, h+100, 'floor').setAlpha(0.85);
+
+      this.player = this.physics.add.sprite(w/2, h/2, 'vac').setScale(0.76);
+      this.player.setDrag(530, 530).setMaxVelocity(330, 330);
+      this.player.body.setCircle(this.player.width * 0.33);
+      this.player.body.setOffset(this.player.width * 0.17, this.player.height * 0.17);
+
+      this.hazards = this.physics.add.group();
+      this.pickups = this.physics.add.group();
+
+      this.physics.add.overlap(this.player, this.hazards, this.onHitHazard, null, this);
+      this.physics.add.overlap(this.player, this.pickups, this.onPickup, null, this);
+
+      this.keys = this.input.keyboard.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT');
+      this.pointerTarget = null;
+      this.input.on('pointerdown', p => { this.pointerTarget = p; });
+      this.input.on('pointermove', p => { if (p.isDown) this.pointerTarget = p; });
+      this.input.on('pointerup', () => { this.pointerTarget = null; });
+
+      this.scoreText = this.add.text(16, 10, 'Score 0', { fontFamily: 'Rajdhani', fontSize: '30px', color: '#e8fbff', fontStyle: '700' }).setDepth(3);
+      this.hpText = this.add.text(16, 45, 'HP ♥♥♥', { fontFamily: 'Rajdhani', fontSize: '27px', color: '#9be7ff' }).setDepth(3);
+      this.warnText = this.add.text(w-16, 10, '', { fontFamily: 'Rajdhani', fontSize: '25px', color: '#ffd166', fontStyle: '700' }).setOrigin(1,0).setDepth(3);
+
+      this.dust = this.add.particles(0, 0, 'blob', {
+        x: {min:0,max:w}, y:{min:0,max:h}, speedX:{min:-10,max:10}, speedY:{min:-18,max:-5},
+        scale: { start: 0.12, end: 0 }, alpha: {start:0.14,end:0}, lifespan: 2400, quantity: 1, frequency: 120
+      });
+    }
+
+    getDifficulty() {
+      const elapsed = (this.time.now - this.startTime) / 1000;
+      const t = Math.min(elapsed / 130, 1);
+      return { elapsed, t: easeOutCubic(t) };
+    }
+
+    spawnHazard(type, diff) {
+      const w = this.scale.width, h = this.scale.height;
+      const side = Phaser.Math.Between(0, 3);
+      let x = 0, y = 0;
+      if (side === 0) { x = Phaser.Math.Between(0, w); y = -40; }
+      if (side === 1) { x = w + 40; y = Phaser.Math.Between(0, h); }
+      if (side === 2) { x = Phaser.Math.Between(0, w); y = h + 40; }
+      if (side === 3) { x = -40; y = Phaser.Math.Between(0, h); }
+
+      if (type === 'petbot') {
+        const e = this.hazards.create(x, y, 'petbot').setScale(0.68);
+        e.kind = 'petbot';
+        e.speed = lerp(42, 165, diff) + Phaser.Math.Between(-10, 14);
+        e.body.setCircle(e.width * 0.26);
+        e.body.setOffset(e.width * 0.22, e.height * 0.22);
+        return;
+      }
+      if (type === 'laser') {
+        const horiz = Math.random() > 0.5;
+        const e = this.hazards.create(horiz ? -70 : Phaser.Math.Between(40, w-40), horiz ? Phaser.Math.Between(40, h-40) : -70, 'laser');
+        if (!horiz) e.setAngle(90);
+        e.kind = 'laser';
+        const spd = lerp(95, 280, diff);
+        e.vx = horiz ? spd : 0;
+        e.vy = horiz ? 0 : spd;
+        e.body.setSize(horiz ? 105 : 14, horiz ? 10 : 105, true);
+        return;
+      }
+      const e = this.hazards.create(x, y, 'blob').setScale(Phaser.Math.FloatBetween(1.0, 1.5));
+      e.kind = 'blob';
+      e.speed = lerp(30, 120, diff);
+      e.turnRate = Phaser.Math.FloatBetween(0.3, 0.85);
+      e.burstTimer = Phaser.Math.FloatBetween(2.2, 4.5);
+      e.body.setCircle(e.width * 0.30);
+      e.body.setOffset(e.width * 0.2, e.height * 0.2);
+    }
+
+    spawnPickup(kind) {
+      const w = this.scale.width, h = this.scale.height;
+      const x = Phaser.Math.Between(50, w - 50), y = Phaser.Math.Between(50, h - 50);
+      if (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < 110) return;
+      const p = this.pickups.create(x, y, kind === 'battery' ? 'battery' : 'chip').setScale(0.95);
+      p.kind = kind;
+      p.ttl = kind === 'battery' ? 6500 : 5300;
+      p.spawn = this.time.now;
+      this.tweens.add({ targets: p, y: p.y - 7, yoyo: true, repeat: -1, duration: 480 });
+    }
+
+    onPickup(player, item) {
+      if (!item.active || this.gameOverTriggered) return;
+      if (item.kind === 'battery') {
+        if (this.hp < this.maxHp) this.hp += 1;
+        this.bonusPoints += 40;
+        sfx.collect();
+      } else {
+        this.bonusPoints += 140;
+        this.overclockTimer = 5.5;
+        sfx.overclock();
+      }
+      this.addPickupBurst(item.x, item.y, item.kind === 'battery' ? 0x43ffcf : 0xffdb66);
+      item.destroy();
+    }
+
+    onHitHazard(player, hazard) {
+      if (this.invulnerable || this.gameOverTriggered) return;
+      this.invulnerable = true;
+      this.hp -= 1;
+      sfx.hit();
+      this.cameras.main.shake(120, 0.003);
+      this.player.setTint(0xffffff);
+      this.time.delayedCall(130, () => this.player.clearTint());
+      this.time.delayedCall(620, () => this.invulnerable = false);
+      if (hazard.kind === 'blob') this.addPickupBurst(hazard.x, hazard.y, 0x8fe8ff);
+      if (hazard.kind !== 'laser') hazard.destroy();
+
+      if (this.hp <= 0) this.triggerGameOver();
+    }
+
+    addPickupBurst(x, y, color) {
+      const p = this.add.particles(x, y, 'blob', {
+        speed: { min: 40, max: 200 }, scale: { start: 0.3, end: 0 }, tint: color,
+        lifespan: 560, quantity: 15, gravityY: 30, blendMode: 'ADD'
+      });
+      this.time.delayedCall(600, () => p.destroy());
+    }
+
+    triggerGameOver() {
+      if (this.gameOverTriggered) return;
+      this.gameOverTriggered = true;
+      sfx.death();
+      this.cameras.main.flash(180, 190, 240, 255);
+      this.cameras.main.shake(260, 0.012);
+      this.tweens.add({ targets: this.player, alpha: 0, scale: 1.3, angle: 180, duration: 420, ease: 'Cubic.easeIn' });
+      lastFinalScore = Math.floor(this.score);
+      this.time.delayedCall(520, () => {
+        this.scene.pause();
+        showGameOverUI(lastFinalScore);
+      });
+    }
+
+    update(time, delta) {
+      if (this.gameOverTriggered) return;
+      const dt = delta / 16.667;
+      const w = this.scale.width, h = this.scale.height;
+      const { elapsed, t } = this.getDifficulty();
+      this.timeAlive = elapsed;
+
+      this.floor.tilePositionX += lerp(0.35, 1.2, t) * dt;
+      this.floor.tilePositionY += lerp(0.2, 0.9, t) * dt;
+
+      let ax = 0, ay = 0;
+      const thrust = 17;
+      if (this.keys.A.isDown || this.keys.LEFT.isDown) ax -= thrust;
+      if (this.keys.D.isDown || this.keys.RIGHT.isDown) ax += thrust;
+      if (this.keys.W.isDown || this.keys.UP.isDown) ay -= thrust;
+      if (this.keys.S.isDown || this.keys.DOWN.isDown) ay += thrust;
+
+      if (this.pointerTarget) {
+        const p = this.pointerTarget;
+        const dx = p.x - this.player.x;
+        const dy = p.y - this.player.y;
+        const len = Math.max(1, Math.hypot(dx, dy));
+        ax += (dx / len) * thrust;
+        ay += (dy / len) * thrust;
+      }
+      this.player.body.velocity.x += ax * dt;
+      this.player.body.velocity.y += ay * dt;
+      this.player.x = Phaser.Math.Clamp(this.player.x, 26, w - 26);
+      this.player.y = Phaser.Math.Clamp(this.player.y, 26, h - 26);
+      this.player.rotation += 0.03 * dt + this.player.body.speed * 0.00036;
+
+      const overclockMultiplier = this.overclockTimer > 0 ? 1.42 : 1;
+      this.overclockTimer = Math.max(0, this.overclockTimer - delta / 1000);
+      const spawnRate = lerp(0.52, 2.55, t) * overclockMultiplier;
+      const hazardCap = Math.floor(lerp(this.hazardCapBase, 20, t));
+      this.spawnAccumulator += (delta / 1000) * spawnRate;
+      while (this.spawnAccumulator >= 1 && this.hazards.countActive(true) < hazardCap) {
+        const roll = Math.random();
+        const kind = roll < 0.5 ? 'petbot' : (roll < 0.78 ? 'blob' : 'laser');
+        this.spawnHazard(kind, t);
+        this.spawnAccumulator -= 1;
+      }
+
+      if (Math.random() < (delta / 1000) * lerp(0.18, 0.35, t)) this.spawnPickup('battery');
+      if (Math.random() < (delta / 1000) * lerp(0.07, 0.15, t)) this.spawnPickup('chip');
+
+      this.hazards.children.iterate(h => {
+        if (!h || !h.active) return;
+        if (h.kind === 'petbot') {
+          this.physics.moveToObject(h, this.player, h.speed);
+        } else if (h.kind === 'laser') {
+          h.x += h.vx * (delta / 1000);
+          h.y += h.vy * (delta / 1000);
+          if (h.x > w + 120 || h.y > this.scale.height + 120) h.destroy();
+        } else {
+          const dir = Phaser.Math.Angle.Between(h.x, h.y, this.player.x, this.player.y);
+          const wobble = Math.sin(time * 0.004 + h.y) * h.turnRate;
+          const vx = Math.cos(dir + wobble) * h.speed;
+          const vy = Math.sin(dir - wobble) * h.speed;
+          h.body.velocity.x = vx;
+          h.body.velocity.y = vy;
+          h.burstTimer -= delta / 1000;
+          if (h.burstTimer <= 0) {
+            this.addPickupBurst(h.x, h.y, 0x8fe8ff);
+            for (let i = 0; i < 2; i++) {
+              const mini = this.hazards.create(h.x, h.y, 'blob').setScale(0.65);
+              mini.kind = 'petbot';
+              mini.speed = lerp(70, 180, t);
+              mini.body.setCircle(mini.width * 0.23);
+              mini.body.setOffset(mini.width * 0.26, mini.height * 0.26);
+            }
+            h.destroy();
+          }
+        }
+      });
+
+      this.pickups.children.iterate(p => {
+        if (!p || !p.active) return;
+        if (this.time.now - p.spawn > p.ttl) p.destroy();
+      });
+
+      this.score = Math.floor(this.timeAlive * 10 + this.bonusPoints);
+      this.scoreText.setText(`Score ${this.score}`);
+      this.hpText.setText(`HP ${'♥'.repeat(Math.max(0, this.hp))}${'·'.repeat(this.maxHp - Math.max(0,this.hp))}`);
+      this.warnText.setText(this.overclockTimer > 0 ? `OVERCLOCK ${this.overclockTimer.toFixed(1)}s` : '');
+    }
+  }
+
+  function renderLeaderboard(scores) {
+    if (!scores.length) {
+      leaderboardEl.innerHTML = '<div class="muted">Leaderboard unavailable or empty.</div>';
+      return;
+    }
+    const list = scores.map(s => `<li><strong>${(s.playerName || 'VAC').replace(/[<>]/g, '')}</strong> - ${s.score}</li>`).join('');
+    leaderboardEl.innerHTML = `<ol>${list}</ol>`;
+  }
+
+  async function showGameOverUI(finalScore) {
+    finalScoreEl.textContent = `Score: ${finalScore}`;
+    overlay.style.display = 'flex';
+    playerNameInput.focus();
+    const scores = await getLeaderboard(10);
+    renderLeaderboard(scores);
+  }
+
+  submitBtn.addEventListener('click', async () => {
+    const name = (playerNameInput.value || 'VAC-ANON').trim().slice(0, 20);
+    submitBtn.disabled = true;
+    await submitScore(name, lastFinalScore);
+    const scores = await getLeaderboard(10);
+    renderLeaderboard(scores);
+    submitBtn.disabled = false;
+  });
+
+  playAgainBtn.addEventListener('click', () => {
+    overlay.style.display = 'none';
+    playerNameInput.value = '';
+    if (currentScene) currentScene.scene.restart();
+  });
+
+  const game = new Phaser.Game({
+    type: Phaser.AUTO,
+    width: 900,
+    height: 600,
+    backgroundColor: '#0a1628',
+    physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: false } },
+    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+    scene: [MenuScene, GameScene]
+  });
+  </script>
+</body>
+</html>

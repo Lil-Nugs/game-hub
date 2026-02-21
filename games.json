@@ -185,6 +185,14 @@
       "creator": "codex-gamehub",
       "date": "2026-02-21T08:46:40.854Z",
       "model": "codex"
+    },
+    {
+      "slug": "vacuum-malfunction-survivor-3f9a",
+      "title": "Malfunctioning Vacuum Survivor",
+      "description": "Roguelike arena survivor where a glitchy robot vacuum dodges home hazards, grabs batteries, and risks overclock chips for score spikes.",
+      "creator": "discord-user",
+      "model": "codex",
+      "date": "2026-02-21T00:47:04-08:00"
     }
   ]
 }
