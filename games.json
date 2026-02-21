@@ -341,5 +341,13 @@
     "description": "You are the final living pixel dodging glitches on a collapsing CRT while chasing score multipliers.",
     "creator": "discord-user",
     "date": "2026-02-21T23:31:33Z"
+  },
+  {
+    "slug": "loading-bar-rageclick-e311",
+    "title": "RageLoad: 99% Forever",
+    "description": "Survive as a living loading bar while dodging rage-click storms and chasing risky cache boosts.",
+    "creator": "discord-user",
+    "model": "gpt-5.3-codex",
+    "date": "2026-02-21T23:31:37.042Z"
   }
 ]
