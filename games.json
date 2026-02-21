@@ -233,6 +233,14 @@
       "creator": "vimgo",
       "model": "claude",
       "date": "2026-02-21T08:50:53Z"
+    },
+    {
+      "slug": "cozy-witch-cafe-b5c2",
+      "title": "Cozy Witch Café",
+      "description": "A Vampire Survivors-style auto-battler where you play as a cozy witch. Auto-cast magical baking spells to fend off hordes of hungry magical creatures. Collect ingredient gems to level up and unlock new spells!",
+      "creator": "vimgo",
+      "model": "claude",
+      "date": "2026-02-21T08:52:47.591Z"
     }
   ]
 }
