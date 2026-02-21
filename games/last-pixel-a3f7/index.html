@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Last Pixel</title>
+<link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+    touch-action: none;
+    font-family: 'VT323', monospace;
+  }
+  #ui-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    display: none; flex-direction: column; justify-content: center; align-items: center;
+    z-index: 10; background: rgba(0,0,0,0.92);
+    color: #00ff88;
+    font-family: 'VT323', monospace;
+  }
+  #ui-overlay.active { display: flex; }
+  .terminal-box {
+    border: 2px solid #00ff88;
+    padding: 28px 36px;
+    max-width: 480px;
+    width: 92%;
+    text-align: center;
+    box-shadow: 0 0 24px rgba(0,255,136,0.25), inset 0 0 24px rgba(0,255,136,0.04);
+  }
+  .terminal-box h1 {
+    font-size: 52px; color: #ff0040;
+    text-shadow: 0 0 12px #ff0040; margin-bottom: 6px;
+  }
+  .score-display { font-size: 44px; color: #00ff88; margin: 12px 0; }
+  .label { font-size: 22px; color: #666; margin-bottom: 4px; }
+  #player-name {
+    background: #000; color: #00ff88; border: 1px solid #00ff88;
+    font-family: 'VT323', monospace; font-size: 30px;
+    padding: 8px 16px; width: 100%; margin: 8px 0 14px 0;
+    text-align: center; outline: none;
+  }
+  #submit-btn, #replay-btn {
+    background: transparent; color: #00ff88; border: 2px solid #00ff88;
+    font-family: 'VT323', monospace; font-size: 28px;
+    padding: 8px 28px; cursor: pointer; margin: 6px;
+    transition: all 0.15s;
+  }
+  #submit-btn:hover, #replay-btn:hover {
+    background: #00ff88; color: #000;
+    box-shadow: 0 0 16px rgba(0,255,136,0.5);
+  }
+  #leaderboard { margin-top: 18px; text-align: left; width: 100%; }
+  #leaderboard h2 { font-size: 28px; color: #ffcc00; margin-bottom: 6px; text-align: center; }
+  #leaderboard-list { font-size: 22px; line-height: 1.6; }
+  .lb-entry { display: flex; justify-content: space-between; padding: 1px 0; }
+  .lb-entry.highlight { color: #ffcc00; }
+  #status-msg { font-size: 20px; color: #666; min-height: 22px; margin: 4px 0; }
+</style>
+</head>
+<body>
+<div id="ui-overlay">
+  <div class="terminal-box">
+    <h1>// SIGNAL LOST //</h1>
+    <div class="label">FINAL SCORE</div>
+    <div class="score-display" id="final-score">0</div>
+    <div class="label">ENTER DESIGNATION</div>
+    <input id="player-name" type="text" maxlength="20" placeholder="PIXEL_USER" spellcheck="false">
+    <div id="status-msg"></div>
+    <button id="submit-btn">TRANSMIT SCORE</button>
+    <button id="replay-btn">REBOOT SYSTEM</button>
+    <div id="leaderboard" style="display:none">
+      <h2>// TOP SIGNALS //</h2>
+      <div id="leaderboard-list"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// DESIGN HEADER
+// Game: Last Pixel
+// Concept: You are the last surviving pixel on a CRT monitor dying from corruption.
+//   Corruption spreads as expanding dead zones. Scanlines sweep the screen.
+//   Stay alive, collect signal fragments, and hold on as long as you can.
+// Controls: WASD / Arrow keys | Touch: drag/tap to steer toward touch point
+// Core loop: Navigate the pixel to dodge expanding dead zones and scanline sweeps.
+//   Collect signal fragments for bonus score.
+// Death conditions:
+//   1. Overlap an expanding dead zone (darkness consuming the screen)
+//   2. Hit by a sweeping scanline (horizontal corruption wave)
+// Hazards:
+//   1. Dead Zones - dark circular corruption patches that grow from random screen points
+//   2. Scanline Sweeps - periodic horizontal bands of static corruption sweeping downward
+// Pickups:
+//   1. Signal Fragment (cyan) - +25 pts, always 2-4 on screen
+//   2. Overclock Pulse (gold, rare) - +50 pts + 2.5s invincibility shield
+// Risk/reward: Late-game signal fragments spawn near dead zones. Risky grab = same reward
+//   but nearly certain death if mistimed. Overclock gives invincibility to rush through zones.
+// Scoring: Math.floor(timeAlive * 10 + bonusPoints), monotonic, never decreases
+// Difficulty: easeIn curve over 120s - dead zone spawn rate increases, expansion rate
+//   increases, scanline frequency increases, max zone size grows
+// Visual theme: CRT Monochrome - pitch-black BG, phosphor green player glow,
+//   dark gray dead zones with subtle corruption border, VT323 terminal font
+// Audio: Square/triangle waves for pickups, sawtooth static for death, tonal for scanline warning
+// ============================================================
+
+const GAME_ID = 'last-pixel-a3f7';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+// --- Web Audio ---
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playTone(type, freq, duration, volume, freqEnd) {
+  try {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    if (freqEnd !== undefined) {
+      osc.frequency.linearRampToValueAtTime(freqEnd, audioCtx.currentTime + duration);
+    }
+    gain.gain.setValueAtTime(volume || 0.25, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+  } catch(e) {}
+}
+
+function sfxStart() {
+  playTone('square', 200, 0.08, 0.15, 400);
+  setTimeout(() => playTone('square', 500, 0.12, 0.15, 900), 90);
+  setTimeout(() => playTone('triangle', 800, 0.15, 0.12), 200);
+}
+function sfxCollect() {
+  playTone('triangle', 700, 0.07, 0.2);
+  setTimeout(() => playTone('triangle', 1100, 0.08, 0.15), 55);
+}
+function sfxOverclock() {
+  playTone('square', 300, 0.04, 0.2);
+  setTimeout(() => playTone('square', 700, 0.04, 0.2), 50);
+  setTimeout(() => playTone('square', 1400, 0.1, 0.2), 110);
+}
+function sfxScanlineWarn() {
+  playTone('square', 90, 0.18, 0.28, 40);
+}
+function sfxDeath() {
+  playTone('sawtooth', 350, 0.08, 0.4, 40);
+  setTimeout(() => playTone('sawtooth', 180, 0.25, 0.35, 20), 90);
+  setTimeout(() => playTone('square', 60, 0.55, 0.25), 200);
+}
+
+// --- Leaderboard API ---
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch (e) {
+    console.warn('Leaderboard unavailable:', e);
+    return null;
+  }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch (e) {
+    console.warn('Leaderboard unavailable:', e);
+    return [];
+  }
+}
+
+// --- Helpers ---
+function lerp(a, b, t) { return a + (b - a) * t; }
+function easeIn(t) { return t * t; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// ============================================================
+// MENU SCENE
+// ============================================================
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+
+  preload() {
+    // Player texture: bright glowing pixel (16x16)
+    const pg = this.make.graphics({ x: 0, y: 0, add: false });
+    pg.fillStyle(0x00ff99, 0.18);
+    pg.fillRect(0, 0, 16, 16);
+    pg.fillStyle(0x00ffaa, 0.5);
+    pg.fillRect(3, 3, 10, 10);
+    pg.fillStyle(0xffffff, 1);
+    pg.fillRect(5, 5, 6, 6);
+    pg.generateTexture('player', 16, 16);
+    pg.destroy();
+
+    // Signal fragment texture: bright cyan dot (12x12)
+    const sg = this.make.graphics({ x: 0, y: 0, add: false });
+    sg.fillStyle(0x00eeff, 0.25);
+    sg.fillCircle(6, 6, 6);
+    sg.fillStyle(0x00ccff, 1);
+    sg.fillCircle(6, 6, 4);
+    sg.fillStyle(0xffffff, 0.9);
+    sg.fillCircle(5, 5, 2);
+    sg.generateTexture('signal', 12, 12);
+    sg.destroy();
+
+    // Overclock texture: gold pulse (18x18)
+    const og = this.make.graphics({ x: 0, y: 0, add: false });
+    og.fillStyle(0xffcc00, 0.2);
+    og.fillCircle(9, 9, 9);
+    og.fillStyle(0xffcc00, 1);
+    og.fillCircle(9, 9, 6);
+    og.fillStyle(0xffffff, 0.85);
+    og.fillCircle(8, 8, 3);
+    og.generateTexture('overclock', 18, 18);
+    og.destroy();
+  }
+
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+
+    // Black background
+    this.add.rectangle(W / 2, H / 2, W, H, 0x000000);
+
+    // Subtle grid
+    const grid = this.add.graphics();
+    grid.lineStyle(1, 0x003311, 0.2);
+    for (let x = 0; x < W; x += 20) grid.lineBetween(x, 0, x, H);
+    for (let y = 0; y < H; y += 20) grid.lineBetween(0, y, W, y);
+
+    // Ambient corruption blobs in background
+    const bg = this.add.graphics();
+    bg.fillStyle(0x000000, 0.85);
+    bg.fillCircle(W * 0.12, H * 0.2, 110);
+    bg.fillCircle(W * 0.88, H * 0.75, 90);
+    bg.fillCircle(W * 0.55, H * 0.85, 75);
+    bg.fillCircle(W * 0.3, H * 0.7, 55);
+
+    // CRT scanline overlay
+    const scan = this.add.graphics();
+    for (let y = 0; y < H; y += 4) {
+      scan.fillStyle(0x000000, 0.14);
+      scan.fillRect(0, y, W, 2);
+    }
+    scan.setDepth(50);
+
+    // Title
+    this.add.text(W / 2, H * 0.20, 'LAST PIXEL', {
+      fontFamily: 'VT323', fontSize: '84px', color: '#00ff88',
+    }).setOrigin(0.5).setShadow(0, 0, '#00ff88', 22, false, true);
+
+    this.add.text(W / 2, H * 0.34, 'YOU ARE THE LAST PIXEL ON A DYING SCREEN', {
+      fontFamily: 'VT323', fontSize: '24px', color: '#557755',
+      align: 'center', wordWrap: { width: W * 0.78 }
+    }).setOrigin(0.5);
+
+    // Instructions
+    const lines = [
+      '▸  WASD / ARROWS  —  move',
+      '▸  Touch/drag  —  steer toward finger',
+      '▸  Avoid dead zones (expanding dark circles)',
+      '▸  Avoid scanlines (horizontal sweeps)',
+      '▸  Collect  ◉  signals for +25 pts',
+      '▸  Collect  ◎  overclock for shield + +50',
+    ].join('\n');
+    this.add.text(W / 2, H * 0.57, lines, {
+      fontFamily: 'VT323', fontSize: '24px', color: '#00aa66',
+      lineSpacing: 6, align: 'left',
+    }).setOrigin(0.5);
+
+    const tap = this.add.text(W / 2, H * 0.82, '[ TAP OR PRESS ANY KEY TO START ]', {
+      fontFamily: 'VT323', fontSize: '30px', color: '#ffffff',
+    }).setOrigin(0.5);
+
+    this.tweens.add({
+      targets: tap, alpha: 0.15, duration: 650,
+      yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+    });
+
+    this.add.text(W - 8, H - 8, 'v1.0  |  SIGNAL:LAST', {
+      fontFamily: 'VT323', fontSize: '17px', color: '#222',
+    }).setOrigin(1, 1);
+
+    const startGame = () => {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      sfxStart();
+      this.scene.start('GameScene');
+    };
+    this.input.keyboard.once('keydown', startGame);
+    this.input.once('pointerdown', startGame);
+  }
+}
+
+// ============================================================
+// GAME SCENE
+// ============================================================
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+    this.W = W; this.H = H;
+
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+
+    // --- State ---
+    this.alive = true;
+    this.score = 0;
+    this.bonusPoints = 0;
+    this.gameStartTime = this.time.now;
+    this.invincible = false;
+    this.invincibleMs = 0;
+
+    // Dead zones: array of { x, y, radius, maxRadius, expandRate }
+    this.deadZones = [];
+    this.lastZoneSpawnTime = this.time.now + 3500; // grace period before first zone
+
+    // Scanline sweep state
+    this.scanlineActive = false;
+    this.scanlineY = -60;
+    this.lastScanlineTime = this.time.now + 6000; // grace before first scanline
+
+    // Overclock spawn timer
+    this.nextOverclockTime = this.time.now + Phaser.Math.Between(18000, 28000);
+
+    // --- Layers (depth order) ---
+    // 0: bg, 1: grid, 5: zone graphics, 10: signals, 20: player glow,
+    // 30: player, 80: sweep, 90: border, 100: scanline overlay, 150: HUD, 200: particles, 300: flicker
+
+    // Background
+    this.bgRect = this.add.rectangle(W / 2, H / 2, W, H, 0x020402).setDepth(0);
+
+    // Grid
+    const grid = this.add.graphics().setDepth(1);
+    grid.lineStyle(1, 0x003311, 0.15);
+    for (let x = 0; x < W; x += 20) grid.lineBetween(x, 0, x, H);
+    for (let y = 0; y < H; y += 20) grid.lineBetween(0, y, W, y);
+
+    // Dead zone graphics layer
+    this.zoneGfx = this.add.graphics().setDepth(5);
+
+    // Signal fragments
+    this.signals = [];
+    this.overclockSprites = [];
+    for (let i = 0; i < 3; i++) this.spawnSignal(true);
+
+    // Player glow (behind player)
+    this.playerGlow = this.add.graphics().setDepth(20);
+
+    // Player
+    this.player = this.physics.add.sprite(W / 2, H / 2, 'player');
+    this.player.setDepth(30);
+    this.player.body.setSize(10, 10); // hitbox 10x10 inside 16x16 sprite
+    this.player.setCollideWorldBounds(true);
+
+    // Scanline sweep graphics
+    this.sweepGfx = this.add.graphics().setDepth(80);
+
+    // Border corruption
+    this.borderGfx = this.add.graphics().setDepth(90);
+
+    // CRT scanline overlay
+    const scanOverlay = this.add.graphics().setDepth(100);
+    for (let y = 0; y < H; y += 4) {
+      scanOverlay.fillStyle(0x000000, 0.12);
+      scanOverlay.fillRect(0, y, W, 2);
+    }
+
+    // HUD
+    this.scoreTxt = this.add.text(12, 12, 'SCORE: 0', {
+      fontFamily: 'VT323', fontSize: '32px', color: '#00ff88',
+    }).setDepth(150);
+    this.timeTxt = this.add.text(12, 46, 'TIME: 0s', {
+      fontFamily: 'VT323', fontSize: '24px', color: '#446644',
+    }).setDepth(150);
+    this.statusTxt = this.add.text(W - 12, 12, '', {
+      fontFamily: 'VT323', fontSize: '26px', color: '#ffcc00', align: 'right',
+    }).setOrigin(1, 0).setDepth(150);
+
+    // Particles
+    this.deathPfx = this.add.particles(0, 0, 'player', {
+      speed: { min: 40, max: 220 },
+      scale: { start: 2.5, end: 0 },
+      alpha: { start: 1, end: 0 },
+      lifespan: 900,
+      quantity: 1,
+      emitting: false,
+      tint: [0x00ff88, 0xffffff, 0x00ffcc, 0xff0040, 0xff4488],
+    }).setDepth(200);
+
+    this.collectPfx = this.add.particles(0, 0, 'signal', {
+      speed: { min: 20, max: 90 },
+      scale: { start: 1.2, end: 0 },
+      alpha: { start: 1, end: 0 },
+      lifespan: 380,
+      quantity: 1,
+      emitting: false,
+    }).setDepth(200);
+
+    // Screen flicker overlay
+    this.flickerOverlay = this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0).setDepth(300);
+    this.flickerCooldown = 500;
+
+    // Input
+    this.cursors = this.input.keyboard.createCursorKeys();
+    this.wasd = this.input.keyboard.addKeys({
+      up: Phaser.Input.Keyboard.KeyCodes.W,
+      down: Phaser.Input.Keyboard.KeyCodes.S,
+      left: Phaser.Input.Keyboard.KeyCodes.A,
+      right: Phaser.Input.Keyboard.KeyCodes.D,
+    });
+    this.touchTarget = null;
+    this.input.on('pointerdown', (ptr) => { this.touchTarget = { x: ptr.x, y: ptr.y }; });
+    this.input.on('pointermove', (ptr) => { if (ptr.isDown) this.touchTarget = { x: ptr.x, y: ptr.y }; });
+    this.input.on('pointerup', () => { this.touchTarget = null; });
+  }
+
+  getDifficulty(elapsed) {
+    return easeIn(clamp(elapsed / 120, 0, 1));
+  }
+
+  spawnSignal(immediate) {
+    const W = this.W, H = this.H;
+    let x, y, attempts = 0;
+    do {
+      x = Phaser.Math.Between(30, W - 30);
+      y = Phaser.Math.Between(30, H - 30);
+      attempts++;
+    } while (attempts < 20 &&
+      Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < 70);
+
+    const sprite = this.add.image(x, y, 'signal').setDepth(10);
+    sprite.setAlpha(immediate ? 1 : 0);
+    if (!immediate) {
+      this.tweens.add({ targets: sprite, alpha: 1, duration: 300 });
+    }
+    // Bob animation
+    this.tweens.add({
+      targets: sprite, y: y - 7,
+      duration: 700 + Phaser.Math.Between(0, 300),
+      yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+    });
+    this.signals.push(sprite);
+  }
+
+  spawnOverclock() {
+    const W = this.W, H = this.H;
+    const x = Phaser.Math.Between(50, W - 50);
+    const y = Phaser.Math.Between(50, H - 50);
+    const sprite = this.add.image(x, y, 'overclock').setDepth(10);
+    sprite.setAlpha(0);
+    this.tweens.add({ targets: sprite, alpha: 1, duration: 400 });
+    this.tweens.add({
+      targets: sprite, scaleX: 1.35, scaleY: 1.35,
+      duration: 550, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+    });
+    this.overclockSprites.push(sprite);
+  }
+
+  spawnDeadZone(diff) {
+    const W = this.W, H = this.H;
+    let x, y, attempts = 0;
+    // Keep away from player's current position
+    const safeRadius = lerp(110, 70, diff);
+    do {
+      x = Phaser.Math.Between(50, W - 50);
+      y = Phaser.Math.Between(50, H - 50);
+      attempts++;
+    } while (attempts < 25 &&
+      Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < safeRadius);
+
+    const maxR = lerp(65, 155, diff) + Phaser.Math.Between(-15, 25);
+    const expandRate = lerp(9, 28, diff); // px per second
+    this.deadZones.push({ x, y, radius: 6, maxRadius: maxR, expandRate });
+  }
+
+  showPopup(x, y, text, color) {
+    color = color || '#00ffff';
+    const t = this.add.text(x, y, text, {
+      fontFamily: 'VT323', fontSize: '28px', color,
+    }).setOrigin(0.5).setDepth(250);
+    this.tweens.add({
+      targets: t, y: y - 55, alpha: 0, duration: 900,
+      ease: 'Power2', onComplete: () => t.destroy(),
+    });
+  }
+
+  update(time, delta) {
+    if (!this.alive) return;
+    const elapsed = (time - this.gameStartTime) / 1000;
+    const diff = this.getDifficulty(elapsed);
+    const dt = delta / 1000; // seconds this frame
+
+    // --- Score ---
+    this.score = Math.floor(elapsed * 10 + this.bonusPoints);
+    this.scoreTxt.setText('SCORE: ' + this.score);
+    this.timeTxt.setText('TIME: ' + Math.floor(elapsed) + 's');
+
+    // --- Player movement ---
+    const SPEED = 230;
+    let vx = 0, vy = 0;
+    if (this.cursors.left.isDown || this.wasd.left.isDown) vx = -SPEED;
+    else if (this.cursors.right.isDown || this.wasd.right.isDown) vx = SPEED;
+    if (this.cursors.up.isDown || this.wasd.up.isDown) vy = -SPEED;
+    else if (this.cursors.down.isDown || this.wasd.down.isDown) vy = SPEED;
+
+    if (this.touchTarget) {
+      const dx = this.touchTarget.x - this.player.x;
+      const dy = this.touchTarget.y - this.player.y;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d > 12) { vx = (dx / d) * SPEED; vy = (dy / d) * SPEED; }
+      else { vx = 0; vy = 0; }
+    }
+    this.player.setVelocity(vx, vy);
+
+    // --- Invincibility ---
+    if (this.invincible) {
+      this.invincibleMs -= delta;
+      if (this.invincibleMs <= 0) {
+        this.invincible = false;
+        this.player.clearTint();
+        this.statusTxt.setText('');
+      } else {
+        const secs = (this.invincibleMs / 1000).toFixed(1);
+        this.statusTxt.setText('⚡ SHIELD ' + secs + 's');
+        this.player.setTint(Math.floor(time / 100) % 2 === 0 ? 0xffcc00 : 0xffffff);
+      }
+    }
+
+    // --- Player glow ---
+    this.playerGlow.clear();
+    const glowColor = this.invincible ? 0xffcc00 : 0x00ff88;
+    const glowR = this.invincible ? 32 : 22;
+    const glowA = this.invincible ? 0.18 : 0.11;
+    this.playerGlow.fillStyle(glowColor, glowA);
+    this.playerGlow.fillCircle(this.player.x, this.player.y, glowR);
+
+    // --- Spawn dead zones ---
+    const zoneInterval = lerp(8500, 2200, diff);
+    if (time > this.lastZoneSpawnTime + zoneInterval) {
+      this.lastZoneSpawnTime = time;
+      this.spawnDeadZone(diff);
+      // At higher difficulty, occasionally spawn two
+      if (diff > 0.6 && Math.random() < 0.35) this.spawnDeadZone(diff);
+    }
+
+    // --- Spawn scanlines ---
+    const scanInterval = lerp(11000, 3000, diff);
+    if (!this.scanlineActive && time > this.lastScanlineTime + scanInterval) {
+      this.lastScanlineTime = time;
+      this.scanlineActive = true;
+      this.scanlineY = -60;
+      sfxScanlineWarn();
+    }
+
+    // --- Spawn overclock ---
+    if (this.overclockSprites.length === 0 && time > this.nextOverclockTime) {
+      this.spawnOverclock();
+      this.nextOverclockTime = time + Phaser.Math.Between(22000, 38000);
+    }
+
+    const px = this.player.x, py = this.player.y;
+
+    // --- Update and draw dead zones ---
+    this.zoneGfx.clear();
+    for (let i = this.deadZones.length - 1; i >= 0; i--) {
+      const z = this.deadZones[i];
+      z.radius += z.expandRate * dt;
+
+      // Draw corruption zone
+      this.zoneGfx.fillStyle(0x000000, 0.9);
+      this.zoneGfx.fillCircle(z.x, z.y, z.radius);
+      // Inner darker core
+      this.zoneGfx.fillStyle(0x010100, 0.6);
+      this.zoneGfx.fillCircle(z.x, z.y, z.radius * 0.55);
+      // Corruption border (subtle green-black rim)
+      this.zoneGfx.lineStyle(2, 0x113311, 0.55);
+      this.zoneGfx.strokeCircle(z.x, z.y, z.radius);
+
+      // Remove when fully grown
+      if (z.radius >= z.maxRadius) {
+        this.deadZones.splice(i, 1);
+        continue;
+      }
+
+      // Collision (with 7px forgiveness)
+      if (!this.invincible) {
+        const dist = Phaser.Math.Distance.Between(px, py, z.x, z.y);
+        if (dist < z.radius - 7) {
+          this.die();
+          return;
+        }
+      }
+    }
+
+    // --- Scanline sweep ---
+    this.sweepGfx.clear();
+    if (this.scanlineActive) {
+      const sweepSpeed = lerp(160, 310, diff); // px/s
+      this.scanlineY += sweepSpeed * dt;
+
+      if (this.scanlineY < 0) {
+        // Warning flash at top edge
+        if (Math.floor(time / 140) % 2 === 0) {
+          this.sweepGfx.fillStyle(0xff0040, 0.28);
+          this.sweepGfx.fillRect(0, 0, this.W, 4);
+        }
+      } else {
+        const sh = 22;
+        this.sweepGfx.fillStyle(0x220008, 0.92);
+        this.sweepGfx.fillRect(0, this.scanlineY, this.W, sh);
+        // Leading edge glow
+        this.sweepGfx.fillStyle(0x550020, 0.5);
+        this.sweepGfx.fillRect(0, this.scanlineY - 5, this.W, 5);
+        // Trailing fade
+        this.sweepGfx.fillStyle(0x110005, 0.4);
+        this.sweepGfx.fillRect(0, this.scanlineY + sh, this.W, 6);
+        // Red line
+        this.sweepGfx.lineStyle(1, 0xff0040, 0.7);
+        this.sweepGfx.lineBetween(0, this.scanlineY, this.W, this.scanlineY);
+
+        // Collision: player hitbox is 10px tall centered on py
+        if (!this.invincible) {
+          const pTop = py - 5, pBot = py + 5;
+          if (pTop < this.scanlineY + sh && pBot > this.scanlineY) {
+            this.die();
+            return;
+          }
+        }
+      }
+
+      if (this.scanlineY > this.H + 60) {
+        this.scanlineActive = false;
+        this.sweepGfx.clear();
+      }
+    }
+
+    // --- Signal pickups ---
+    for (let i = this.signals.length - 1; i >= 0; i--) {
+      const s = this.signals[i];
+      if (!s || !s.active) { this.signals.splice(i, 1); continue; }
+      const dist = Phaser.Math.Distance.Between(px, py, s.x, s.y);
+      if (dist < 18) {
+        this.collectPfx.emitParticleAt(s.x, s.y, 7);
+        const sx = s.x, sy = s.y;
+        s.destroy();
+        this.signals.splice(i, 1);
+        this.bonusPoints += 25;
+        this.showPopup(sx, sy, '+25');
+        sfxCollect();
+        // Replenish with delay
+        this.time.delayedCall(Phaser.Math.Between(1200, 2800), () => {
+          if (this.alive && this.signals.length < 4) this.spawnSignal(false);
+        });
+      }
+    }
+
+    // --- Overclock pickups ---
+    for (let i = this.overclockSprites.length - 1; i >= 0; i--) {
+      const o = this.overclockSprites[i];
+      if (!o || !o.active) { this.overclockSprites.splice(i, 1); continue; }
+      const dist = Phaser.Math.Distance.Between(px, py, o.x, o.y);
+      if (dist < 22) {
+        this.collectPfx.emitParticleAt(o.x, o.y, 12);
+        const ox = o.x, oy = o.y;
+        o.destroy();
+        this.overclockSprites.splice(i, 1);
+        this.bonusPoints += 50;
+        this.showPopup(ox, oy, '+50 ⚡', '#ffcc00');
+        sfxOverclock();
+        this.invincible = true;
+        this.invincibleMs = 2500;
+      }
+    }
+
+    // --- Border corruption effect (increases with difficulty) ---
+    this.borderGfx.clear();
+    if (diff > 0.25) {
+      const ba = lerp(0, 0.45, (diff - 0.25) / 0.75);
+      this.borderGfx.fillStyle(0x000000, ba);
+      this.borderGfx.fillRect(0, 0, this.W, 28);
+      this.borderGfx.fillRect(0, this.H - 28, this.W, 28);
+      this.borderGfx.fillRect(0, 0, 28, this.H);
+      this.borderGfx.fillRect(this.W - 28, 0, 28, this.H);
+    }
+
+    // --- Screen flicker ---
+    this.flickerCooldown -= delta;
+    if (this.flickerCooldown <= 0) {
+      if (Math.random() < lerp(0.004, 0.045, diff)) {
+        this.flickerOverlay.setAlpha(Phaser.Math.Between(3, 18) / 100);
+        this.flickerCooldown = 60;
+      } else {
+        this.flickerOverlay.setAlpha(0);
+        this.flickerCooldown = Phaser.Math.Between(180, 900);
+      }
+    }
+
+    // --- Random micro-shake at high difficulty ---
+    if (diff > 0.65 && Math.random() < 0.0008) {
+      this.cameras.main.shake(90, 0.0025);
+    }
+  }
+
+  die() {
+    if (!this.alive) return;
+    this.alive = false;
+
+    sfxDeath();
+    this.cameras.main.shake(350, 0.018);
+    this.cameras.main.flash(450, 180, 0, 30);
+
+    // Death burst
+    this.deathPfx.emitParticleAt(this.player.x, this.player.y, 35);
+    this.player.setVisible(false);
+    this.player.setVelocity(0, 0);
+
+    // Destroy pickups
+    [...this.signals, ...this.overclockSprites].forEach(s => { if (s && s.active) s.destroy(); });
+
+    const finalScore = this.score;
+    this.time.delayedCall(850, () => {
+      this.scene.pause();
+      showGameOverUI(finalScore);
+    });
+  }
+}
+
+// ============================================================
+// PHASER CONFIG
+// ============================================================
+const config = {
+  type: Phaser.AUTO,
+  width: 800,
+  height: 560,
+  backgroundColor: '#020402',
+  physics: {
+    default: 'arcade',
+    arcade: { gravity: { y: 0 }, debug: false }
+  },
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
+  scene: [MenuScene, GameScene],
+};
+
+const game = new Phaser.Game(config);
+
+// ============================================================
+// GAME OVER UI
+// ============================================================
+const overlay   = document.getElementById('ui-overlay');
+const finalEl   = document.getElementById('final-score');
+const nameEl    = document.getElementById('player-name');
+const submitBtn = document.getElementById('submit-btn');
+const replayBtn = document.getElementById('replay-btn');
+const statusMsg = document.getElementById('status-msg');
+const lbDiv     = document.getElementById('leaderboard');
+const lbList    = document.getElementById('leaderboard-list');
+
+let _finalScore = 0;
+
+function showGameOverUI(score) {
+  _finalScore = score;
+  finalEl.textContent = score;
+  nameEl.value = '';
+  statusMsg.textContent = '';
+  submitBtn.disabled = false;
+  lbDiv.style.display = 'none';
+  lbList.innerHTML = '';
+  overlay.classList.add('active');
+  setTimeout(() => nameEl.focus(), 120);
+}
+
+submitBtn.addEventListener('click', async () => {
+  const name = nameEl.value.trim() || 'PIXEL_USER';
+  submitBtn.disabled = true;
+  statusMsg.textContent = 'TRANSMITTING...';
+  await submitScore(name, _finalScore);
+  statusMsg.textContent = 'SCORE LOGGED. FETCHING LEADERBOARD...';
+  const scores = await getLeaderboard(10);
+  lbDiv.style.display = 'block';
+  lbList.innerHTML = '';
+  if (scores.length === 0) {
+    lbList.innerHTML = '<div style="color:#444">No scores yet — you are the first!</div>';
+  } else {
+    scores.forEach((entry, i) => {
+      const isMe = entry.playerName === name && entry.score === _finalScore;
+      const div = document.createElement('div');
+      div.className = 'lb-entry' + (isMe ? ' highlight' : '');
+      div.innerHTML = `<span>#${i + 1} ${entry.playerName}</span><span>${entry.score}</span>`;
+      lbList.appendChild(div);
+    });
+  }
+  statusMsg.textContent = '✓ DONE';
+  submitBtn.disabled = false;
+});
+
+replayBtn.addEventListener('click', () => {
+  overlay.classList.remove('active');
+  game.scene.stop('GameScene');
+  game.scene.start('GameScene');
+});
+</script>
+</body>
+</html>

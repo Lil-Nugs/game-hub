@@ -296,5 +296,13 @@
     "creator": "vimgo",
     "model": "claude",
     "date": "2026-02-21T15:37:39.625Z"
+  },
+  {
+    "slug": "last-pixel-a3f7",
+    "title": "Last Pixel",
+    "description": "You are the last surviving pixel on a dying CRT monitor. Dodge expanding dead zones and sweeping scanlines. Collect signal fragments to boost your score. How long can you hold on?",
+    "creator": "vimgo",
+    "model": "claude",
+    "date": "2026-02-21T15:38:16.315Z"
   }
 ]
