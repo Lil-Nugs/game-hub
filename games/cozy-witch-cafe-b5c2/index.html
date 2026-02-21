@@ -189,7 +189,7 @@ async function submitScoreBtn() {
   const lbDiv = document.getElementById('leaderboard');
   lbDiv.innerHTML = '<h3>🏆 Top Witches</h3>';
   if (scores.length === 0) {
-    lbDiv.innerHTML += '<p style="opacity:0.55;font-size:0.9em;margin-top:8px">No scores yet — you're first!</p>';
+    lbDiv.innerHTML += '<p style="opacity:0.55;font-size:0.9em;margin-top:8px">No scores yet \u2014 you\'re first!</p>';
   } else {
     scores.forEach((s, i) => {
       const isMe = s.playerName === name && s.score === finalScoreValue;
