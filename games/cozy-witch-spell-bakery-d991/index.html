@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Cozy Witch: Spell Bakery Rush</title>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: radial-gradient(circle at top, #3a225f, #1a1a2e 70%);
+      display: flex; justify-content: center; align-items: center;
+      width: 100vw; height: 100vh; overflow: hidden; touch-action: none;
+      font-family: system-ui, sans-serif;
+    }
+    #ui-overlay {
+      position: fixed; inset: 0; z-index: 20; display: none;
+      justify-content: center; align-items: center; background: rgba(22, 12, 35, 0.82);
+      font-family: 'Fredoka', sans-serif;
+    }
+    .panel {
+      width: min(92vw, 460px); background: #2d1b4e; border: 3px solid #ff6b9d; border-radius: 18px;
+      padding: 20px; color: #fff; box-shadow: 0 12px 30px rgba(0,0,0,0.5);
+    }
+    h2 { color: #ffd93d; margin-bottom: 10px; }
+    #final-score { font-size: 1.4rem; margin-bottom: 12px; color: #6bffb9; }
+    input, button { width: 100%; border-radius: 10px; border: none; padding: 10px; font-size: 1rem; margin-top: 8px; }
+    input { background: #fff; }
+    button { background: #ff6b9d; color: #fff; font-weight: 700; cursor: pointer; }
+    button:hover { filter: brightness(1.07); }
+    #play-again { background: #6bffb9; color: #232; }
+    #leaderboard { margin-top: 12px; max-height: 180px; overflow: auto; font-size: 0.95rem; }
+    #leaderboard li { margin-left: 18px; margin-bottom: 4px; }
+    #submit-status { margin-top: 6px; font-size: 0.9rem; color: #ffd93d; min-height: 1.1em; }
+  </style>
+</head>
+<body>
+  <div id="ui-overlay">
+    <div class="panel">
+      <h2>Oven Out! ✨</h2>
+      <div id="final-score">Score: 0</div>
+      <input id="player-name" maxlength="20" placeholder="Your witch name" />
+      <button id="submit-score">Submit Score</button>
+      <div id="submit-status"></div>
+      <ol id="leaderboard"></ol>
+      <button id="play-again">Play Again</button>
+    </div>
+  </div>
+
+<script>
+/* DESIGN HEADER
+Controls: WASD/Arrow keys to move, mouse/touch drag to steer.
+Loop/Death: top-down cozy survivor; bake spell pastries at glowing ovens while dodging hazards; collision with hazard ends run.
+Hazards: (1) Burnt Dough Blobs chase slowly, (2) Flying Whisks dash in lines, (3) Scorch Puddles drift and zone space.
+Pickups/Risk-Reward: Sugar Stars grant bonus points but pull nearby hazards faster for 2s; Tea Shields give one-hit protection.
+Scoring: score = Math.floor(timeAlive*10 + bonusPoints), monotonic.
+Difficulty: smooth curve via easeInOut over 120s scaling spawn rate, hazard speed, density.
+Visual/Audio: candy-pastel witch bakery, Fredoka font, floating sparkles; soft chimes for collects, warm pops for bakes, crackle for death.
+*/
+const GAME_ID = 'cozy-witch-spell-bakery-d991';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playSound(type, freq, duration, volume=0.2) {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  osc.start(); osc.stop(audioCtx.currentTime + duration);
+}
+const sfxStart = ()=>{ playSound('triangle', 420, 0.14, 0.16); playSound('triangle', 620, 0.16, 0.14); };
+const sfxBake = ()=>{ playSound('sine', 510, 0.1, 0.18); playSound('sine', 760, 0.13, 0.15); };
+const sfxCollect = ()=>{ playSound('triangle', 800, 0.08, 0.15); playSound('triangle', 1200, 0.1, 0.1); };
+const sfxHit = ()=>{ playSound('sawtooth', 170, 0.2, 0.22); };
+const sfxDeath = ()=>{ playSound('square', 250, 0.25, 0.2); playSound('sawtooth', 90, 0.55, 0.24); };
+
+function lerp(a,b,t){ return a + (b-a)*t; }
+function easeInOut(t){ return t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t+2,2)/2; }
+
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch (e) { console.warn('Leaderboard unavailable:', e); return null; }
+}
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch (e) { console.warn('Leaderboard unavailable:', e); return []; }
+}
+
+let activeScene = null;
+
+class MenuScene extends Phaser.Scene {
+  constructor(){ super('MenuScene'); }
+  create(){
+    const w=this.scale.width,h=this.scale.height;
+    this.add.rectangle(w/2,h/2,w,h,0x2d1b4e,1);
+    for(let i=0;i<60;i++) this.add.circle(Phaser.Math.Between(0,w),Phaser.Math.Between(0,h),Phaser.Math.Between(1,3),0xffffff,0.35);
+    this.add.text(w/2, h*0.28, 'Cozy Witch\nSpell Bakery Rush', {fontFamily:'Fredoka',fontSize:'48px',align:'center',color:'#ffd93d',stroke:'#5e2b97',strokeThickness:6}).setOrigin(0.5);
+    this.add.text(w/2,h*0.56,'Move with WASD / Arrows\nor drag/touch\nBake at ovens, dodge hazards, survive!',{fontFamily:'Fredoka',fontSize:'24px',align:'center',color:'#ffffff'}).setOrigin(0.5);
+    const blink=this.add.text(w/2,h*0.8,'Tap or Press Any Key to Start',{fontFamily:'Fredoka',fontSize:'26px',color:'#6bffb9'}).setOrigin(0.5);
+    this.tweens.add({targets:blink,alpha:0.2,duration:700,yoyo:true,repeat:-1});
+    const start=()=>{ if(audioCtx.state==='suspended') audioCtx.resume(); sfxStart(); this.scene.start('GameScene'); };
+    this.input.once('pointerdown', start);
+    this.input.keyboard.once('keydown', start);
+  }
+}
+
+class GameScene extends Phaser.Scene {
+  constructor(){ super('GameScene'); }
+  create(){
+    activeScene = this;
+    this.isGameOver=false; this.bonusPoints=0; this.score=0; this.timeAlive=0; this.gameStartTime=this.time.now;
+    this.lastSpawn=0; this.lastWhisk=0; this.lastPuddle=0; this.lastOven=0; this.lastPickup=0;
+    this.shield=0; this.riskUntil=0;
+
+    const g=this.add.graphics();
+    g.fillStyle(0xff6b9d,1); g.fillCircle(64,64,46); g.lineStyle(8,0x5e2b97,1); g.strokeCircle(64,64,46); g.fillStyle(0xffffff,0.35); g.fillCircle(76,48,13); g.fillStyle(0x6bffb9,1); g.fillCircle(64,20,10); g.generateTexture('witch',128,128); g.clear();
+    g.fillStyle(0xc96b3e,1); g.fillCircle(64,64,42); g.lineStyle(6,0x7f3f00,1); g.strokeCircle(64,64,42); g.fillStyle(0xffe0b2,0.45); g.fillCircle(78,50,11); g.generateTexture('blob',128,128); g.clear();
+    g.fillStyle(0xf1f1f1,1); g.fillTriangle(64,12,112,64,64,116); g.fillTriangle(16,64,64,12,64,116); g.lineStyle(6,0xb0b0b0,1); g.strokeTriangle(64,12,112,64,64,116); g.strokeTriangle(16,64,64,12,64,116); g.generateTexture('whisk',128,128); g.clear();
+    g.fillStyle(0xff9f1c,0.85); g.fillEllipse(64,64,104,74); g.lineStyle(4,0xffd166,1); g.strokeEllipse(64,64,104,74); g.generateTexture('puddle',128,128); g.clear();
+    g.fillStyle(0xffd93d,1); for(let i=0;i<5;i++){const a=-Math.PI/2+i*(Math.PI*2/5);const b=a+Math.PI/5;g.fillTriangle(64,64,64+Math.cos(a)*42,64+Math.sin(a)*42,64+Math.cos(b)*16,64+Math.sin(b)*16);} g.generateTexture('star',128,128); g.clear();
+    g.fillStyle(0x6bffb9,1); g.fillCircle(64,64,38); g.lineStyle(5,0xffffff,1); g.strokeCircle(64,64,38); g.fillStyle(0xffffff,0.45); g.fillCircle(80,48,10); g.generateTexture('tea',128,128); g.clear();
+    g.fillStyle(0x8d6e63,1); g.fillRoundedRect(10,26,108,76,18); g.fillStyle(0xffb74d,1); g.fillRoundedRect(18,34,92,56,12); g.lineStyle(6,0x5d4037,1); g.strokeRoundedRect(10,26,108,76,18); g.generateTexture('oven',128,128); g.destroy();
+
+    this.bgDots = this.add.group();
+    for(let i=0;i<80;i++) this.bgDots.add(this.add.circle(Phaser.Math.Between(0,800),Phaser.Math.Between(0,600),Phaser.Math.Between(1,3),0xffffff,0.15));
+
+    this.player=this.physics.add.sprite(400,300,'witch').setScale(0.44);
+    this.player.body.setCircle(this.player.width*0.23);
+    this.player.body.setOffset(this.player.width*0.27,this.player.height*0.27);
+    this.player.setDamping(true).setDrag(0.92).setMaxVelocity(280);
+
+    this.hazards=this.physics.add.group();
+    this.pickups=this.physics.add.group();
+    this.ovens=this.physics.add.group();
+
+    this.cursors=this.input.keyboard.createCursorKeys();
+    this.keys=this.input.keyboard.addKeys('W,A,S,D');
+    this.pointerTarget = null;
+    this.input.on('pointerdown', p=>{ this.pointerTarget = {x:p.worldX,y:p.worldY}; });
+    this.input.on('pointermove', p=>{ if(p.isDown) this.pointerTarget = {x:p.worldX,y:p.worldY}; });
+
+    this.physics.add.overlap(this.player,this.hazards,()=>this.onHitHazard());
+    this.physics.add.overlap(this.player,this.pickups,(p,item)=>this.collectPickup(item));
+    this.physics.add.overlap(this.player,this.ovens,(p,oven)=>this.bakeSpell(oven));
+
+    this.scoreText=this.add.text(16,12,'Score: 0',{fontFamily:'Fredoka',fontSize:'28px',color:'#fff'}).setDepth(50);
+    this.buffText=this.add.text(16,46,'',{fontFamily:'Fredoka',fontSize:'20px',color:'#ffd93d'}).setDepth(50);
+
+    this.spark = this.add.particles(0,0,'star',{lifespan:500,speed:{min:30,max:120},scale:{start:0.18,end:0},quantity:0,emitting:false});
+  }
+
+  getDifficulty(t){ return easeInOut(Math.min(t/120,1)); }
+
+  spawnBlob(speed){
+    const side = Phaser.Math.Between(0,3); let x,y;
+    if(side===0){x=-30;y=Phaser.Math.Between(0,600);} else if(side===1){x=830;y=Phaser.Math.Between(0,600);} else if(side===2){x=Phaser.Math.Between(0,800);y=-30;} else {x=Phaser.Math.Between(0,800);y=630;}
+    if(Phaser.Math.Distance.Between(x,y,this.player.x,this.player.y)<180) return;
+    const e=this.hazards.create(x,y,'blob').setScale(0.34); e.kind='blob'; e.speed=speed; e.body.setCircle(e.width*0.18); e.body.setOffset(e.width*0.32,e.height*0.32);
+  }
+  spawnWhisk(speed){
+    const y=Phaser.Math.Between(40,560), dir=Math.random()<0.5?1:-1;
+    const x = dir===1 ? -40 : 840;
+    const e=this.hazards.create(x,y,'whisk').setScale(0.28); e.kind='whisk'; e.vx=speed*dir; e.vy=Phaser.Math.Between(-35,35); e.angle=dir===1?0:180; e.body.setCircle(e.width*0.16); e.body.setOffset(e.width*0.34,e.height*0.34);
+  }
+  spawnPuddle(speed){
+    const x=Phaser.Math.Between(70,730), y=Phaser.Math.Between(70,530);
+    if(Phaser.Math.Distance.Between(x,y,this.player.x,this.player.y)<160) return;
+    const e=this.hazards.create(x,y,'puddle').setScale(0.3); e.kind='puddle'; e.vx=Phaser.Math.FloatBetween(-1,1)*speed*0.45; e.vy=Phaser.Math.FloatBetween(-1,1)*speed*0.45; e.body.setCircle(e.width*0.2); e.body.setOffset(e.width*0.3,e.height*0.3);
+  }
+
+  spawnOven(){
+    const x=Phaser.Math.Between(90,710), y=Phaser.Math.Between(90,510);
+    if(Phaser.Math.Distance.Between(x,y,this.player.x,this.player.y)<140) return;
+    const o=this.ovens.create(x,y,'oven').setScale(0.35); o.spawnTime=this.time.now;
+    this.tweens.add({targets:o,scale:0.37,duration:650,yoyo:true,repeat:-1});
+  }
+
+  spawnPickup(){
+    const key = Math.random()<0.68 ? 'star':'tea';
+    const x=Phaser.Math.Between(70,730), y=Phaser.Math.Between(70,530);
+    const p=this.pickups.create(x,y,key).setScale(key==='star'?0.2:0.24);
+    p.kind=key; p.expire=this.time.now + 7000;
+    this.tweens.add({targets:p,angle:360,duration:1800,repeat:-1});
+  }
+
+  bakeSpell(oven){
+    if(this.time.now - oven.spawnTime < 250) return;
+    this.bonusPoints += 35;
+    sfxBake();
+    this.spark.emitParticleAt(oven.x,oven.y,16);
+    oven.destroy();
+  }
+
+  collectPickup(item){
+    if(item.kind==='star'){
+      this.bonusPoints += 55;
+      this.riskUntil = this.time.now + 2000;
+      this.buffText.setText('Sugar Rush! Hazards speed up briefly');
+    } else {
+      this.shield = 1;
+      this.buffText.setText('Tea Shield ready (blocks next hit)');
+    }
+    sfxCollect();
+    this.spark.emitParticleAt(item.x,item.y,20);
+    item.destroy();
+  }
+
+  onHitHazard(){
+    if(this.isGameOver) return;
+    if(this.shield>0){
+      this.shield=0; sfxHit(); this.cameras.main.flash(120,120,255,200); this.buffText.setText('Shield popped!');
+      return;
+    }
+    this.isGameOver=true;
+    sfxDeath();
+    this.player.setTint(0xffffff);
+    this.spark.emitParticleAt(this.player.x,this.player.y,45);
+    this.cameras.main.shake(240,0.015);
+    this.cameras.main.flash(200,255,180,200);
+    this.time.delayedCall(500,()=>{ this.scene.pause(); showGameOverUI(Math.floor(this.timeAlive*10 + this.bonusPoints)); });
+  }
+
+  update(time,delta){
+    if(this.isGameOver) return;
+    const dt=delta/16.667;
+    this.timeAlive=(time-this.gameStartTime)/1000;
+    const diff=this.getDifficulty(this.timeAlive);
+    const spawnRate = lerp(0.65,2.7,diff);
+    const blobSpeed = lerp(26,108,diff);
+    const whiskSpeed = lerp(70,230,diff);
+    const puddleSpeed = lerp(20,95,diff);
+
+    const riskMult = time < this.riskUntil ? 1.25 : 1;
+    if(time >= this.riskUntil && this.buffText.text.startsWith('Sugar Rush')) this.buffText.setText(this.shield? 'Tea Shield ready (blocks next hit)' : '');
+
+    // movement controls
+    let mx=0,my=0;
+    if(this.cursors.left.isDown||this.keys.A.isDown) mx-=1;
+    if(this.cursors.right.isDown||this.keys.D.isDown) mx+=1;
+    if(this.cursors.up.isDown||this.keys.W.isDown) my-=1;
+    if(this.cursors.down.isDown||this.keys.S.isDown) my+=1;
+    if(mx||my){
+      const m=Math.hypot(mx,my)||1;
+      this.player.setAcceleration((mx/m)*410,(my/m)*410);
+      this.pointerTarget=null;
+    } else if(this.pointerTarget){
+      const dx=this.pointerTarget.x-this.player.x, dy=this.pointerTarget.y-this.player.y;
+      const d=Math.hypot(dx,dy);
+      if(d>8) this.player.setAcceleration((dx/d)*360,(dy/d)*360); else this.player.setAcceleration(0,0);
+    } else this.player.setAcceleration(0,0);
+
+    this.player.x=Phaser.Math.Clamp(this.player.x,20,780);
+    this.player.y=Phaser.Math.Clamp(this.player.y,20,580);
+
+    if(time-this.lastSpawn > 1000/spawnRate){ this.lastSpawn=time; this.spawnBlob(blobSpeed*riskMult); }
+    if(time-this.lastWhisk > lerp(2200,900,diff)){ this.lastWhisk=time; this.spawnWhisk(whiskSpeed*riskMult); }
+    if(time-this.lastPuddle > lerp(3600,1600,diff)){ this.lastPuddle=time; this.spawnPuddle(puddleSpeed*riskMult); }
+    if(time-this.lastOven > lerp(3600,1800,diff)){ this.lastOven=time; if(this.ovens.countActive(true)<3) this.spawnOven(); }
+    if(time-this.lastPickup > lerp(5500,2800,diff)){ this.lastPickup=time; if(this.pickups.countActive(true)<2) this.spawnPickup(); }
+
+    this.hazards.children.iterate(h=>{
+      if(!h) return;
+      if(h.kind==='blob'){
+        const ang=Phaser.Math.Angle.Between(h.x,h.y,this.player.x,this.player.y);
+        h.x += Math.cos(ang)*h.speed*dt*0.55;
+        h.y += Math.sin(ang)*h.speed*dt*0.55;
+      } else if(h.kind==='whisk'){
+        h.x += h.vx*dt*0.55; h.y += h.vy*dt*0.55;
+        if(h.y<20||h.y>580) h.vy*=-1;
+      } else {
+        h.x += h.vx*dt*0.55; h.y += h.vy*dt*0.55;
+        if(h.x<35||h.x>765) h.vx*=-1;
+        if(h.y<35||h.y>565) h.vy*=-1;
+      }
+      if(h.x<-120||h.x>920||h.y<-120||h.y>720) h.destroy();
+    });
+
+    this.pickups.children.iterate(p=>{ if(p && time>p.expire) p.destroy(); });
+
+    this.score = Math.floor(this.timeAlive*10 + this.bonusPoints);
+    this.scoreText.setText(`Score: ${this.score}`);
+
+    this.bgDots.children.iterate(d=>{ d.y += (0.15 + diff*0.8)*dt; if(d.y>605){ d.y=-5; d.x=Phaser.Math.Between(0,800);} });
+  }
+}
+
+const config = {
+  type: Phaser.AUTO,
+  width: 800,
+  height: 600,
+  backgroundColor: '#1a1a2e',
+  physics: { default:'arcade', arcade:{ gravity:{y:0}, debug:false } },
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: [MenuScene, GameScene]
+};
+new Phaser.Game(config);
+
+const overlay = document.getElementById('ui-overlay');
+const finalScoreEl = document.getElementById('final-score');
+const leaderboardEl = document.getElementById('leaderboard');
+const playerNameEl = document.getElementById('player-name');
+const submitBtn = document.getElementById('submit-score');
+const playAgainBtn = document.getElementById('play-again');
+const submitStatus = document.getElementById('submit-status');
+let finalScoreValue = 0;
+
+async function renderLeaderboard(){
+  const rows = await getLeaderboard(10);
+  leaderboardEl.innerHTML = '';
+  if(!rows.length){ leaderboardEl.innerHTML = '<li>Leaderboard warming up…</li>'; return; }
+  rows.forEach(r=>{ const li=document.createElement('li'); li.textContent=`${r.playerName || 'Witch'} — ${r.score}`; leaderboardEl.appendChild(li); });
+}
+
+function showGameOverUI(finalScore){
+  finalScoreValue = finalScore;
+  finalScoreEl.textContent = `Score: ${finalScore}`;
+  submitStatus.textContent = '';
+  overlay.style.display='flex';
+  renderLeaderboard();
+}
+
+submitBtn.addEventListener('click', async ()=>{
+  const name = (playerNameEl.value || 'Cozy Witch').trim().slice(0,20);
+  submitStatus.textContent = 'Submitting...';
+  const out = await submitScore(name, finalScoreValue);
+  submitStatus.textContent = out ? 'Score submitted! ✨' : 'Leaderboard offline, try again later.';
+  await renderLeaderboard();
+});
+
+playAgainBtn.addEventListener('click', ()=>{
+  overlay.style.display='none';
+  if(activeScene){ activeScene.scene.stop('GameScene'); activeScene.scene.start('GameScene'); }
+});
+</script>
+</body>
+</html>

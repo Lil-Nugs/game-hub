@@ -3,7 +3,7 @@
     {
       "slug": "pong-ba5d",
       "title": "Pong",
-      "description": "Classic pong \u2014 you vs AI. First to 7 wins!",
+      "description": "Classic pong — you vs AI. First to 7 wins!",
       "creator": "lilnug",
       "date": "2025-02-17T00:00:00Z",
       "model": "unknown",
@@ -185,6 +185,14 @@
       "description": "A Vampire Survivors-style auto-shooter in a haunted grocery store. Dodge ghosts, grab coupons, and outlast the aisle of doom.",
       "creator": "discord-user",
       "date": "2026-02-21T08:42:56Z"
+    },
+    {
+      "slug": "cozy-witch-spell-bakery-d991",
+      "title": "Cozy Witch: Spell Bakery Rush",
+      "description": "A Vampire-Survivors-inspired cozy bakery survival game where you dodge kitchen hazards and bake spell pastries.",
+      "creator": "discord-user",
+      "model": "codex",
+      "date": "2026-02-21T08:43:10.018Z"
     }
   ]
 }
