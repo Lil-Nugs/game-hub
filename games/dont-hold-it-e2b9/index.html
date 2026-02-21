@@ -1,0 +1,1010 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Don't Hold It</title>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fredoka+One&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a0a2e;
+    display: flex; justify-content: center; align-items: center;
+    height: 100vh; overflow: hidden; touch-action: none;
+  }
+  #ui-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    display: none; flex-direction: column; justify-content: center; align-items: center;
+    z-index: 10; background: rgba(15, 5, 30, 0.92);
+    font-family: 'Fredoka One', cursive;
+  }
+  #ui-overlay h1 {
+    font-family: 'Bungee', cursive;
+    font-size: clamp(2rem, 6vw, 3.5rem);
+    color: #ff6b9d;
+    text-shadow: 0 0 20px #ff6b9d, 0 0 40px #ff6b9d;
+    margin-bottom: 10px;
+    letter-spacing: 2px;
+  }
+  #ui-overlay .subtitle {
+    color: #c44dff;
+    font-size: clamp(1rem, 3vw, 1.4rem);
+    margin-bottom: 24px;
+    opacity: 0.85;
+  }
+  #final-score-display {
+    font-size: clamp(2.5rem, 8vw, 5rem);
+    color: #ffd93d;
+    text-shadow: 0 0 15px #ffd93d;
+    margin-bottom: 8px;
+    font-family: 'Bungee', cursive;
+  }
+  #score-label {
+    color: #aaa; font-size: 1rem; margin-bottom: 24px;
+    font-family: 'Fredoka One', cursive;
+  }
+  #name-section {
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    margin-bottom: 20px;
+  }
+  #player-name {
+    background: rgba(255,255,255,0.08);
+    border: 2px solid #c44dff;
+    border-radius: 12px;
+    color: #fff;
+    font-family: 'Fredoka One', cursive;
+    font-size: 1.3rem;
+    padding: 10px 20px;
+    text-align: center;
+    outline: none;
+    width: 260px;
+    transition: border-color 0.2s;
+  }
+  #player-name:focus { border-color: #ff6b9d; }
+  #submit-btn, #replay-btn {
+    font-family: 'Bungee', cursive;
+    font-size: 1.1rem;
+    padding: 12px 32px;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: transform 0.1s, box-shadow 0.1s;
+  }
+  #submit-btn {
+    background: linear-gradient(135deg, #ff6b9d, #c44dff);
+    color: #fff;
+    box-shadow: 0 4px 20px rgba(255,107,157,0.5);
+  }
+  #submit-btn:hover { transform: scale(1.05); box-shadow: 0 6px 30px rgba(255,107,157,0.7); }
+  #submit-btn:active { transform: scale(0.97); }
+  #replay-btn {
+    background: linear-gradient(135deg, #ffd93d, #ff6b9d);
+    color: #1a0a2e;
+    box-shadow: 0 4px 20px rgba(255,217,61,0.4);
+    margin-top: 10px;
+  }
+  #replay-btn:hover { transform: scale(1.05); }
+  #leaderboard-section {
+    display: none; margin-top: 16px; width: 320px;
+  }
+  #leaderboard-section h3 {
+    font-family: 'Bungee', cursive;
+    color: #ffd93d;
+    font-size: 1rem;
+    text-align: center;
+    margin-bottom: 10px;
+    letter-spacing: 1px;
+  }
+  .lb-entry {
+    display: flex; justify-content: space-between;
+    padding: 5px 10px; margin: 3px 0;
+    border-radius: 8px;
+    font-size: 0.9rem; color: #eee;
+    background: rgba(255,255,255,0.06);
+  }
+  .lb-entry.top { background: rgba(255,217,61,0.15); color: #ffd93d; }
+  .lb-entry .rank { color: #c44dff; margin-right: 8px; min-width: 24px; }
+  .lb-entry .lb-score { color: #ff6b9d; }
+  #submit-status {
+    font-size: 0.85rem; color: #6bff6b; height: 20px; text-align: center;
+  }
+</style>
+</head>
+<body>
+<div id="ui-overlay">
+  <h1>💀 YOU HELD IT</h1>
+  <div class="subtitle">You should've let go sooner...</div>
+  <div id="final-score-display">0</div>
+  <div id="score-label">FINAL SCORE</div>
+  <div id="name-section">
+    <input id="player-name" type="text" maxlength="20" placeholder="Your name..." autocomplete="off" spellcheck="false">
+    <button id="submit-btn">📊 SUBMIT SCORE</button>
+    <div id="submit-status"></div>
+  </div>
+  <div id="leaderboard-section">
+    <h3>🏆 HALL OF SHAME</h3>
+    <div id="lb-list"></div>
+  </div>
+  <button id="replay-btn">🔁 TRY AGAIN</button>
+</div>
+
+<script>
+/*
+ * ═══════════════════════════════════════════════════
+ * DESIGN HEADER — "Don't Hold It"
+ * ═══════════════════════════════════════════════════
+ * CONTROLS: SPACE / tap anywhere to engage HOLD (fall down)
+ *           Release to float up. One button only.
+ *
+ * CORE LOOP: Player orb floats upward automatically.
+ *   - Must HOLD button to fall down and avoid ceiling.
+ *   - Can't hold forever: the longer you hold, the worse it gets.
+ *   - DEATH: Hit ceiling, floor, or any obstacle.
+ *           Also die if you hold for 5+ continuous seconds (overload).
+ *
+ * HAZARDS:
+ *   1. Wall Chunks — columns with a gap, scroll left. Core hazard.
+ *   2. Spike Balls — circular spinning obstacles (appear after 25s).
+ *   3. Rush Waves — full-width close walls, no gap (appear after 60s).
+ *
+ * HOLD ESCALATION (per second of continuous hold):
+ *   0.5s → spawn rate +20%
+ *   1.0s → obstacle speed +10%
+ *   2.0s → spike balls begin spawning even if early
+ *   3.0s → screen shake starts
+ *   4.0s → everything turns red / rapid spawning
+ *   5.0s → INSTANT DEATH (overload)
+ *
+ * PICKUPS:
+ *   - Gold Star: +50 bonus points (safe)
+ *   - Chaos Orb (red): Causes 1.5s of max-hold-tier chaos if collected
+ *
+ * SCORING: score = Math.floor(timeAlive * 10 + bonusPoints)  [monotonic]
+ *   Bonus: +5 per wall passed while NOT holding
+ *          +50 per star collected
+ *
+ * DIFFICULTY RAMP: Time-based smooth lerp over 120s
+ *   baseSpeed: 180→380 px/s
+ *   baseSpawnInterval: 2200→800 ms
+ *
+ * VISUAL THEME: Candy/Pastel — hot pink, violet, yellow, cyan, lime
+ *   BG gradient from deep purple to dark indigo, parallax star layers
+ *
+ * AUDIO: Web Audio API, procedural SFX
+ *   - Flap/tap: short sine burst
+ *   - Hold escalation: low rumble (sawtooth)
+ *   - Collect star: bright ding
+ *   - Death: descending crash
+ *
+ * FONT: Bungee (titles) + Fredoka One (UI)
+ * ART: Procedural textures — orb with glow layers, obstacles with gradients
+ * PHASER: Arcade physics, Scale.FIT, delta-time movement
+ * ═══════════════════════════════════════════════════
+ */
+
+const GAME_ID = 'dont-hold-it-e2b9';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+// ─── Audio ───────────────────────────────────────────────────────────────────
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playSound(type, freq, duration, volume = 0.3, freqEnd = null) {
+  if (audioCtx.state === 'suspended') return;
+  try {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    if (freqEnd !== null) osc.frequency.linearRampToValueAtTime(freqEnd, audioCtx.currentTime + duration);
+    gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+  } catch(e) {}
+}
+function sfxFlap()    { playSound('sine', 350, 0.08, 0.18, 500); }
+function sfxRelease() { playSound('sine', 500, 0.06, 0.12, 300); }
+function sfxCollect() { playSound('sine', 900, 0.08, 0.22); playSound('triangle', 1400, 0.12, 0.15); }
+function sfxChaos()   { playSound('sawtooth', 80, 0.25, 0.25); playSound('square', 120, 0.3, 0.2); }
+function sfxDeath()   {
+  playSound('sawtooth', 300, 0.15, 0.35, 80);
+  playSound('square',   200, 0.4,  0.3,  30);
+  playSound('sawtooth', 120, 0.7,  0.2,  20);
+}
+function sfxWallPass() { playSound('triangle', 600, 0.05, 0.1, 800); }
+function sfxOverload() {
+  playSound('sawtooth', 150, 0.3, 0.4);
+  playSound('square', 60, 0.5, 0.3);
+  playSound('sawtooth', 250, 0.6, 0.5, 30);
+}
+
+// ─── Leaderboard ─────────────────────────────────────────────────────────────
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch (e) {
+    console.warn('Leaderboard unavailable:', e);
+    return null;
+  }
+}
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch (e) {
+    console.warn('Leaderboard unavailable:', e);
+    return [];
+  }
+}
+
+// ─── Game Over UI ─────────────────────────────────────────────────────────────
+let _gameScene = null;
+function showGameOverUI(finalScore) {
+  const overlay = document.getElementById('ui-overlay');
+  document.getElementById('final-score-display').textContent = finalScore;
+  document.getElementById('submit-status').textContent = '';
+  document.getElementById('leaderboard-section').style.display = 'none';
+  overlay.style.display = 'flex';
+}
+
+document.getElementById('submit-btn').addEventListener('click', async () => {
+  const name = document.getElementById('player-name').value.trim() || 'Anonymous';
+  const score = parseInt(document.getElementById('final-score-display').textContent, 10);
+  const statusEl = document.getElementById('submit-status');
+  statusEl.textContent = '⏳ Submitting...';
+  await submitScore(name, score);
+  statusEl.textContent = '✅ Submitted!';
+  const scores = await getLeaderboard(10);
+  const lbSection = document.getElementById('leaderboard-section');
+  const lbList = document.getElementById('lb-list');
+  lbList.innerHTML = '';
+  scores.forEach((entry, i) => {
+    const div = document.createElement('div');
+    div.className = 'lb-entry' + (i === 0 ? ' top' : '');
+    div.innerHTML = `<span><span class="rank">#${i+1}</span>${entry.playerName}</span><span class="lb-score">${entry.score}</span>`;
+    lbList.appendChild(div);
+  });
+  lbSection.style.display = 'block';
+});
+
+document.getElementById('replay-btn').addEventListener('click', () => {
+  document.getElementById('ui-overlay').style.display = 'none';
+  if (_gameScene) _gameScene.scene.restart();
+});
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function lerp(a, b, t) { return a + (b - a) * t; }
+function easeIn(t) { return t * t; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// ─── Phaser Scenes ───────────────────────────────────────────────────────────
+
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+
+  preload() {
+    // Generate all textures procedurally in this scene
+    this.generateTextures();
+  }
+
+  generateTextures() {
+    // Player orb — layered glow ball
+    const pG = this.add.graphics();
+    // Outer glow halo
+    pG.fillStyle(0xff6b9d, 0.15); pG.fillCircle(48, 48, 44);
+    pG.fillStyle(0xff6b9d, 0.3);  pG.fillCircle(48, 48, 36);
+    // Core
+    pG.fillStyle(0xffd93d, 1);    pG.fillCircle(48, 48, 26);
+    // Highlight
+    pG.fillStyle(0xffffff, 0.7);  pG.fillCircle(40, 40, 10);
+    pG.fillStyle(0xffffff, 0.4);  pG.fillCircle(37, 37, 5);
+    // Ring
+    pG.lineStyle(3, 0xff6b9d, 0.9); pG.strokeCircle(48, 48, 28);
+    pG.generateTexture('player', 96, 96);
+    pG.destroy();
+
+    // Wall chunk — vivid purple/pink slab
+    const wG = this.add.graphics();
+    wG.fillStyle(0x5e2a80, 1); wG.fillRect(0, 0, 80, 400);
+    wG.fillStyle(0x8b3fb5, 1); wG.fillRect(0, 0, 16, 400);
+    wG.fillStyle(0xc44dff, 0.4); wG.fillRect(2, 0, 6, 400);
+    wG.lineStyle(2, 0xff6b9d, 0.8); wG.strokeRect(0, 0, 80, 400);
+    // Texture dots
+    for (let y = 20; y < 400; y += 40) {
+      wG.fillStyle(0xffffff, 0.08); wG.fillRect(20, y, 40, 16);
+    }
+    wG.generateTexture('wall', 80, 400);
+    wG.destroy();
+
+    // Spike ball — red/orange spiky circle
+    const sG = this.add.graphics();
+    sG.fillStyle(0xff4757, 1); sG.fillCircle(32, 32, 24);
+    sG.fillStyle(0xff6348, 1); sG.fillCircle(32, 32, 18);
+    sG.fillStyle(0xffd93d, 0.7); sG.fillCircle(32, 32, 10);
+    sG.fillStyle(0xffffff, 0.5); sG.fillCircle(27, 27, 5);
+    sG.lineStyle(3, 0xffd93d, 1); sG.strokeCircle(32, 32, 26);
+    // Spikes
+    sG.fillStyle(0xff4757, 1);
+    const spikePts = [[32,2],[56,14],[62,38],[48,58],[18,58],[2,38],[10,14]];
+    spikePts.forEach(([sx, sy]) => { sG.fillTriangle(sx, sy, sx-5, sy+10, sx+5, sy+10); });
+    sG.generateTexture('spike', 64, 64);
+    sG.destroy();
+
+    // Star pickup
+    const stG = this.add.graphics();
+    stG.fillStyle(0xffd93d, 1);
+    // 5-pointed star
+    const cx = 32, cy = 32, outerR = 26, innerR = 11, pts5 = [];
+    for (let i = 0; i < 10; i++) {
+      const ang = (i * Math.PI / 5) - Math.PI / 2;
+      const r = i % 2 === 0 ? outerR : innerR;
+      pts5.push(cx + Math.cos(ang) * r, cy + Math.sin(ang) * r);
+    }
+    stG.fillPoints(pts5.reduce((a, v, i) => i % 2 ? [...a, {x: pts5[i-1], y: v}] : a, []), true);
+    // Redraw star properly
+    stG.fillStyle(0xffd93d, 1);
+    const starPath = [];
+    for (let i = 0; i < 10; i++) {
+      const ang = (i * Math.PI / 5) - Math.PI / 2;
+      const r = i % 2 === 0 ? outerR : innerR;
+      starPath.push(new Phaser.Math.Vector2(cx + Math.cos(ang) * r, cy + Math.sin(ang) * r));
+    }
+    stG.fillPoints(starPath, true, true);
+    stG.fillStyle(0xffffff, 0.6); stG.fillCircle(27, 26, 6);
+    stG.lineStyle(2, 0xff6b9d, 1); stG.strokePoints(starPath, true);
+    stG.generateTexture('star', 64, 64);
+    stG.destroy();
+
+    // Chaos orb — pulsing red menace
+    const cG = this.add.graphics();
+    cG.fillStyle(0xff0000, 0.2); cG.fillCircle(28, 28, 26);
+    cG.fillStyle(0xff3333, 1);   cG.fillCircle(28, 28, 20);
+    cG.fillStyle(0xff6b6b, 1);   cG.fillCircle(28, 28, 12);
+    cG.fillStyle(0xffffff, 0.6); cG.fillCircle(23, 22, 5);
+    cG.lineStyle(3, 0xff0000, 1); cG.strokeCircle(28, 28, 22);
+    // X mark
+    cG.lineStyle(3, 0xffffff, 0.9);
+    cG.lineBetween(18, 18, 38, 38); cG.lineBetween(38, 18, 18, 38);
+    cG.generateTexture('chaos', 56, 56);
+    cG.destroy();
+
+    // Particle dot
+    const ptG = this.add.graphics();
+    ptG.fillStyle(0xffffff, 1); ptG.fillCircle(4, 4, 4);
+    ptG.generateTexture('particle', 8, 8);
+    ptG.destroy();
+
+    // Star particle (small)
+    const spG = this.add.graphics();
+    spG.fillStyle(0xffd93d, 1); spG.fillCircle(3, 3, 3);
+    spG.generateTexture('starparticle', 6, 6);
+    spG.destroy();
+  }
+
+  create() {
+    const { width, height } = this.scale;
+    this.createBackground(width, height);
+
+    // Floating orb in center for demo
+    this.demoOrb = this.add.image(width * 0.35, height * 0.5, 'player').setScale(0.55).setAlpha(0.85);
+    this.tweens.add({ targets: this.demoOrb, y: height * 0.5 - 18, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+
+    // Title
+    this.add.text(width / 2, height * 0.18, "DON'T", {
+      fontFamily: 'Bungee', fontSize: clamp(Math.floor(width * 0.095), 32, 80) + 'px',
+      color: '#ffd93d', stroke: '#5e2a80', strokeThickness: 6,
+      shadow: { offsetX: 3, offsetY: 3, color: '#ff6b9d', blur: 12, fill: true }
+    }).setOrigin(0.5);
+    this.add.text(width / 2, height * 0.31, "HOLD IT", {
+      fontFamily: 'Bungee', fontSize: clamp(Math.floor(width * 0.11), 36, 90) + 'px',
+      color: '#ff6b9d', stroke: '#1a0a2e', strokeThickness: 8,
+      shadow: { offsetX: 4, offsetY: 4, color: '#c44dff', blur: 16, fill: true }
+    }).setOrigin(0.5);
+
+    // Instructions panel
+    const panelW = Math.min(width * 0.7, 480);
+    const panel = this.add.rectangle(width / 2, height * 0.62, panelW, 200, 0x2d1b4e, 0.85).setStrokeStyle(2, 0xc44dff);
+    this.add.text(width / 2, height * 0.55, '🎮 HOW TO PLAY', {
+      fontFamily: 'Bungee', fontSize: '16px', color: '#c44dff'
+    }).setOrigin(0.5);
+    const instrLines = [
+      '• Press & hold SPACE / tap to FALL DOWN',
+      '• Release to float UP',
+      '• HOLDING TOO LONG makes it WORSE',
+      '• 5 seconds of holding = 💀 instant death',
+      '• Dodge walls, spikes, and chaos orbs!'
+    ];
+    instrLines.forEach((line, i) => {
+      this.add.text(width / 2, height * 0.59 + i * 22, line, {
+        fontFamily: 'Fredoka One', fontSize: '14px', color: '#e0d0ff'
+      }).setOrigin(0.5);
+    });
+
+    // Tap to start — pulsing
+    const startText = this.add.text(width / 2, height * 0.87, '▶  TAP TO START  ◀', {
+      fontFamily: 'Bungee', fontSize: '20px', color: '#6bff6b',
+      shadow: { offsetX: 2, offsetY: 2, color: '#1a3a1a', blur: 8, fill: true }
+    }).setOrigin(0.5);
+    this.tweens.add({ targets: startText, alpha: 0.2, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+
+    // Input to start
+    const startGame = () => {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      this.scene.start('GameScene');
+    };
+    this.input.once('pointerdown', startGame);
+    this.input.keyboard.once('keydown', startGame);
+  }
+
+  createBackground(width, height) {
+    // Deep space gradient
+    const bg = this.add.graphics();
+    bg.fillGradientStyle(0x0a0518, 0x0a0518, 0x1a0a2e, 0x1a0a2e, 1);
+    bg.fillRect(0, 0, width, height);
+    // Stars
+    for (let i = 0; i < 120; i++) {
+      const x = Math.random() * width;
+      const y = Math.random() * height;
+      const r = Math.random() * 1.5 + 0.5;
+      const a = Math.random() * 0.6 + 0.3;
+      const c = [0xffffff, 0xffd93d, 0xff6b9d, 0xc44dff][Math.floor(Math.random() * 4)];
+      bg.fillStyle(c, a); bg.fillCircle(x, y, r);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  create() {
+    _gameScene = this;
+    const { width, height } = this.scale;
+    this.W = width;
+    this.H = height;
+
+    // Score tracking
+    this.score = 0;
+    this.bonusPoints = 0;
+    this.timeAlive = 0;
+    this.dead = false;
+
+    // Hold tracking
+    this.holdTime = 0;       // continuous hold seconds
+    this.holdTier = 0;       // 0-5 escalation tier
+    this.isHolding = false;
+    this.chaosBuff = 0;      // extra seconds of forced chaos from chaos orb
+
+    // Difficulty base params (scale with elapsed time)
+    this.elapsed = 0;
+    this.baseSpeed = 180;
+    this.wallsPassed = 0;
+
+    // Wall spawning
+    this.nextWallTime = 0;
+    this.wallPool = [];
+
+    // Spike balls group
+    this.spikeBalls = [];
+    this.nextSpikeTime = 0;
+
+    // Pickups
+    this.pickups = [];
+    this.nextPickupTime = 0;
+
+    // Background & decorations
+    this.createBackground();
+
+    // Ceiling and floor kill zones (invisible walls)
+    const MARGIN = 28;
+    this.ceiling = this.physics.add.staticGroup();
+    this.floor   = this.physics.add.staticGroup();
+    const ceilBar = this.add.rectangle(width / 2, MARGIN / 2, width, MARGIN, 0x000000, 0);
+    const floorBar = this.add.rectangle(width / 2, height - MARGIN / 2, width, MARGIN, 0x000000, 0);
+    this.physics.add.existing(ceilBar, true);
+    this.physics.add.existing(floorBar, true);
+    this.ceiling.add(ceilBar);
+    this.floor.add(floorBar);
+
+    // Ceiling and floor visual bars
+    const barG = this.add.graphics();
+    barG.fillStyle(0xff6b9d, 0.6);
+    barG.fillRect(0, 0, width, MARGIN);
+    barG.fillRect(0, height - MARGIN, width, MARGIN);
+    barG.lineStyle(2, 0xff6b9d, 1);
+    barG.lineBetween(0, MARGIN, width, MARGIN);
+    barG.lineBetween(0, height - MARGIN, width, height - MARGIN);
+    barG.setDepth(5);
+
+    // Stripes on ceiling/floor
+    for (let x = 0; x < width; x += 40) {
+      const alpha = 0.3;
+      barG.fillStyle(0xffd93d, alpha);
+      barG.fillRect(x, 0, 20, MARGIN);
+      barG.fillRect(x + 20, height - MARGIN, 20, MARGIN);
+    }
+
+    // Player orb
+    this.player = this.physics.add.sprite(width * 0.18, height / 2, 'player');
+    this.player.setScale(0.4);
+    this.player.body.setCircle(19, 0, 0);  // Physics circle radius 19 (with offset), hitbox smaller than visual
+    this.player.setDepth(10);
+    this.player.body.setCollideWorldBounds(false);
+    this.player.body.allowGravity = false;
+
+    // Player idle bob tween (stopped during play, kept for death)
+    this.playerIdleTween = null;
+
+    // Player glow effect
+    this.playerGlow = this.add.image(width * 0.18, height / 2, 'player').setScale(0.5).setAlpha(0.25).setDepth(9);
+
+    // Wall physics group
+    this.walls = this.physics.add.group();
+
+    // Spike ball physics group
+    this.spikeGroup = this.physics.add.group();
+
+    // Pickup physics group
+    this.pickupGroup = this.physics.add.group();
+
+    // Colliders
+    this.physics.add.overlap(this.player, this.ceiling, this.handleDeath, null, this);
+    this.physics.add.overlap(this.player, this.floor, this.handleDeath, null, this);
+    this.physics.add.overlap(this.player, this.walls, this.handleDeath, null, this);
+    this.physics.add.overlap(this.player, this.spikeGroup, this.handleDeath, null, this);
+    this.physics.add.overlap(this.player, this.pickupGroup, this.handlePickup, null, this);
+
+    // Input
+    this.holdKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    this.input.on('pointerdown', this.startHold, this);
+    this.input.on('pointerup', this.endHold, this);
+
+    // HUD
+    this.createHUD();
+
+    // Particle emitter for player trail
+    this.trailEmitter = this.add.particles(0, 0, 'particle', {
+      follow: this.player,
+      lifespan: 350,
+      speed: { min: 10, max: 40 },
+      scale: { start: 0.3, end: 0 },
+      alpha: { start: 0.5, end: 0 },
+      tint: [0xffd93d, 0xff6b9d, 0xc44dff],
+      emitting: true,
+      frequency: 40,
+      blendMode: 'ADD'
+    }).setDepth(8);
+
+    // Score popup pool
+    this.scorePopups = [];
+
+    // Schedule first wall
+    this.nextWallTime = 1200;
+    this.nextPickupTime = 4000;
+    this.nextSpikeTime = 25000; // spikes start at 25s
+
+    // Screen flash on start
+    this.cameras.main.flash(400, 100, 50, 150);
+
+    // Hold meter visual
+    this.holdMeterBg = this.add.rectangle(width / 2, height - 14, 280, 10, 0x2d1b4e, 0.9).setStrokeStyle(1, 0xc44dff).setDepth(20);
+    this.holdMeterFill = this.add.rectangle(width / 2 - 140, height - 14, 0, 8, 0x6bff6b, 1).setOrigin(0, 0.5).setDepth(21);
+    this.holdMeterLabel = this.add.text(width / 2, height - 26, 'HOLD METER', {
+      fontFamily: 'Bungee', fontSize: '10px', color: '#c44dff'
+    }).setOrigin(0.5, 1).setDepth(21);
+
+    // Rumble emitter (for chaos chaos)
+    this.chaosParticles = this.add.particles(0, 0, 'particle', {
+      x: { min: 0, max: width },
+      y: { min: 0, max: height },
+      lifespan: 600,
+      speed: { min: 30, max: 120 },
+      scale: { start: 0.5, end: 0 },
+      alpha: { start: 0.4, end: 0 },
+      tint: [0xff0000, 0xff4757, 0xff6b9d],
+      emitting: false,
+      frequency: 80,
+      blendMode: 'ADD'
+    }).setDepth(7);
+
+    // Track last sfx time to avoid spam
+    this.lastChaosSound = 0;
+  }
+
+  createBackground() {
+    const { W, H } = this;
+    // Base gradient
+    const bg = this.add.graphics();
+    bg.fillGradientStyle(0x0a0518, 0x0a0518, 0x150b2e, 0x150b2e, 1);
+    bg.fillRect(0, 0, W, H);
+    bg.setDepth(0);
+
+    // Slow parallax tiles (simulated with graphics objects that tile slowly)
+    this.bgStars = [];
+    for (let i = 0; i < 80; i++) {
+      const x = Math.random() * W;
+      const y = Math.random() * H;
+      const r = Math.random() * 1.5 + 0.3;
+      const a = Math.random() * 0.5 + 0.2;
+      const colors = [0xffffff, 0xffd93d, 0xc44dff, 0xff6b9d];
+      const c = colors[Math.floor(Math.random() * colors.length)];
+      const star = this.add.circle(x, y, r, c, a).setDepth(1);
+      this.bgStars.push({ obj: star, speed: Math.random() * 0.3 + 0.05 });
+    }
+
+    // Grid lines (synthwave-ish parallax)
+    this.gridLines = this.add.graphics().setDepth(2).setAlpha(0.08);
+    for (let y = 0; y < H; y += 50) {
+      this.gridLines.lineStyle(1, 0xff6b9d, 1);
+      this.gridLines.lineBetween(0, y, W, y);
+    }
+  }
+
+  createHUD() {
+    const { W } = this;
+    this.scoreText = this.add.text(W / 2, 16, 'SCORE: 0', {
+      fontFamily: 'Bungee', fontSize: '20px', color: '#ffd93d',
+      stroke: '#1a0a2e', strokeThickness: 4,
+      shadow: { offsetX: 2, offsetY: 2, color: '#ff6b9d', blur: 6, fill: true }
+    }).setOrigin(0.5, 0).setDepth(20);
+
+    this.holdTierText = this.add.text(W - 12, 16, '', {
+      fontFamily: 'Bungee', fontSize: '13px', color: '#ff4757'
+    }).setOrigin(1, 0).setDepth(20);
+
+    this.warningText = this.add.text(W / 2, this.H / 2 - 80, '', {
+      fontFamily: 'Bungee', fontSize: '28px', color: '#ff4757',
+      stroke: '#1a0a2e', strokeThickness: 5,
+      shadow: { offsetX: 2, offsetY: 2, color: '#ff0000', blur: 10, fill: true }
+    }).setOrigin(0.5).setDepth(25).setAlpha(0);
+  }
+
+  startHold() {
+    if (!this.dead) this.isHolding = true;
+  }
+  endHold() {
+    if (this.isHolding) {
+      sfxRelease();
+      this.isHolding = false;
+    }
+  }
+
+  update(time, delta) {
+    if (this.dead) return;
+
+    const dt = delta / 16.667;
+    this.elapsed += delta;
+    this.timeAlive += delta / 1000;
+
+    // ─── Difficulty params ────────────────────────────────────────────────
+    const elapsedS = this.elapsed / 1000;
+    const baseDiff = Math.min(elapsedS / 120, 1);
+    const baseSpeed = lerp(180, 380, easeIn(baseDiff));
+    const baseSpawnInterval = lerp(2200, 800, easeIn(baseDiff));
+
+    // ─── Hold logic ───────────────────────────────────────────────────────
+    const holdingNow = this.isHolding || this.holdKey.isDown;
+    const effectiveChaosBuff = this.chaosBuff > 0;
+
+    if (holdingNow) {
+      if (!this._wasHolding) {
+        sfxFlap();
+        this._wasHolding = true;
+      }
+      this.holdTime += delta / 1000;
+    } else {
+      this._wasHolding = false;
+      this.holdTime = Math.max(0, this.holdTime - delta / 1000 * 0.5); // cool down slower
+    }
+    if (this.chaosBuff > 0) this.chaosBuff -= delta / 1000;
+
+    // Tier thresholds [0, 0.5, 1, 2, 3, 4, 5]
+    const ht = this.holdTime + (effectiveChaosBuff ? 3 : 0);
+    let newTier = 0;
+    if (ht >= 5) newTier = 5;
+    else if (ht >= 4) newTier = 4;
+    else if (ht >= 3) newTier = 3;
+    else if (ht >= 2) newTier = 2;
+    else if (ht >= 1) newTier = 1;
+    else if (ht >= 0.5) newTier = 0;
+    this.holdTier = newTier;
+
+    // INSTANT DEATH at tier 5
+    if (newTier >= 5 && !this.dead) {
+      sfxOverload();
+      this.cameras.main.flash(300, 255, 0, 0);
+      this.handleDeath(null, null, true);
+      return;
+    }
+
+    // ─── Player physics ───────────────────────────────────────────────────
+    const FLOAT_SPEED = -90;  // natural float up
+    const HOLD_SPEED  = 220;  // fall speed when holding
+    let targetVY = FLOAT_SPEED;
+    if (holdingNow) targetVY = HOLD_SPEED + newTier * 20;
+    // Smooth velocity
+    const curVY = this.player.body.velocity.y;
+    const newVY = lerp(curVY, targetVY, 0.12 * dt);
+    this.player.body.setVelocityY(newVY);
+
+    // Update glow position
+    this.playerGlow.x = this.player.x;
+    this.playerGlow.y = this.player.y;
+    this.playerGlow.setAlpha(holdingNow ? 0.45 : 0.2);
+    this.playerGlow.setScale(0.52 + newTier * 0.04);
+    this.player.setTint(newTier >= 3 ? Phaser.Display.Color.GetColor(255, 100 - newTier * 20, 100 - newTier * 20) : 0xffffff);
+
+    // ─── Hold-tier effects ────────────────────────────────────────────────
+    // Update chaos particles
+    this.chaosParticles.emitting = (newTier >= 4);
+
+    // Screen shake at tier 3+
+    if (newTier >= 3 && holdingNow) {
+      if (this.time.now - (this._lastShake || 0) > 200) {
+        this.cameras.main.shake(120, 0.002 * (newTier - 2));
+        this._lastShake = this.time.now;
+      }
+    }
+
+    // Chaos sounds
+    if (newTier >= 2 && holdingNow && this.time.now - this.lastChaosSound > 600) {
+      sfxChaos();
+      this.lastChaosSound = this.time.now;
+    }
+
+    // Hold tier HUD
+    const tierLabels = ['', '', '⚠️ WARMING UP', '🔥 DANGER!', '💀 CRITICAL!', ''];
+    const tierColors = ['#aaa', '#ffd93d', '#ff9f43', '#ff6b6b', '#ff0000', '#ff0000'];
+    this.holdTierText.setText(newTier >= 1 ? tierLabels[newTier] || '' : '');
+    this.holdTierText.setStyle({ color: tierColors[newTier] });
+
+    // Hold meter fill (0-5 seconds = full bar width 280)
+    const meterFraction = clamp(this.holdTime / 5, 0, 1);
+    const meterColor = newTier <= 1 ? 0x6bff6b : newTier <= 2 ? 0xffd93d : newTier <= 3 ? 0xff9f43 : 0xff4757;
+    this.holdMeterFill.width = 280 * meterFraction;
+    this.holdMeterFill.setFillStyle(meterColor);
+    this.holdMeterBg.setFillStyle(newTier >= 4 ? 0x3a0a0a : 0x2d1b4e);
+
+    // Warning text
+    if (newTier >= 4 && holdingNow) {
+      this.warningText.setText('RELEASE NOW!!');
+      this.warningText.setAlpha(0.7 + Math.sin(this.elapsed * 0.02) * 0.3);
+    } else if (newTier >= 3) {
+      this.warningText.setText('LET GO!');
+      this.warningText.setAlpha(0.5 + Math.sin(this.elapsed * 0.015) * 0.3);
+    } else {
+      this.warningText.setAlpha(0);
+    }
+
+    // ─── Spawn speed modifier from hold tier ──────────────────────────────
+    const holdSpeedMult = 1 + newTier * 0.12;  // each tier +12% speed
+    const holdSpawnMult = 1 + newTier * 0.3;   // each tier +30% spawn rate
+    const effectiveSpeed = baseSpeed * holdSpeedMult;
+    const effectiveSpawnInterval = baseSpawnInterval / holdSpawnMult;
+
+    // ─── Wall spawning ────────────────────────────────────────────────────
+    if (this.elapsed > this.nextWallTime) {
+      this.spawnWall(effectiveSpeed);
+      this.nextWallTime = this.elapsed + effectiveSpawnInterval;
+    }
+
+    // ─── Spike ball spawning ──────────────────────────────────────────────
+    const spikeUnlocked = elapsedS >= 25 || newTier >= 2;
+    if (spikeUnlocked && this.elapsed > this.nextSpikeTime) {
+      this.spawnSpike(effectiveSpeed);
+      const spikeInterval = lerp(3500, 1200, easeIn(baseDiff)) / holdSpawnMult;
+      this.nextSpikeTime = this.elapsed + spikeInterval;
+    }
+
+    // ─── Pickup spawning ──────────────────────────────────────────────────
+    if (this.elapsed > this.nextPickupTime) {
+      this.spawnPickup();
+      this.nextPickupTime = this.elapsed + lerp(5000, 2500, baseDiff);
+    }
+
+    // ─── Move all objects ─────────────────────────────────────────────────
+    [...this.walls.getChildren()].forEach(w => {
+      w.x -= effectiveSpeed * (dt * 16.667 / 1000);
+      if (w.x < -120) {
+        if (!w._scored) {
+          w._scored = true;
+          if (!holdingNow) {
+            this.bonusPoints += 5;
+            this.showScorePopup(this.player.x + 20, this.player.y - 20, '+5');
+            sfxWallPass();
+          }
+        }
+        w.destroy();
+      }
+    });
+
+    [...this.spikeGroup.getChildren()].forEach(s => {
+      s.x -= effectiveSpeed * (dt * 16.667 / 1000) * 0.85;
+      s.angle += 2 * dt;
+      if (s.x < -80) s.destroy();
+    });
+
+    [...this.pickupGroup.getChildren()].forEach(p => {
+      p.x -= effectiveSpeed * (dt * 16.667 / 1000) * 0.6;
+      p.angle += 1.5 * dt;
+      if (p.x < -80) p.destroy();
+    });
+
+    // ─── Score ────────────────────────────────────────────────────────────
+    this.score = Math.floor(this.timeAlive * 10 + this.bonusPoints);
+    this.scoreText.setText('SCORE: ' + this.score);
+
+    // Star parallax
+    this.bgStars.forEach(s => {
+      s.obj.x -= s.speed * dt;
+      if (s.obj.x < -5) s.obj.x = this.W + 5;
+    });
+  }
+
+  spawnWall(speed) {
+    const { W, H } = this;
+    const MARGIN = 30;
+    const minGap = lerp(240, 140, Math.min(this.elapsed / 90000, 1));
+    const gap = minGap + Math.random() * 80;
+    const gapY = MARGIN + Math.random() * (H - gap - MARGIN * 2);
+
+    // Top wall chunk
+    const topH = gapY;
+    if (topH > 10) {
+      const top = this.walls.create(W + 60, topH / 2, 'wall');
+      top.setScale(1, topH / 400).refreshBody();
+      top.body.allowGravity = false;
+      top.body.immovable = true;
+      top.body.setSize(80, topH);
+      top._scored = false;
+    }
+    // Bottom wall chunk
+    const botY = gapY + gap;
+    const botH = H - botY;
+    if (botH > 10) {
+      const bot = this.walls.create(W + 60, botY + botH / 2, 'wall');
+      bot.setScale(1, botH / 400).refreshBody();
+      bot.body.allowGravity = false;
+      bot.body.immovable = true;
+      bot.body.setSize(80, botH);
+      bot._scored = false;
+    }
+  }
+
+  spawnSpike(speed) {
+    const { W, H } = this;
+    const y = 50 + Math.random() * (H - 100);
+    const spike = this.spikeGroup.create(W + 40, y, 'spike');
+    spike.setScale(0.65 + Math.random() * 0.35);
+    spike.body.allowGravity = false;
+    spike.body.immovable = true;
+    spike.body.setCircle(20, 12, 12);  // smaller hitbox
+  }
+
+  spawnPickup() {
+    const { W, H } = this;
+    const y = 60 + Math.random() * (H - 120);
+    const isChaos = Math.random() < 0.28 && this.elapsed > 10000;
+    const key = isChaos ? 'chaos' : 'star';
+    const pickup = this.pickupGroup.create(W + 40, y, key);
+    pickup.setScale(0.7);
+    pickup.body.allowGravity = false;
+    pickup.body.immovable = true;
+    pickup.body.setCircle(20, 8, 8);
+    pickup._isChaos = isChaos;
+    // Hover tween
+    this.tweens.add({ targets: pickup, y: y + 15, duration: 800 + Math.random() * 400, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+  }
+
+  handlePickup(player, pickup) {
+    if (!pickup.active) return;
+    pickup.destroy();
+    if (pickup._isChaos) {
+      this.chaosBuff = 1.5;
+      sfxChaos();
+      this.cameras.main.shake(250, 0.008);
+      this.cameras.main.flash(200, 200, 0, 0);
+      this.showScorePopup(this.player.x, this.player.y - 30, '😱 CHAOS!', '#ff4757');
+    } else {
+      this.bonusPoints += 50;
+      sfxCollect();
+      this.showScorePopup(this.player.x, this.player.y - 30, '+50 ⭐', '#ffd93d');
+      // Star burst particles
+      this.add.particles(pickup.x, pickup.y, 'starparticle', {
+        speed: { min: 60, max: 180 },
+        lifespan: 500,
+        scale: { start: 0.8, end: 0 },
+        alpha: { start: 1, end: 0 },
+        quantity: 12,
+        tint: [0xffd93d, 0xff6b9d],
+        blendMode: 'ADD',
+        emitting: false
+      }).explode(12);
+    }
+  }
+
+  handleDeath(player, obj, isOverload = false) {
+    if (this.dead) return;
+    this.dead = true;
+
+    // Stop input
+    this.isHolding = false;
+
+    sfxDeath();
+
+    // Death particles
+    this.add.particles(this.player.x, this.player.y, 'particle', {
+      speed: { min: 80, max: 280 },
+      lifespan: 800,
+      scale: { start: 0.8, end: 0 },
+      alpha: { start: 1, end: 0 },
+      quantity: 30,
+      tint: [0xffd93d, 0xff6b9d, 0xffffff, 0xc44dff],
+      blendMode: 'ADD',
+      emitting: false
+    }).explode(30);
+
+    this.cameras.main.shake(350, 0.018);
+    this.cameras.main.flash(300, 255, 80, 80);
+
+    // Hide player
+    this.player.setVisible(false);
+    this.playerGlow.setVisible(false);
+    this.trailEmitter.stop();
+
+    // Determine death message
+    let deathMsg = isOverload ? '💀 OVERLOADED!' : '💥 CRASHED!';
+    this.warningText.setText(deathMsg).setAlpha(1).setStyle({ color: '#ff4757', fontSize: '32px' });
+
+    this.time.delayedCall(600, () => {
+      this.scene.pause();
+      showGameOverUI(this.score);
+    });
+  }
+
+  showScorePopup(x, y, text, color = '#6bff6b') {
+    const popup = this.add.text(x, y, text, {
+      fontFamily: 'Bungee', fontSize: '18px', color,
+      stroke: '#1a0a2e', strokeThickness: 3
+    }).setOrigin(0.5).setDepth(30);
+    this.tweens.add({
+      targets: popup,
+      y: y - 50,
+      alpha: 0,
+      duration: 900,
+      ease: 'Power2',
+      onComplete: () => popup.destroy()
+    });
+  }
+}
+
+// ─── Phaser Config ────────────────────────────────────────────────────────────
+const config = {
+  type: Phaser.AUTO,
+  width: 800,
+  height: 520,
+  backgroundColor: '#0a0518',
+  physics: {
+    default: 'arcade',
+    arcade: { gravity: { y: 0 }, debug: false }
+  },
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH
+  },
+  scene: [MenuScene, GameScene]
+};
+
+const game = new Phaser.Game(config);
+</script>
+</body>
+</html>
