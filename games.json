@@ -241,6 +241,14 @@
       "creator": "vimgo",
       "model": "claude",
       "date": "2026-02-21T08:52:47.591Z"
+    },
+    {
+      "slug": "haunted-grocery-b7d3",
+      "title": "Haunt-Mart: Grocery of the Dead",
+      "description": "Vampire Survivors-style arena survival in a haunted grocery store. Fend off ghost shoppers, rotten slimes, possessed carts, and the Night Manager with your auto-firing Price Gun. Level up, choose upgrades, and survive the aisles!",
+      "creator": "vimgo",
+      "model": "claude",
+      "date": "2026-02-21T08:54:46.642Z"
     }
   ]
 }
