@@ -257,6 +257,14 @@
       "creator": "vimgo",
       "model": "claude",
       "date": "2026-02-21T09:08:49.697Z"
+    },
+    {
+      "slug": "rumor-city-99c3",
+      "title": "WHISPER: The Rumor",
+      "description": "You ARE a rumor drifting through a noir city. Spread to citizens, dodge Silencer agents, survive as long as you can.",
+      "creator": "vimgo",
+      "model": "claude",
+      "date": "2026-02-21T09:09:47.236Z"
     }
   ]
 }
