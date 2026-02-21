@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Tax Flap Panic</title>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: radial-gradient(circle at 20% 20%, #24405c 0%, #0f1e2f 45%, #09111b 100%);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+      touch-action: none;
+      color: #eaf6ff;
+      font-family: 'Rajdhani', sans-serif;
+    }
+    #ui-overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 20;
+      background: rgba(4, 10, 16, 0.82);
+      padding: 16px;
+    }
+    .panel {
+      width: min(92vw, 420px);
+      background: linear-gradient(180deg, #132235, #0c1726);
+      border: 2px solid #6de2ff;
+      border-radius: 14px;
+      padding: 18px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+      text-align: center;
+    }
+    .panel h2 { font-size: 2rem; margin-bottom: 6px; color: #8af7ff; }
+    .score-line { font-size: 1.2rem; margin: 8px 0 12px; }
+    #nameInput {
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #6de2ff;
+      background: #0a1421;
+      color: #ecfbff;
+      font-size: 1rem;
+      margin-bottom: 10px;
+    }
+    .btn {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 8px;
+      background: #35d39f;
+      color: #062017;
+    }
+    .btn.secondary {
+      background: #6de2ff;
+      color: #062033;
+    }
+    #leaderboard {
+      margin-top: 14px;
+      text-align: left;
+      max-height: 190px;
+      overflow-y: auto;
+      background: rgba(255,255,255,0.04);
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 0.98rem;
+    }
+    #leaderboard .row {
+      display: flex;
+      justify-content: space-between;
+      margin: 3px 0;
+      color: #c8f4ff;
+    }
+  </style>
+</head>
+<body>
+  <div id="ui-overlay">
+    <div class="panel">
+      <h2>Audit Failed</h2>
+      <div class="score-line">Final Score: <span id="finalScore">0</span></div>
+      <input id="nameInput" maxlength="20" placeholder="Your name" />
+      <button id="submitBtn" class="btn">Submit Score</button>
+      <div id="leaderboard">Top Filers will appear here...</div>
+      <button id="replayBtn" class="btn secondary">Play Again</button>
+    </div>
+  </div>
+
+<script>
+// Design decisions:
+// Genre: Flappy-style endless dodger.
+// Core mechanic: Tap/Space/Click to flap upward while gravity pulls down.
+// Death condition: Collide with falling tax forms or leave screen bounds.
+// Difficulty: Time-based easing over 120s; form fall speed, spawn rate, and lateral drift increase smoothly.
+// Visual theme: Cool office-storm palette, Rajdhani font, paper-like obstacles with "1040" stamp.
+// Art direction: Rounded accountant-bird silhouette with tie + glasses; tax forms are layered sheets with red stamp.
+// Asset strategy: Fully procedural textures (no external sprite rights risk).
+// Score formula: floor(timeAlive * 10 + dodgeBonus).
+
+const GAME_ID = 'tax-flap-panic-c4d2';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch (e) {
+    console.warn('Leaderboard unavailable:', e);
+    return null;
+  }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch (e) {
+    console.warn('Leaderboard unavailable:', e);
+    return [];
+  }
+}
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playSound(type, freq, duration, volume) {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  gain.gain.setValueAtTime(volume || 0.2, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  osc.start(); osc.stop(audioCtx.currentTime + duration);
+}
+const sfxStart = () => { playSound('triangle', 360, 0.10, 0.18); playSound('triangle', 520, 0.14, 0.15); };
+const sfxFlap = () => { playSound('sine', 460, 0.09, 0.16); playSound('sine', 690, 0.06, 0.12); };
+const sfxDodge = () => { playSound('square', 820, 0.05, 0.10); };
+const sfxDeath = () => { playSound('sawtooth', 260, 0.35, 0.22); playSound('sawtooth', 120, 0.60, 0.18); };
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+function easeInOut(t) { return t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2)/2; }
+
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+  create() {
+    const { width, height } = this.scale;
+    this.add.rectangle(width/2, height/2, width, height, 0x0f1e2f, 0.45);
+    this.add.text(width/2, height*0.25, 'TAX FLAP PANIC', { fontFamily: 'Rajdhani', fontSize: '64px', color: '#8af7ff', fontStyle: '700' }).setOrigin(0.5);
+    this.add.text(width/2, height*0.43,
+      'Flap to dodge falling tax forms.\nSurvive as long as possible before the IRS storm gets you.',
+      { fontFamily: 'Rajdhani', fontSize: '30px', color: '#eaf6ff', align: 'center' }).setOrigin(0.5);
+    this.add.text(width/2, height*0.67, 'Controls:\nSpace / Click / Tap = Flap', { fontFamily: 'Rajdhani', fontSize: '28px', color: '#b6f7ff', align: 'center' }).setOrigin(0.5);
+    const blink = this.add.text(width/2, height*0.84, 'TAP OR PRESS ANY KEY TO START', { fontFamily: 'Rajdhani', fontSize: '28px', color: '#35d39f', fontStyle: '700' }).setOrigin(0.5);
+    this.tweens.add({ targets: blink, alpha: 0.25, yoyo: true, duration: 650, repeat: -1 });
+
+    const begin = () => {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      sfxStart();
+      this.scene.start('GameScene');
+    };
+    this.input.once('pointerdown', begin);
+    this.input.keyboard.once('keydown', begin);
+  }
+}
+
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  createTextures() {
+    if (!this.textures.exists('player')) {
+      const g = this.add.graphics();
+      g.fillStyle(0x2ac6ff, 1); g.fillEllipse(56, 50, 84, 58);
+      g.fillStyle(0x1b86b3, 1); g.fillEllipse(40, 60, 36, 22);
+      g.fillStyle(0xffffff, 1); g.fillCircle(76, 42, 9);
+      g.fillStyle(0x10263b, 1); g.fillCircle(79, 42, 4);
+      g.fillStyle(0xffc857, 1); g.fillTriangle(96, 52, 112, 58, 96, 64);
+      g.fillStyle(0xffffff, 0.18); g.fillEllipse(48, 36, 34, 16);
+      g.lineStyle(5, 0x123248, 1); g.strokeEllipse(56, 50, 84, 58);
+      g.lineStyle(4, 0x123248, 1); g.strokeRect(66, 34, 18, 18); g.strokeRect(84, 34, 18, 18); g.lineBetween(84, 43, 84, 43);
+      g.fillStyle(0xff4d4d, 1); g.fillTriangle(50, 72, 64, 56, 74, 72);
+      g.generateTexture('player', 128, 96);
+      g.destroy();
+    }
+
+    if (!this.textures.exists('taxForm')) {
+      const g = this.add.graphics();
+      g.fillStyle(0xf2f7fb, 1); g.fillRoundedRect(8, 8, 80, 104, 8);
+      g.fillStyle(0xe2ebf3, 1); g.fillRoundedRect(14, 14, 68, 92, 6);
+      g.fillStyle(0xffffff, 1); g.fillRoundedRect(12, 12, 72, 96, 6);
+      g.lineStyle(2, 0xc9d4df, 1); for (let y=26; y<98; y+=10) g.lineBetween(20, y, 76, y);
+      g.fillStyle(0xd83939, 0.85); g.fillRoundedRect(48, 72, 30, 16, 4);
+      g.generateTexture('taxForm', 96, 120);
+      g.destroy();
+    }
+  }
+
+  create() {
+    this.gameOverTriggered = false;
+    this.gameStartTime = this.time.now;
+    this.score = 0;
+    this.dodgeBonus = 0;
+
+    const { width, height } = this.scale;
+
+    this.add.rectangle(width/2, height/2, width, height, 0x0f1e2f, 0.16);
+    this.bgStars = this.add.particles(0, 0, 'taxForm', {
+      x: { min: 0, max: width },
+      y: { min: -20, max: height },
+      lifespan: 7000,
+      speedY: { min: 8, max: 24 },
+      speedX: { min: -6, max: 6 },
+      scale: { start: 0.03, end: 0.01 },
+      alpha: { start: 0.1, end: 0 },
+      quantity: 1,
+      frequency: 260,
+      tint: 0x8ec8ee
+    });
+
+    this.createTextures();
+
+    this.player = this.physics.add.sprite(220, height/2, 'player').setScale(0.72);
+    this.player.setCollideWorldBounds(false);
+    this.player.body.setSize(this.player.width * 0.58, this.player.height * 0.58);
+    this.player.body.setOffset(this.player.width * 0.22, this.player.height * 0.23);
+
+    this.forms = this.physics.add.group();
+    this.physics.add.overlap(this.player, this.forms, () => this.handleDeath(), null, this);
+
+    this.spawnTimer = 0;
+    this.scoreText = this.add.text(16, 12, 'Score: 0', { fontFamily: 'Rajdhani', fontSize: '34px', fontStyle: '700', color: '#e9fbff' }).setDepth(10);
+    this.timeText = this.add.text(16, 46, 'Time: 0.0s', { fontFamily: 'Rajdhani', fontSize: '26px', color: '#b7efff' }).setDepth(10);
+
+    this.cursors = this.input.keyboard.createCursorKeys();
+    this.space = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    this.input.on('pointerdown', () => this.flap());
+
+    this.trail = this.add.particles(0, 0, 'player', {
+      speed: { min: 10, max: 30 },
+      scale: { start: 0.08, end: 0.01 },
+      alpha: { start: 0.2, end: 0 },
+      lifespan: 350,
+      quantity: 1,
+      frequency: 30,
+      tint: [0x8af7ff, 0x35d39f]
+    });
+    this.trail.startFollow(this.player, -28, 6);
+  }
+
+  flap() {
+    if (this.gameOverTriggered) return;
+    this.player.setVelocityY(-245);
+    this.player.setAngle(-18);
+    sfxFlap();
+    this.tweens.add({ targets: this.player, angle: -2, duration: 180, ease: 'Sine.Out' });
+  }
+
+  spawnForm(speed, drift) {
+    const x = Phaser.Math.Between(100, this.scale.width - 70);
+    const f = this.forms.create(x, -30, 'taxForm');
+    f.setScale(0.74 + Math.random() * 0.18);
+    f.setVelocityY(speed * (0.88 + Math.random() * 0.3));
+    f.setVelocityX(Phaser.Math.Between(-drift, drift));
+    f.setAngularVelocity(Phaser.Math.Between(-70, 70));
+    f.body.setSize(f.width * 0.72, f.height * 0.72);
+    f.body.setOffset(f.width * 0.14, f.height * 0.14);
+    f.passed = false;
+  }
+
+  handleDeath() {
+    if (this.gameOverTriggered) return;
+    this.gameOverTriggered = true;
+    sfxDeath();
+    this.player.setTint(0xff6a6a);
+    this.trail.stop();
+    this.cameras.main.shake(220, 0.012);
+    this.cameras.main.flash(240, 255, 110, 110);
+    this.add.particles(this.player.x, this.player.y, 'taxForm', {
+      speed: { min: 60, max: 230 },
+      scale: { start: 0.09, end: 0 },
+      lifespan: 460,
+      quantity: 25,
+      tint: [0xffffff, 0xd83939, 0x8ac7e8]
+    });
+    this.player.setVelocity(0, 0);
+    this.time.delayedCall(500, () => {
+      this.scene.pause();
+      showGameOverUI(Math.floor(this.score));
+    });
+  }
+
+  update(time, delta) {
+    if (this.gameOverTriggered) return;
+    const dt = delta / 16.667;
+    const elapsed = (time - this.gameStartTime) / 1000;
+    const t = Math.min(elapsed / 120, 1);
+    const difficulty = easeInOut(t);
+
+    const gravity = lerp(10, 16, difficulty);
+    this.player.body.velocity.y += gravity * dt;
+    this.player.angle = Phaser.Math.Clamp(this.player.body.velocity.y * 0.12, -22, 55);
+
+    if (Phaser.Input.Keyboard.JustDown(this.space) || Phaser.Input.Keyboard.JustDown(this.cursors.up)) {
+      this.flap();
+    }
+
+    const spawnEvery = lerp(1180, 370, difficulty);
+    const formSpeed = lerp(95, 285, difficulty);
+    const drift = Math.floor(lerp(12, 90, difficulty));
+
+    this.spawnTimer += delta;
+    if (this.spawnTimer >= spawnEvery) {
+      this.spawnTimer = 0;
+      this.spawnForm(formSpeed, drift);
+    }
+
+    this.forms.children.each((f) => {
+      if (!f.active) return;
+      if (!f.passed && f.y > this.scale.height + 20) {
+        f.passed = true;
+        this.dodgeBonus += 8;
+        sfxDodge();
+        f.destroy();
+      }
+      if (f.x < -40 || f.x > this.scale.width + 40) f.destroy();
+    });
+
+    if (this.player.y < -30 || this.player.y > this.scale.height + 30) {
+      this.handleDeath();
+      return;
+    }
+
+    this.score = elapsed * 10 + this.dodgeBonus;
+    this.scoreText.setText(`Score: ${Math.floor(this.score)}`);
+    this.timeText.setText(`Time: ${elapsed.toFixed(1)}s`);
+  }
+}
+
+const config = {
+  type: Phaser.AUTO,
+  width: 800,
+  height: 600,
+  backgroundColor: '#0a1628',
+  physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: false } },
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: [MenuScene, GameScene]
+};
+
+const game = new Phaser.Game(config);
+const overlay = document.getElementById('ui-overlay');
+const finalScoreEl = document.getElementById('finalScore');
+const submitBtn = document.getElementById('submitBtn');
+const replayBtn = document.getElementById('replayBtn');
+const nameInput = document.getElementById('nameInput');
+const leaderboardEl = document.getElementById('leaderboard');
+let latestScore = 0;
+
+function renderLeaderboard(rows) {
+  if (!rows.length) {
+    leaderboardEl.innerHTML = '<div>No scores yet — be the first brave accountant.</div>';
+    return;
+  }
+  leaderboardEl.innerHTML = rows.map((r, i) =>
+    `<div class="row"><span>${i + 1}. ${String(r.playerName || 'Anonymous').slice(0, 20)}</span><strong>${r.score}</strong></div>`
+  ).join('');
+}
+
+async function showGameOverUI(finalScore) {
+  latestScore = finalScore;
+  finalScoreEl.textContent = String(finalScore);
+  overlay.style.display = 'flex';
+  nameInput.focus();
+  submitBtn.disabled = false;
+  const lb = await getLeaderboard(10);
+  renderLeaderboard(lb);
+}
+
+submitBtn.addEventListener('click', async () => {
+  submitBtn.disabled = true;
+  const playerName = (nameInput.value || 'Anonymous').trim().slice(0, 20) || 'Anonymous';
+  await submitScore(playerName, latestScore);
+  const lb = await getLeaderboard(10);
+  renderLeaderboard(lb);
+});
+
+replayBtn.addEventListener('click', () => {
+  overlay.style.display = 'none';
+  nameInput.value = '';
+  game.scene.stop('GameScene');
+  game.scene.start('GameScene');
+});
+</script>
+</body>
+</html>

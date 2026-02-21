@@ -171,28 +171,12 @@
       "model": "codex"
     },
     {
-      "slug": "dream-collapse-runner-b62f",
-      "title": "Dreamfall Escape",
-      "description": "Endless dream-escape runner: switch lanes, jump through collapsing nightmare debris, and collect dream shards for bonus score.",
-      "creator": "goob2037",
-      "date": "2026-02-21T08:42:49.532176Z",
-      "model": "codex",
-      "archived": false
-    },
-    {
-      "slug": "haunted-grocery-survivor-e9f5",
-      "title": "Haunted Grocery Survivors",
-      "description": "A Vampire Survivors-style auto-shooter in a haunted grocery store. Dodge ghosts, grab coupons, and outlast the aisle of doom.",
+      "slug": "tax-flap-panic-c4d2",
+      "title": "Tax Flap Panic",
+      "description": "Flappy-style survival: keep your accountant-bird airborne while dodging falling tax forms.",
       "creator": "discord-user",
-      "date": "2026-02-21T08:42:56Z"
-    },
-    {
-      "slug": "cozy-witch-spell-bakery-d991",
-      "title": "Cozy Witch: Spell Bakery Rush",
-      "description": "A Vampire-Survivors-inspired cozy bakery survival game where you dodge kitchen hazards and bake spell pastries.",
-      "creator": "discord-user",
-      "model": "codex",
-      "date": "2026-02-21T08:43:10.018Z"
+      "date": "2026-02-21T08:42:42.377Z",
+      "model": "codex"
     }
   ]
 }
