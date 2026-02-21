@@ -320,5 +320,12 @@
     "creator": "vimgo",
     "model": "claude",
     "date": "2026-02-21T15:40:30.297Z"
+  },
+  {
+    "slug": "time-chase-paradox-4ad1",
+    "title": "Paradox Pursuit",
+    "description": "Survive endless pursuit by your own alternate selves while harvesting chrono orbs in a collapsing timeline.",
+    "creator": "discord:game-request",
+    "date": "2026-02-21T23:31:13Z"
   }
 ]
