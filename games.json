@@ -326,21 +326,24 @@
     "title": "Paradox Pursuit",
     "description": "Survive endless pursuit by your own alternate selves while harvesting chrono orbs in a collapsing timeline.",
     "creator": "discord:game-request",
-    "date": "2026-02-21T23:31:13Z"
+    "date": "2026-02-21T23:31:13Z",
+    "model": "unknown"
   },
   {
     "slug": "recoil-drift-survivor-9c4a",
     "title": "Recoil Drift Survivor",
     "description": "Move only via weapon recoil while surviving escalating ocean-tech hazards.",
     "creator": "discord-user",
-    "date": "2026-02-21T23:31:23.045Z"
+    "date": "2026-02-21T23:31:23.045Z",
+    "model": "unknown"
   },
   {
     "slug": "last-pixel-terminal-fade-9a4f",
     "title": "Last Pixel: Terminal Fade",
     "description": "You are the final living pixel dodging glitches on a collapsing CRT while chasing score multipliers.",
     "creator": "discord-user",
-    "date": "2026-02-21T23:31:33Z"
+    "date": "2026-02-21T23:31:33Z",
+    "model": "unknown"
   },
   {
     "slug": "loading-bar-rageclick-e311",
@@ -349,5 +352,13 @@
     "creator": "discord-user",
     "model": "gpt-5.3-codex",
     "date": "2026-02-21T23:31:37.042Z"
+  },
+  {
+    "slug": "pressure-panic-7c1e",
+    "title": "Pressure Panic",
+    "description": "One-button survival flyer where holding thrust increases engine stress and makes hazards spawn faster.",
+    "creator": "discord-user",
+    "model": "openai-codex/gpt-5.3-codex",
+    "date": "2026-02-21T23:31:45.445Z"
   }
 ]
