@@ -1,0 +1,1155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Gravity Pull</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #020210;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  overflow: hidden;
+  touch-action: none;
+  font-family: 'Orbitron', monospace;
+}
+#ui-overlay {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  display: none; justify-content: center; align-items: center;
+  z-index: 10; background: rgba(2,2,16,0.92);
+  flex-direction: column;
+  font-family: 'Orbitron', monospace;
+}
+#overlay-box {
+  background: rgba(8,8,35,0.97);
+  border: 2px solid #7b2fff;
+  border-radius: 16px;
+  padding: 28px 38px;
+  text-align: center;
+  max-width: 420px;
+  width: 92%;
+  box-shadow: 0 0 50px rgba(123,47,255,0.45), inset 0 0 30px rgba(123,47,255,0.08);
+}
+#overlay-title {
+  font-size: 26px;
+  color: #d0a0ff;
+  font-weight: 900;
+  margin-bottom: 4px;
+  text-shadow: 0 0 20px #7b2fff;
+}
+#overlay-subtitle {
+  font-size: 10px;
+  color: #556688;
+  margin-bottom: 18px;
+  letter-spacing: 3px;
+}
+#final-score {
+  font-size: 52px;
+  color: #fff;
+  font-weight: 900;
+  margin-bottom: 2px;
+  text-shadow: 0 0 30px #aa66ff;
+}
+#score-label {
+  font-size: 9px;
+  color: #556688;
+  letter-spacing: 4px;
+  margin-bottom: 18px;
+}
+#name-input {
+  width: 100%;
+  padding: 10px 14px;
+  background: rgba(20,10,50,0.9);
+  border: 1px solid #4422aa;
+  border-radius: 8px;
+  color: #fff;
+  font-family: 'Orbitron', monospace;
+  font-size: 13px;
+  text-align: center;
+  margin-bottom: 10px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+#name-input:focus { border-color: #aa66ff; box-shadow: 0 0 12px rgba(170,102,255,0.3); }
+#name-input::placeholder { color: #334455; }
+#submit-btn, #replay-btn {
+  width: 100%;
+  padding: 11px;
+  border: none;
+  border-radius: 8px;
+  font-family: 'Orbitron', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 2px;
+  transition: all 0.2s;
+}
+#submit-btn {
+  background: linear-gradient(135deg, #7b2fff, #4a0f9e);
+  color: #fff;
+  margin-bottom: 8px;
+}
+#submit-btn:hover { background: linear-gradient(135deg, #9b4fff, #6b2fff); transform: translateY(-1px); }
+#submit-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+#replay-btn {
+  background: linear-gradient(135deg, #0f2050, #071030);
+  color: #7799dd;
+  border: 1px solid #1a3a7a;
+}
+#replay-btn:hover { background: linear-gradient(135deg, #1a3070, #0f1f50); transform: translateY(-1px); }
+#leaderboard-section { margin-top: 14px; max-height: 175px; overflow-y: auto; }
+#leaderboard-title {
+  font-size: 9px;
+  color: #445566;
+  letter-spacing: 3px;
+  margin-bottom: 8px;
+}
+.lb-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 8px;
+  border-radius: 4px;
+  margin-bottom: 3px;
+  font-size: 10px;
+}
+.lb-row:nth-child(odd) { background: rgba(123,47,255,0.07); }
+.lb-rank { color: #445566; min-width: 22px; }
+.lb-name { color: #bbddff; flex: 1; text-align: left; margin: 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-score { color: #cc99ff; font-weight: 700; }
+.lb-row.highlight { background: rgba(123,47,255,0.22); border: 1px solid rgba(123,47,255,0.4); }
+</style>
+</head>
+<body>
+<div id="ui-overlay">
+  <div id="overlay-box">
+    <div id="overlay-title">GRAVITATIONAL COLLAPSE</div>
+    <div id="overlay-subtitle">TOO MANY ESCAPED</div>
+    <div id="final-score">0</div>
+    <div id="score-label">FINAL SCORE</div>
+    <input id="name-input" type="text" maxlength="20" placeholder="ENTER YOUR NAME">
+    <button id="submit-btn" onclick="handleSubmit()">SUBMIT SCORE</button>
+    <button id="replay-btn" onclick="handleReplay()">PLAY AGAIN</button>
+    <div id="leaderboard-section">
+      <div id="leaderboard-title">TOP GRAVITY MASTERS</div>
+      <div id="leaderboard-rows"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// DESIGN HEADER
+// Title: Gravity Pull
+// Slug: gravity-pull-a3f9
+// Controls: Mouse / touch — cursor/finger positions the gravity well
+// Core Loop: Move gravity well to pull escaping objects before they fly off-screen.
+//            Objects spawn near center and escape outward. Pull them to the well center to absorb them.
+// Death Condition: 5 objects escape off-screen = gravitational collapse (game over)
+// Hazards:
+//   1. Rockets — fast, linear outward trajectory; triangular red silhouette
+//   2. Asteroids — medium speed, tumbling irregularly; spawn from 15s onward
+//   3. Satellites — slow but steady gain, rotating; spawn from 30s onward; burst-accelerate near edges
+// Pickups:
+//   1. Dark Matter Crystal (blue diamond) — expands pull radius 1.6x for 8 seconds
+//      Risk/reward: wider net is powerful but positions you farther from center
+//   2. Cosmic Anchor (teal orb) — slows ALL objects to 50% for 5 seconds
+//      Risk/reward: clusters of objects become both easier and simultaneously dangerous
+// Scoring: score = Math.floor(timeAlive * 10 + bonusPoints) — monotonic
+//   bonusPoints: +25 per absorbed object, +15 per pickup, 0 for escapes
+// Difficulty: spawnInterval lerp(3200ms → 500ms), objectSpeed lerp(65 → 260 px/s), easeIn curve over 120s
+// Visual: Cosmic/Space — deep navy-black bg, pulsing purple gravity well, nebula glows
+// Audio: Web Audio procedural — absorb whoosh, escape alarm, life-lost buzz, death boom, pickup chime
+// ============================================================
+
+const GAME_ID = 'gravity-pull-a3f9';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+// ---- Audio ----
+let audioCtx;
+try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {}
+
+function playSound(type, freq, duration, vol, freqEnd) {
+  try {
+    if (!audioCtx) return;
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    if (freqEnd !== undefined) osc.frequency.linearRampToValueAtTime(freqEnd, audioCtx.currentTime + duration);
+    gain.gain.setValueAtTime(vol || 0.25, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+  } catch(e) {}
+}
+
+function sfxAbsorb() {
+  playSound('sine', 400, 0.06, 0.18, 800);
+  setTimeout(() => playSound('sine', 900, 0.1, 0.14, 1400), 40);
+  setTimeout(() => playSound('triangle', 1200, 0.12, 0.1), 80);
+}
+function sfxEscape() {
+  playSound('sawtooth', 220, 0.12, 0.22, 120);
+  setTimeout(() => playSound('square', 110, 0.18, 0.18), 30);
+}
+function sfxLifeLost() {
+  playSound('sawtooth', 350, 0.25, 0.28, 150);
+  setTimeout(() => playSound('sawtooth', 200, 0.3, 0.22), 80);
+}
+function sfxDeath() {
+  playSound('sawtooth', 180, 0.7, 0.4, 50);
+  setTimeout(() => playSound('sine', 80, 0.9, 0.3), 50);
+  setTimeout(() => playSound('square', 60, 1.1, 0.25), 150);
+}
+function sfxPickup() {
+  playSound('sine', 700, 0.08, 0.22, 1000);
+  setTimeout(() => playSound('triangle', 1000, 0.12, 0.18, 1500), 50);
+  setTimeout(() => playSound('sine', 1400, 0.1, 0.15), 110);
+}
+function sfxStart() {
+  playSound('sine', 300, 0.08, 0.15, 500);
+  setTimeout(() => playSound('sine', 500, 0.08, 0.12, 700), 60);
+  setTimeout(() => playSound('sine', 700, 0.1, 0.15, 900), 120);
+}
+
+// ---- Math helpers ----
+function lerp(a, b, t) { return a + (b - a) * t; }
+function easeIn(t) { return t * t; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// ---- Leaderboard ----
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch(e) { console.warn('Leaderboard unavailable:', e); return null; }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch(e) { console.warn('Leaderboard unavailable:', e); return []; }
+}
+
+// ---- Global state ----
+let phaserGame = null;
+let lastFinalScore = 0;
+let submittedName = '';
+
+// ====================================================================
+// MENU SCENE
+// ====================================================================
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+
+    // Deep space background
+    const bg = this.add.graphics();
+    bg.fillStyle(0x020210, 1);
+    bg.fillRect(0, 0, W, H);
+
+    // Nebula blobs
+    for (let i = 0; i < 4; i++) {
+      bg.fillStyle(0x180428, 0.6);
+      bg.fillCircle(Math.random()*W, Math.random()*H, 80 + Math.random()*140);
+    }
+
+    // Stars
+    const starGfx = this.add.graphics();
+    const menuStars = [];
+    for (let i = 0; i < 180; i++) {
+      menuStars.push({
+        x: Math.random()*W, y: Math.random()*H,
+        r: Math.random()*1.4,
+        a: 0.3 + Math.random()*0.7,
+        spd: 0.008 + Math.random()*0.025,
+        off: Math.random()*Math.PI*2
+      });
+    }
+    this.menuStars = menuStars;
+    this.starGfx = starGfx;
+
+    // Orbiting example objects around the well
+    this.orbiters = [];
+    const orbitColors = [0xff4444, 0x8899aa, 0x88ccff, 0xffaa33];
+    for (let i = 0; i < 6; i++) {
+      this.orbiters.push({
+        angle: (i/6)*Math.PI*2,
+        radius: 90 + (i%3)*28,
+        speed: (0.4 + Math.random()*0.4) * (Math.random()<0.5 ? 1 : -1),
+        color: orbitColors[i%orbitColors.length],
+        size: 4 + Math.random()*4
+      });
+    }
+    this.orbitGfx = this.add.graphics();
+    this.wellGfx = this.add.graphics();
+
+    // Title
+    this.add.text(W/2, H/2 - 165, 'GRAVITY PULL', {
+      fontFamily: 'Orbitron', fontSize: '44px', fontStyle: 'bold',
+      color: '#d0a0ff', stroke: '#5500cc', strokeThickness: 3,
+      shadow: { x: 0, y: 0, blur: 25, color: '#7b2fff', fill: true }
+    }).setOrigin(0.5);
+
+    this.add.text(W/2, H/2 - 118, 'YOU ARE GRAVITY', {
+      fontFamily: 'Orbitron', fontSize: '13px', color: '#6644aa', letterSpacing: 5
+    }).setOrigin(0.5);
+
+    // Instruction box
+    const instrLines = [
+      '▸ MOVE CURSOR / FINGER TO STEER YOUR GRAVITY WELL',
+      '▸ PULL ESCAPING OBJECTS BEFORE THEY FLY OFF-SCREEN',
+      '▸ ABSORB OBJECTS INTO YOUR CORE FOR BONUS POINTS',
+      '',
+      '⬡  5 ESCAPES = GRAVITATIONAL COLLAPSE',
+      '◆  DARK MATTER  →  WIDER PULL RADIUS',
+      '●  COSMIC ANCHOR  →  SLOW ALL OBJECTS',
+    ].join('\n');
+
+    this.add.text(W/2, H/2 + 100, instrLines, {
+      fontFamily: 'Orbitron', fontSize: '10px', color: '#556677',
+      align: 'center', lineSpacing: 9
+    }).setOrigin(0.5);
+
+    // Blinking start
+    this.startTxt = this.add.text(W/2, H - 72, 'TAP ANYWHERE TO BEGIN', {
+      fontFamily: 'Orbitron', fontSize: '17px', fontStyle: 'bold',
+      color: '#aa55ff', letterSpacing: 4
+    }).setOrigin(0.5);
+    this.tweens.add({
+      targets: this.startTxt, alpha: 0.15, duration: 650, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+
+    // Well center on menu
+    this.wellX = W/2;
+    this.wellY = H/2 - 20;
+
+    // Input
+    this.input.once('pointerdown', () => {
+      if (audioCtx) audioCtx.resume();
+      sfxStart();
+      this.cameras.main.fade(300, 0, 0, 0);
+      this.time.delayedCall(300, () => this.scene.start('GameScene'));
+    });
+    this.input.keyboard.once('keydown', () => {
+      if (audioCtx) audioCtx.resume();
+      sfxStart();
+      this.cameras.main.fade(300, 0, 0, 0);
+      this.time.delayedCall(300, () => this.scene.start('GameScene'));
+    });
+  }
+
+  update(time) {
+    const t = time * 0.001;
+    // Stars
+    this.starGfx.clear();
+    this.menuStars.forEach(s => {
+      const a = s.a * (0.6 + 0.4*Math.sin(t*s.spd*60 + s.off));
+      this.starGfx.fillStyle(0xffffff, a);
+      this.starGfx.fillCircle(s.x, s.y, s.r);
+    });
+    // Orbiting particles
+    this.orbitGfx.clear();
+    this.orbiters.forEach(o => {
+      o.angle += o.speed * 0.018;
+      const px = this.wellX + Math.cos(o.angle)*o.radius;
+      const py = this.wellY + Math.sin(o.angle)*o.radius;
+      // Trail
+      for (let trail = 1; trail <= 4; trail++) {
+        const ta = o.angle - o.speed * 0.018 * trail * 1.2;
+        const tx = this.wellX + Math.cos(ta)*o.radius;
+        const ty = this.wellY + Math.sin(ta)*o.radius;
+        this.orbitGfx.fillStyle(o.color, 0.15 * (5-trail)/4);
+        this.orbitGfx.fillCircle(tx, ty, o.size * (5-trail)/6);
+      }
+      this.orbitGfx.fillStyle(o.color, 0.9);
+      this.orbitGfx.fillCircle(px, py, o.size);
+    });
+    // Gravity well
+    this.wellGfx.clear();
+    const pulse = Math.sin(t*2)*4;
+    // Glow layers
+    [[80, 0.06], [55, 0.12], [35, 0.2]].forEach(([r, a]) => {
+      this.wellGfx.fillStyle(0x7b2fff, a);
+      this.wellGfx.fillCircle(this.wellX, this.wellY, r + pulse*0.3);
+    });
+    // Pull ring
+    this.wellGfx.lineStyle(1.5, 0x7b2fff, 0.25 + Math.sin(t*3)*0.07);
+    this.wellGfx.strokeCircle(this.wellX, this.wellY, 150);
+    // Core
+    this.wellGfx.fillStyle(0x6600cc, 1);
+    this.wellGfx.fillCircle(this.wellX, this.wellY, 20 + pulse*0.2);
+    this.wellGfx.fillStyle(0xaa44ff, 1);
+    this.wellGfx.fillCircle(this.wellX, this.wellY, 13);
+    this.wellGfx.fillStyle(0xddaaff, 1);
+    this.wellGfx.fillCircle(this.wellX, this.wellY, 7);
+    this.wellGfx.fillStyle(0xffffff, 0.85);
+    this.wellGfx.fillCircle(this.wellX - 4, this.wellY - 4, 3);
+  }
+}
+
+// ====================================================================
+// GAME SCENE
+// ====================================================================
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+    this.W = W; this.H = H;
+
+    // State
+    this.score = 0;
+    this.bonusPoints = 0;
+    this.lives = 5;
+    this.absorbed = 0;
+    this.gameStartTime = this.time.now;
+    this.isGameOver = false;
+    this.darkMatterActive = false;
+    this.darkMatterTimer = 0;
+    this.anchorActive = false;
+    this.anchorTimer = 0;
+    this.basePullRadius = 185;
+    this.pullRadius = this.basePullRadius;
+    this.nextSpawnTime = 0;
+    this.pickupSpawnTimer = 0;
+    this.escapeObjects = [];
+    this.pickupObjects = [];
+
+    // Gravity well position — follows pointer directly
+    this.wellX = W / 2;
+    this.wellY = H / 2;
+
+    this.input.on('pointermove', (p) => { this.wellX = p.x; this.wellY = p.y; });
+    this.input.on('pointerdown', (p) => { this.wellX = p.x; this.wellY = p.y; });
+
+    // Build background
+    this.createBackground();
+
+    // Build all procedural textures
+    this.buildTextures();
+
+    // Graphics layers (ordered by depth)
+    this.bgLayer = this.add.graphics().setDepth(0);
+    this.trailLayer = this.add.graphics().setDepth(3);
+    this.wellLayer = this.add.graphics().setDepth(8);
+
+    // HUD
+    this.createHUD();
+
+    // Draw initial stars
+    this.redrawStars(0);
+
+    if (audioCtx) audioCtx.resume();
+  }
+
+  createBackground() {
+    const W = this.W, H = this.H;
+    const bg = this.add.graphics().setDepth(0);
+    bg.fillStyle(0x020210, 1);
+    bg.fillRect(0, 0, W, H);
+    // Subtle nebula
+    bg.fillStyle(0x180430, 0.5);
+    bg.fillCircle(W*0.3, H*0.35, 180);
+    bg.fillStyle(0x0a1840, 0.4);
+    bg.fillCircle(W*0.72, H*0.65, 150);
+    bg.fillStyle(0x0a0040, 0.3);
+    bg.fillCircle(W*0.6, H*0.2, 120);
+
+    this.starGfx = this.add.graphics().setDepth(1);
+    this.stars = [];
+    for (let i = 0; i < 200; i++) {
+      this.stars.push({
+        x: Math.random()*W, y: Math.random()*H,
+        r: Math.random()*1.5,
+        a: 0.2 + Math.random()*0.8,
+        spd: 0.005 + Math.random()*0.02,
+        off: Math.random()*Math.PI*2
+      });
+    }
+  }
+
+  redrawStars(time) {
+    this.starGfx.clear();
+    const t = time * 0.001;
+    this.stars.forEach(s => {
+      const a = s.a * (0.65 + 0.35*Math.sin(t*s.spd*60 + s.off));
+      this.starGfx.fillStyle(0xffffff, a);
+      this.starGfx.fillCircle(s.x, s.y, s.r);
+    });
+  }
+
+  buildTextures() {
+    // 2×2 white pixel for utility
+    if (!this.textures.exists('px')) {
+      const g = this.make.graphics({x:0,y:0,add:false});
+      g.fillStyle(0xffffff);
+      g.fillRect(0,0,2,2);
+      g.generateTexture('px',2,2);
+      g.destroy();
+    }
+
+    // Rocket: 72×72, pointed red triangle with fins + porthole
+    if (!this.textures.exists('rocket')) {
+      const g = this.make.graphics({x:0,y:0,add:false});
+      // Body
+      g.fillStyle(0xff3333, 1);
+      g.fillTriangle(36, 4, 18, 64, 54, 64);
+      // Highlight
+      g.fillStyle(0xff7755, 0.7);
+      g.fillTriangle(36, 9, 25, 52, 36, 52);
+      // Fins
+      g.fillStyle(0xcc1111, 1);
+      g.fillTriangle(18, 64, 4, 72, 26, 60);
+      g.fillTriangle(54, 64, 68, 72, 46, 60);
+      // Engine nozzle
+      g.fillStyle(0x663300, 1);
+      g.fillRect(26, 62, 20, 8);
+      // Porthole
+      g.fillStyle(0x55bbff, 1);
+      g.fillCircle(36, 32, 8);
+      g.fillStyle(0xcceeee, 0.6);
+      g.fillCircle(33, 29, 4);
+      g.fillStyle(0xffffff, 0.3);
+      g.fillCircle(34, 30, 2);
+      // Exhaust glow
+      g.fillStyle(0xff7700, 0.35);
+      g.fillEllipse(36, 70, 18, 10);
+      g.generateTexture('rocket', 72, 72);
+      g.destroy();
+    }
+
+    // Asteroid: 68×68, irregular rocky polygon
+    if (!this.textures.exists('asteroid')) {
+      const g = this.make.graphics({x:0,y:0,add:false});
+      // Base rock
+      g.fillStyle(0x889aaa, 1);
+      g.fillPoints([
+        {x:34,y:3},{x:54,y:12},{x:65,y:30},{x:60,y:50},
+        {x:44,y:64},{x:24,y:65},{x:8,y:52},{x:4,y:30},{x:14,y:12}
+      ], true);
+      // Dark variation
+      g.fillStyle(0x6e7e8e, 1);
+      g.fillPoints([
+        {x:34,y:3},{x:48,y:15},{x:58,y:28},{x:54,y:46},{x:40,y:55},{x:24,y:50}
+      ], true);
+      // Craters
+      g.fillStyle(0x556677, 1);
+      g.fillCircle(22, 30, 9);
+      g.fillCircle(46, 46, 7);
+      g.fillCircle(50, 22, 5);
+      g.fillStyle(0x445566, 1);
+      g.fillCircle(22, 30, 6);
+      g.fillCircle(46, 46, 4);
+      // Surface highlight
+      g.fillStyle(0xaabbcc, 0.35);
+      g.fillCircle(48, 18, 9);
+      g.generateTexture('asteroid', 68, 68);
+      g.destroy();
+    }
+
+    // Satellite: 84×84, boxy body + solar panels
+    if (!this.textures.exists('satellite')) {
+      const g = this.make.graphics({x:0,y:0,add:false});
+      // Body box
+      g.fillStyle(0xccddee, 1);
+      g.fillRect(26, 26, 32, 32);
+      g.fillStyle(0xddeeff, 0.8);
+      g.fillRect(28, 28, 28, 12);
+      // Beveled edge
+      g.lineStyle(1, 0x8899bb, 0.5);
+      g.strokeRect(26, 26, 32, 32);
+      // Left solar panel
+      g.fillStyle(0x0a3a88, 1);
+      g.fillRect(2, 33, 21, 18);
+      g.lineStyle(1, 0x2266cc, 0.6);
+      for (let col = 0; col < 4; col++) {
+        g.lineBetween(2+col*5, 33, 2+col*5, 51);
+      }
+      for (let row = 0; row < 3; row++) {
+        g.lineBetween(2, 33+row*6, 23, 33+row*6);
+      }
+      // Right solar panel
+      g.fillStyle(0x0a3a88, 1);
+      g.fillRect(61, 33, 21, 18);
+      g.lineStyle(1, 0x2266cc, 0.6);
+      for (let col = 0; col < 4; col++) {
+        g.lineBetween(61+col*5, 33, 61+col*5, 51);
+      }
+      for (let row = 0; row < 3; row++) {
+        g.lineBetween(61, 33+row*6, 82, 33+row*6);
+      }
+      // Panel connectors
+      g.lineStyle(3, 0x99aacc, 1);
+      g.lineBetween(23, 42, 26, 42);
+      g.lineBetween(58, 42, 61, 42);
+      // Antenna
+      g.lineStyle(2, 0x99aacc, 1);
+      g.lineBetween(42, 26, 42, 11);
+      g.fillStyle(0xffffff, 1);
+      g.fillCircle(42, 10, 3);
+      // Indicator light
+      g.fillStyle(0x00ff88, 1);
+      g.fillCircle(42, 42, 3);
+      g.generateTexture('satellite', 84, 84);
+      g.destroy();
+    }
+
+    // Dark Matter Crystal: 48×48, blue diamond
+    if (!this.textures.exists('darkMatter')) {
+      const g = this.make.graphics({x:0,y:0,add:false});
+      g.fillStyle(0x1133bb, 0.85);
+      g.fillPoints([{x:24,y:2},{x:46,y:24},{x:24,y:46},{x:2,y:24}], true);
+      g.fillStyle(0x3366ee, 0.9);
+      g.fillPoints([{x:24,y:7},{x:41,y:24},{x:24,y:41},{x:7,y:24}], true);
+      g.fillStyle(0x77aaff, 0.8);
+      g.fillPoints([{x:24,y:13},{x:35,y:24},{x:24,y:35},{x:13,y:24}], true);
+      g.fillStyle(0xccddff, 0.9);
+      g.fillPoints([{x:24,y:18},{x:29,y:24},{x:24,y:30},{x:19,y:24}], true);
+      g.fillStyle(0xffffff, 0.7);
+      g.fillCircle(20, 18, 3);
+      g.generateTexture('darkMatter', 48, 48);
+      g.destroy();
+    }
+
+    // Cosmic Anchor: 48×48, teal glowing orb
+    if (!this.textures.exists('anchor')) {
+      const g = this.make.graphics({x:0,y:0,add:false});
+      g.fillStyle(0x00bbaa, 0.9);
+      g.fillCircle(24, 24, 22);
+      g.fillStyle(0x00ddcc, 0.85);
+      g.fillCircle(24, 24, 16);
+      g.fillStyle(0x00ffee, 1);
+      g.fillCircle(24, 24, 10);
+      g.fillStyle(0x66ffee, 0.8);
+      g.fillCircle(24, 24, 6);
+      g.fillStyle(0xffffff, 0.7);
+      g.fillCircle(20, 20, 4);
+      g.generateTexture('anchor', 48, 48);
+      g.destroy();
+    }
+  }
+
+  createHUD() {
+    const W = this.W;
+
+    // Score (top center)
+    this.scoreTxt = this.add.text(W/2, 18, '0', {
+      fontFamily: 'Orbitron', fontSize: '30px', fontStyle: 'bold',
+      color: '#ffffff',
+      shadow: { x: 0, y: 0, blur: 18, color: '#9933ff', fill: true }
+    }).setOrigin(0.5, 0).setDepth(15);
+
+    this.add.text(W/2, 52, 'SCORE', {
+      fontFamily: 'Orbitron', fontSize: '8px', color: '#5544aa', letterSpacing: 4
+    }).setOrigin(0.5, 0).setDepth(15);
+
+    // Captured (top left)
+    this.capturedTxt = this.add.text(16, 14, 'CAPTURED\n0', {
+      fontFamily: 'Orbitron', fontSize: '10px', color: '#aa77ff', lineSpacing: 4, align: 'left'
+    }).setDepth(15);
+
+    // Lives (top right)
+    this.livesTxt = this.add.text(W - 14, 14, '', {
+      fontFamily: 'Orbitron', fontSize: '10px', color: '#ff7788', align: 'right'
+    }).setOrigin(1, 0).setDepth(15);
+    this.refreshLives();
+
+    // Active power label (below score)
+    this.powerTxt = this.add.text(W/2, 65, '', {
+      fontFamily: 'Orbitron', fontSize: '9px', color: '#00ffee', letterSpacing: 2, align: 'center'
+    }).setOrigin(0.5, 0).setDepth(15).setAlpha(0);
+  }
+
+  refreshLives() {
+    const full = '◆'.repeat(this.lives);
+    const empty = '◇'.repeat(5 - this.lives);
+    this.livesTxt.setText(full + empty + '\nLIVES');
+  }
+
+  // ---- Spawning ----
+  spawnObject(elapsed) {
+    const W = this.W, H = this.H;
+    const diff = easeIn(clamp(elapsed / 120, 0, 1));
+
+    // Object type
+    let type = 'rocket';
+    if (elapsed > 15) {
+      const r = Math.random();
+      if (elapsed > 30 && r < 0.32) type = 'satellite';
+      else if (r < 0.42) type = 'asteroid';
+    }
+
+    // Spawn near center, escape outward
+    const angle = Math.random() * Math.PI * 2;
+    const spawnR = 60 + Math.random() * 120;
+    let sx = clamp(W/2 + Math.cos(angle)*spawnR, 80, W-80);
+    let sy = clamp(H/2 + Math.sin(angle)*spawnR, 80, H-80);
+
+    // Velocity outward from center with slight angle variation
+    const speed = lerp(65, 260, diff);
+    const escapeAngle = angle + (Math.random()-0.5)*0.7;
+    const vx = Math.cos(escapeAngle) * speed;
+    const vy = Math.sin(escapeAngle) * speed;
+
+    const img = this.physics.add.image(sx, sy, type);
+    img.setDepth(5);
+    img.body.setAllowGravity(false);
+    img.body.setVelocity(vx, vy);
+
+    // Forgiving hitbox (80% of visual)
+    if (type === 'rocket') {
+      img.setScale(0.85);
+      img.body.setSize(42*0.8, 42*0.8, true);
+      img.setRotation(escapeAngle - Math.PI/2);
+      img.baseRotation = escapeAngle - Math.PI/2;
+      img.rotSpeed = 0;
+    } else if (type === 'asteroid') {
+      img.setScale(0.85);
+      img.body.setCircle(27*0.8, (68 - 27*1.6)/2, (68 - 27*1.6)/2);
+      img.rotSpeed = (Math.random()-0.5) * 3.0;
+    } else { // satellite
+      img.setScale(0.8);
+      img.body.setSize(66*0.8, 30*0.8, true);
+      img.rotSpeed = (Math.random()-0.5) * 1.5;
+    }
+
+    img.gameType = type;
+    img.trailTimer = 0;
+    img.spawnTime = this.time.now;
+
+    // Spawn fade in
+    img.setAlpha(0);
+    this.tweens.add({ targets: img, alpha: 1, duration: 280, ease: 'Quad.Out' });
+
+    this.escapeObjects.push(img);
+  }
+
+  spawnPickup() {
+    const W = this.W, H = this.H;
+    const type = Math.random() < 0.58 ? 'darkMatter' : 'anchor';
+
+    // Random position away from edges and center
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 140 + Math.random() * 150;
+    const px = clamp(W/2 + Math.cos(angle)*dist, 80, W-80);
+    const py = clamp(H/2 + Math.sin(angle)*dist, 80, H-80);
+
+    const p = this.physics.add.image(px, py, type);
+    p.setDepth(6);
+    p.body.setAllowGravity(false);
+    p.body.setVelocity(0, 0);
+    p.pickupType = type;
+    p.spawnTime = this.time.now;
+    p.floatBase = py;
+
+    p.setAlpha(0);
+    this.tweens.add({ targets: p, alpha: 1, duration: 400 });
+    // Float animation
+    this.tweens.add({
+      targets: p, y: py - 14, duration: 1300, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+    // Spin for dark matter
+    if (type === 'darkMatter') {
+      this.tweens.add({ targets: p, rotation: Math.PI*2, duration: 3000, repeat: -1, ease: 'Linear' });
+    }
+
+    this.pickupObjects.push(p);
+  }
+
+  // ---- Object events ----
+  absorbObject(obj) {
+    this.burstParticles(obj.x, obj.y, obj.gameType);
+    sfxAbsorb();
+    this.absorbed++;
+    this.bonusPoints += 25;
+    this.capturedTxt.setText('CAPTURED\n' + this.absorbed);
+    this.floatText(obj.x, obj.y - 18, '+25', '#cc99ff');
+    const i = this.escapeObjects.indexOf(obj);
+    if (i !== -1) this.escapeObjects.splice(i, 1);
+    obj.destroy();
+  }
+
+  objectEscaped(obj) {
+    const i = this.escapeObjects.indexOf(obj);
+    if (i !== -1) this.escapeObjects.splice(i, 1);
+    obj.destroy();
+
+    this.lives--;
+    sfxEscape();
+    this.cameras.main.shake(180, 0.006);
+    this.cameras.main.flash(120, 255, 40, 40);
+    this.refreshLives();
+
+    if (this.lives <= 0) {
+      this.triggerGameOver();
+    }
+  }
+
+  collectPickup(pickup) {
+    sfxPickup();
+    if (pickup.pickupType === 'darkMatter') {
+      this.darkMatterActive = true;
+      this.darkMatterTimer = 8;
+      this.pullRadius = this.basePullRadius * 1.65;
+      this.powerTxt.setText('◆ PULL RADIUS EXPANDED').setAlpha(1);
+    } else {
+      this.anchorActive = true;
+      this.anchorTimer = 5;
+      this.powerTxt.setText('● COSMIC ANCHOR ACTIVE').setAlpha(1);
+    }
+    this.bonusPoints += 15;
+    this.floatText(pickup.x, pickup.y - 20,
+      pickup.pickupType === 'darkMatter' ? '◆ PULL BOOST' : '● ANCHOR', '#00ffee');
+
+    const i = this.pickupObjects.indexOf(pickup);
+    if (i !== -1) this.pickupObjects.splice(i, 1);
+    this.tweens.add({ targets: pickup, alpha: 0, scaleX: 2.2, scaleY: 2.2, duration: 280, onComplete: () => pickup.destroy() });
+  }
+
+  // ---- Visual helpers ----
+  burstParticles(x, y, type) {
+    const palettes = {
+      rocket:   [0xff4444, 0xff8833, 0xffcc55],
+      asteroid: [0x889aaa, 0xaabbcc, 0x667788],
+      satellite:[0x3399ff, 0x88ccff, 0xccddff]
+    };
+    const pal = palettes[type] || [0xffffff];
+    for (let i = 0; i < 14; i++) {
+      const a = (i/14)*Math.PI*2 + Math.random()*0.4;
+      const r = 28 + Math.random()*45;
+      const gfx = this.add.graphics().setDepth(9);
+      gfx.fillStyle(pal[Math.floor(Math.random()*pal.length)], 1);
+      gfx.fillCircle(0, 0, 2 + Math.random()*3.5);
+      gfx.setPosition(x, y);
+      this.tweens.add({
+        targets: gfx, x: x + Math.cos(a)*r, y: y + Math.sin(a)*r,
+        alpha: 0, duration: 350 + Math.random()*200, ease: 'Quad.Out',
+        onComplete: () => gfx.destroy()
+      });
+    }
+  }
+
+  floatText(x, y, msg, color) {
+    const txt = this.add.text(x, y, msg, {
+      fontFamily: 'Orbitron', fontSize: '13px', fontStyle: 'bold', color: color || '#fff'
+    }).setOrigin(0.5).setDepth(12);
+    this.tweens.add({
+      targets: txt, y: y - 48, alpha: 0, duration: 950, ease: 'Quad.Out', onComplete: () => txt.destroy()
+    });
+  }
+
+  triggerGameOver() {
+    if (this.isGameOver) return;
+    this.isGameOver = true;
+
+    sfxDeath();
+    this.cameras.main.shake(550, 0.025);
+    this.cameras.main.flash(350, 180, 0, 0);
+
+    // Clear all objects
+    [...this.escapeObjects, ...this.pickupObjects].forEach(o => { if (o.active) o.destroy(); });
+    this.escapeObjects = [];
+    this.pickupObjects = [];
+
+    const timeAlive = (this.time.now - this.gameStartTime) / 1000;
+    const finalScore = Math.floor(timeAlive * 10 + this.bonusPoints);
+    lastFinalScore = finalScore;
+
+    this.time.delayedCall(650, () => {
+      this.scene.pause();
+      showGameOverUI(finalScore);
+    });
+  }
+
+  // ---- Main update ----
+  update(time, delta) {
+    if (this.isGameOver) return;
+    const dt = delta / 16.667;
+    const elapsed = (time - this.gameStartTime) / 1000;
+    const diff = easeIn(clamp(elapsed / 120, 0, 1));
+
+    // Score
+    this.score = Math.floor(elapsed * 10 + this.bonusPoints);
+    this.scoreTxt.setText(this.score.toString());
+
+    // Stars ~10fps redraw
+    if (Math.floor(elapsed * 12) % 12 < 1) this.redrawStars(time);
+
+    // Power timers
+    if (this.darkMatterActive) {
+      this.darkMatterTimer -= delta / 1000;
+      if (this.darkMatterTimer <= 0) {
+        this.darkMatterActive = false;
+        this.pullRadius = this.basePullRadius;
+        this.tweens.add({ targets: this.powerTxt, alpha: 0, duration: 300 });
+      }
+    }
+    if (this.anchorActive) {
+      this.anchorTimer -= delta / 1000;
+      if (this.anchorTimer <= 0) {
+        this.anchorActive = false;
+        this.tweens.add({ targets: this.powerTxt, alpha: 0, duration: 300 });
+      }
+    }
+
+    // Spawn objects
+    const spawnInterval = lerp(3200, 500, diff);
+    if (time >= this.nextSpawnTime) {
+      this.spawnObject(elapsed);
+      // Extra simultaneous spawn when hard
+      if (diff > 0.55 && Math.random() < diff * 0.35) this.spawnObject(elapsed);
+      this.nextSpawnTime = time + spawnInterval;
+    }
+
+    // Spawn pickups every ~13s if fewer than 2 present
+    this.pickupSpawnTimer += delta;
+    if (this.pickupSpawnTimer >= 13000) {
+      this.pickupSpawnTimer = 0;
+      if (this.pickupObjects.length < 2) this.spawnPickup();
+    }
+
+    // Draw trails
+    this.trailLayer.clear();
+
+    // Update escape objects
+    for (let i = this.escapeObjects.length - 1; i >= 0; i--) {
+      const obj = this.escapeObjects[i];
+      if (!obj.active) continue;
+
+      // Rotate asteroids + satellites
+      if (obj.gameType !== 'rocket') {
+        obj.rotation += obj.rotSpeed * 0.018 * dt;
+      } else {
+        // Rockets face their velocity direction
+        const vel = obj.body.velocity;
+        if (vel.x !== 0 || vel.y !== 0) {
+          obj.rotation = Math.atan2(vel.y, vel.x) + Math.PI/2;
+        }
+      }
+
+      // Anchor slowdown
+      if (this.anchorActive) {
+        obj.body.velocity.x *= Math.pow(0.88, dt);
+        obj.body.velocity.y *= Math.pow(0.88, dt);
+      }
+
+      // Gravitational pull
+      const dx = this.wellX - obj.x;
+      const dy = this.wellY - obj.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+
+      if (dist < this.pullRadius && dist > 1) {
+        const pullStr = lerp(110, 195, diff);
+        const t = 1 - dist / this.pullRadius;
+        const force = pullStr * (t + t*t) * dt; // non-linear: stronger near center
+        const nx = dx / dist, ny = dy / dist;
+        obj.body.velocity.x += nx * force;
+        obj.body.velocity.y += ny * force;
+
+        // Tint pulled objects slightly
+        const tintAmt = clamp(t * 0.7, 0, 1);
+        const r = 255, gg = Math.floor(255*(1-tintAmt*0.55)), b = Math.floor(255*(1-tintAmt*0.75));
+        obj.setTint(Phaser.Display.Color.GetColor(r, gg, b));
+
+        // Rocket trail when being pulled
+        if (obj.gameType === 'rocket' && dist < this.pullRadius * 0.6) {
+          this.trailLayer.fillStyle(0xff6622, 0.25 * t);
+          this.trailLayer.fillCircle(obj.x, obj.y, 5 + t*4);
+        }
+      } else {
+        obj.clearTint();
+      }
+
+      // Check absorb
+      if (dist < 26) {
+        this.absorbObject(obj);
+        continue;
+      }
+
+      // Check escape (off-screen with margin)
+      const margin = 90;
+      if (obj.x < -margin || obj.x > this.W + margin ||
+          obj.y < -margin || obj.y > this.H + margin) {
+        this.objectEscaped(obj);
+        continue;
+      }
+    }
+
+    // Update pickups
+    for (let i = this.pickupObjects.length - 1; i >= 0; i--) {
+      const p = this.pickupObjects[i];
+      if (!p.active) continue;
+
+      const dx = this.wellX - p.x;
+      const dy = this.wellY - p.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      if (dist < 55) {
+        this.collectPickup(p);
+        continue;
+      }
+      // Auto-expire after 18 seconds
+      if (time - p.spawnTime > 18000) {
+        const idx = this.pickupObjects.indexOf(p);
+        if (idx !== -1) this.pickupObjects.splice(idx, 1);
+        this.tweens.add({ targets: p, alpha: 0, duration: 400, onComplete: () => p.destroy() });
+      }
+    }
+
+    // Draw gravity well
+    this.drawWell(time, diff);
+  }
+
+  drawWell(time, diff) {
+    const gfx = this.wellLayer;
+    gfx.clear();
+    const t = time * 0.003;
+    const pulse = Math.sin(t*2.2);
+    const isDM = this.darkMatterActive;
+    const isAn = this.anchorActive;
+    const wellColor = isDM ? 0x2244ff : isAn ? 0x00ddbb : 0x6600cc;
+    const midColor = isDM ? 0x4477ff : isAn ? 0x00ffee : 0xaa44ff;
+    const ringColor = isDM ? 0x3355ff : isAn ? 0x00ccaa : 0x7b2fff;
+
+    // Outer glow rings
+    const glowLayers = [[90, 0.05], [65, 0.1], [42, 0.18]];
+    glowLayers.forEach(([r, a]) => {
+      gfx.fillStyle(ringColor, a);
+      gfx.fillCircle(this.wellX, this.wellY, r + pulse*3);
+    });
+
+    // Pull radius boundary (dashed-ish via arc)
+    gfx.lineStyle(1.5, ringColor, 0.2 + Math.sin(t*2.8)*0.06);
+    gfx.strokeCircle(this.wellX, this.wellY, this.pullRadius);
+
+    // Distortion lines
+    for (let i = 0; i < 8; i++) {
+      const a = (i/8)*Math.PI*2 + t*0.3;
+      const r0 = this.pullRadius * 0.25 + pulse*2;
+      const r1 = 34;
+      gfx.lineStyle(1, ringColor, 0.12);
+      gfx.lineBetween(
+        this.wellX + Math.cos(a)*r0, this.wellY + Math.sin(a)*r0,
+        this.wellX + Math.cos(a)*r1, this.wellY + Math.sin(a)*r1
+      );
+    }
+
+    // Core rings
+    gfx.fillStyle(wellColor, 0.95);
+    gfx.fillCircle(this.wellX, this.wellY, 22 + pulse);
+    gfx.fillStyle(midColor, 1);
+    gfx.fillCircle(this.wellX, this.wellY, 14);
+    gfx.fillStyle(0xeeddff, 1);
+    gfx.fillCircle(this.wellX, this.wellY, 7);
+    // Specular
+    gfx.fillStyle(0xffffff, 0.85);
+    gfx.fillCircle(this.wellX - 4, this.wellY - 4, 3);
+  }
+}
+
+// ====================================================================
+// PHASER CONFIG
+// ====================================================================
+const config = {
+  type: Phaser.AUTO,
+  width: 800,
+  height: 600,
+  backgroundColor: '#020210',
+  physics: {
+    default: 'arcade',
+    arcade: { gravity: { y: 0 }, debug: false }
+  },
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH
+  },
+  scene: [MenuScene, GameScene]
+};
+
+phaserGame = new Phaser.Game(config);
+
+// ====================================================================
+// GAME OVER UI
+// ====================================================================
+function showGameOverUI(finalScore) {
+  document.getElementById('final-score').textContent = finalScore.toLocaleString();
+  document.getElementById('ui-overlay').style.display = 'flex';
+  document.getElementById('submit-btn').disabled = false;
+  document.getElementById('submit-btn').textContent = 'SUBMIT SCORE';
+  document.getElementById('leaderboard-rows').innerHTML = '';
+  const saved = localStorage.getItem('gravityPullName') || '';
+  document.getElementById('name-input').value = saved;
+  loadAndRenderLeaderboard(finalScore, saved);
+}
+
+async function loadAndRenderLeaderboard(myScore, myName) {
+  const scores = await getLeaderboard(10);
+  renderLeaderboard(scores, myScore, myName);
+}
+
+function renderLeaderboard(scores, myScore, myName) {
+  const container = document.getElementById('leaderboard-rows');
+  container.innerHTML = '';
+  if (!scores || !scores.length) {
+    container.innerHTML = '<div style="color:#334455;font-size:10px;padding:8px">NO SCORES YET — BE THE FIRST!</div>';
+    return;
+  }
+  scores.forEach((s, idx) => {
+    const isMe = s.score === myScore && s.playerName === (myName || '').trim();
+    const row = document.createElement('div');
+    row.className = 'lb-row' + (isMe ? ' highlight' : '');
+    row.innerHTML =
+      `<span class="lb-rank">#${idx+1}</span>` +
+      `<span class="lb-name">${escHtml(s.playerName)}</span>` +
+      `<span class="lb-score">${Number(s.score).toLocaleString()}</span>`;
+    container.appendChild(row);
+  });
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+async function handleSubmit() {
+  const rawName = document.getElementById('name-input').value.trim();
+  const name = rawName || 'ANONYMOUS';
+  localStorage.setItem('gravityPullName', name);
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'SUBMITTING...';
+  await submitScore(name, lastFinalScore);
+  btn.textContent = 'SUBMITTED ✓';
+  const scores = await getLeaderboard(10);
+  renderLeaderboard(scores, lastFinalScore, name);
+}
+
+function handleReplay() {
+  document.getElementById('ui-overlay').style.display = 'none';
+  const scene = phaserGame.scene.getScene('GameScene');
+  if (scene) {
+    scene.scene.resume();
+    scene.scene.restart();
+  }
+}
+</script>
+</body>
+</html>
