@@ -3,7 +3,7 @@
     {
       "slug": "pong-ba5d",
       "title": "Pong",
-      "description": "Classic pong — you vs AI. First to 7 wins!",
+      "description": "Classic pong \u2014 you vs AI. First to 7 wins!",
       "creator": "lilnug",
       "date": "2025-02-17T00:00:00Z",
       "model": "unknown",
@@ -169,6 +169,15 @@
       "creator": "discord-user",
       "date": "2026-02-21T08:42:42.254Z",
       "model": "codex"
+    },
+    {
+      "slug": "dream-collapse-runner-b62f",
+      "title": "Dreamfall Escape",
+      "description": "Endless dream-escape runner: switch lanes, jump through collapsing nightmare debris, and collect dream shards for bonus score.",
+      "creator": "goob2037",
+      "date": "2026-02-21T08:42:49.532176Z",
+      "model": "codex",
+      "archived": false
     }
   ]
 }
