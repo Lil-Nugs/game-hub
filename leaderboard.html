@@ -233,7 +233,7 @@ const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
   try {
     const res = await fetch('games.json');
     const data = await res.json();
-    games = data.games || [];
+    games = Array.isArray(data) ? data : (data.games || []);
   } catch (e) {
     panelsEl.innerHTML = '<div class="empty-lb"><span>⚠️</span>Failed to load games.</div>';
     return;

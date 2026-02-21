@@ -148,7 +148,7 @@ let currentModel = 'all';
   try {
     const res = await fetch('games.json');
     const data = await res.json();
-    allGames = data.games || [];
+    allGames = Array.isArray(data) ? data : (data.games || []);
   } catch (e) {
     console.error('Failed to load games.json', e);
   }
