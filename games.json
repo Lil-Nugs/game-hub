@@ -265,6 +265,14 @@
       "creator": "vimgo",
       "model": "claude",
       "date": "2026-02-21T09:09:47.236Z"
+    },
+    {
+      "slug": "gravity-pull-a3f9",
+      "title": "Gravity Pull",
+      "description": "You ARE gravity! Move your gravity well to pull escaping rockets, asteroids, and satellites back before they fly off-screen. Survive as long as possible — 5 escapes means gravitational collapse!",
+      "creator": "vimgo",
+      "model": "claude",
+      "date": "2026-02-21T09:09:53.776Z"
     }
   ]
 }
