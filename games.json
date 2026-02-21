@@ -304,5 +304,13 @@
     "creator": "vimgo",
     "model": "claude",
     "date": "2026-02-21T15:38:16.315Z"
+  },
+  {
+    "slug": "recoil-rush-c4f2",
+    "title": "Recoil Rush",
+    "description": "You can only move by shooting! Every shot propels your ship backward — aim at enemies to kill them AND dodge them at the same time. Survive the cosmic swarm as long as you can.",
+    "creator": "vimgo",
+    "model": "claude",
+    "date": "2026-02-21T15:38:35.742Z"
   }
 ]

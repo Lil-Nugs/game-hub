@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Recoil Rush</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #050510; display: flex; justify-content: center; align-items: center;
+         height: 100vh; overflow: hidden; touch-action: none; }
+  #ui-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    display: none; justify-content: center; align-items: center;
+    z-index: 10; background: rgba(0,0,0,0.88);
+    font-family: 'Orbitron', sans-serif; color: #fff;
+    flex-direction: column;
+  }
+  #overlay-inner { text-align: center; max-width: 480px; width: 92%; padding: 20px; }
+  #game-over-title { font-size: 2.4em; font-weight: 900; color: #e74c3c; margin-bottom: 6px; letter-spacing: 4px; }
+  #score-label { font-size: 0.75em; color: #888; margin-bottom: 4px; letter-spacing: 3px; }
+  #final-score { font-size: 3.2em; color: #9b59b6; margin: 6px 0 16px; font-weight: 900; }
+  #player-name {
+    background: #0d0d2e; border: 2px solid #9b59b6; color: #fff;
+    padding: 12px 16px; font-family: 'Orbitron', sans-serif; font-size: 0.9em;
+    width: 100%; margin: 6px 0; border-radius: 4px; outline: none;
+  }
+  #player-name:focus { border-color: #e74c3c; }
+  #submit-btn, #play-again-btn {
+    border: none; padding: 12px 20px;
+    font-family: 'Orbitron', sans-serif; font-size: 0.85em; cursor: pointer;
+    border-radius: 4px; margin: 5px 0; width: 100%; font-weight: 700;
+    letter-spacing: 1px; transition: opacity 0.2s;
+  }
+  #submit-btn { background: #9b59b6; color: #fff; }
+  #submit-btn:hover { opacity: 0.85; }
+  #submit-btn:disabled { opacity: 0.5; cursor: default; }
+  #play-again-btn { background: #3498db; color: #fff; }
+  #play-again-btn:hover { opacity: 0.85; }
+  #leaderboard { margin-top: 16px; text-align: left; max-height: 220px; overflow-y: auto; }
+  #leaderboard h3 { color: #f1c40f; margin-bottom: 8px; font-size: 0.75em; letter-spacing: 2px; }
+  .lb-entry { display: flex; justify-content: space-between; padding: 5px 0;
+               border-bottom: 1px solid #222; font-size: 0.72em; color: #bbb; }
+  .lb-entry.gold { color: #f1c40f; }
+  .lb-entry.silver { color: #bdc3c7; }
+  .lb-entry.bronze { color: #cd7f32; }
+  .lb-rank { width: 28px; }
+  .lb-name { flex: 1; }
+  .lb-score { color: #9b59b6; font-weight: 700; }
+</style>
+</head>
+<body>
+<div id="ui-overlay">
+  <div id="overlay-inner">
+    <div id="game-over-title">SHIP DOWN</div>
+    <div id="score-label">FINAL SCORE</div>
+    <div id="final-score">0</div>
+    <input type="text" id="player-name" placeholder="Enter pilot name" maxlength="20" />
+    <button id="submit-btn">SUBMIT SCORE</button>
+    <div id="leaderboard"></div>
+    <button id="play-again-btn">FLY AGAIN</button>
+  </div>
+</div>
+<script>
+/*
+ * DESIGN HEADER — Recoil Rush
+ * ─────────────────────────────────────────────────────
+ * CONTROLS: Mouse/touch to aim; left-click/tap to fire. Spacebar also fires.
+ *           Every shot propels player backward (opposite aim direction).
+ *           You CANNOT move any other way — movement IS shooting.
+ *
+ * CORE LOOP: Survive a cosmic arena as enemy swarms close in.
+ *            Aim carefully: each bullet is also a dodge maneuver.
+ *
+ * DEATH: Any enemy touches the player → instant death.
+ *
+ * ENEMIES (3 types):
+ *   1. Seeker  (red circle)    – slow, direct pursuit, 1 HP
+ *   2. Dasher  (cyan diamond)  – fast zigzag approach, 1 HP
+ *   3. Tanker  (green square)  – huge, slow, 3 HP, big kill bonus
+ *
+ * PICKUPS (risk/reward — must navigate TO them while dodging):
+ *   • Ammo Pack (blue +)  – restores 10 ammo
+ *   • Energy Cell (gold)  – +75 bonus pts + 2s shield (invincibility)
+ *
+ * SCORING: Math.floor(timeAlive * 10 + bonusPoints)
+ *          Kills: Seeker +20, Dasher +35, Tanker +75. Score never decreases.
+ *
+ * DIFFICULTY: sqrt curve over 120s; spawnRate 0.35→4 enemies/s;
+ *             enemy speed × difficulty ramp.
+ *
+ * VISUAL: Cosmic/Space — bg #050510, accent #9b59b6 purple + #3498db blue
+ *         + #f1c40f gold. Stars parallax layers. Nebula blobs.
+ *
+ * AUDIO: Web Audio API. sawtooth shoot, hit crunch, enemy pop, death rumble.
+ *
+ * FONT: Orbitron (retro-sci-fi)
+ * ─────────────────────────────────────────────────────
+ */
+
+const GAME_ID = 'recoil-rush-c4f2';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+// ── Audio ──────────────────────────────────────────────────────────────
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playSound(type, freq, duration, volume = 0.3, freqEnd = null) {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  if (freqEnd) osc.frequency.exponentialRampToValueAtTime(freqEnd, audioCtx.currentTime + duration);
+  gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  osc.start();
+  osc.stop(audioCtx.currentTime + duration);
+}
+
+function sfxShoot() {
+  playSound('sawtooth', 280, 0.08, 0.18, 120);
+  playSound('square', 160, 0.06, 0.08);
+}
+function sfxEnemyHit() {
+  playSound('square', 180, 0.07, 0.14, 80);
+}
+function sfxEnemyDie() {
+  playSound('sawtooth', 220, 0.15, 0.22, 60);
+  playSound('sine', 440, 0.1, 0.12, 200);
+}
+function sfxCollect() {
+  playSound('sine', 700, 0.12, 0.2, 1100);
+  playSound('triangle', 900, 0.08, 0.12, 1400);
+}
+function sfxNoAmmo() {
+  playSound('square', 90, 0.06, 0.1);
+}
+function sfxDeath() {
+  playSound('sawtooth', 220, 0.7, 0.35, 50);
+  playSound('sine', 90, 0.9, 0.28, 30);
+  playSound('square', 55, 0.5, 0.18);
+}
+function sfxShield() {
+  playSound('sine', 600, 0.2, 0.2, 1200);
+  playSound('triangle', 800, 0.15, 0.15, 1400);
+}
+
+// ── Leaderboard ────────────────────────────────────────────────────────
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch (e) {
+    console.warn('Leaderboard unavailable:', e);
+    return null;
+  }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch (e) {
+    console.warn('Leaderboard unavailable:', e);
+    return [];
+  }
+}
+
+// ── Particle helper (tween-based, no Phaser emitter API quirks) ─────────
+function emitBurst(scene, x, y, color, count = 8, speedMin = 60, speedMax = 200) {
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2 + Math.random() * 0.5;
+    const speed = speedMin + Math.random() * (speedMax - speedMin);
+    const size = 2 + Math.random() * 3;
+    const p = scene.add.circle(x, y, size, color, 1).setDepth(20);
+    scene.tweens.add({
+      targets: p,
+      x: x + Math.cos(angle) * speed * 0.5,
+      y: y + Math.sin(angle) * speed * 0.5,
+      alpha: 0, scaleX: 0, scaleY: 0,
+      duration: 300 + Math.random() * 250,
+      ease: 'Power2',
+      onComplete: () => p.destroy()
+    });
+  }
+}
+
+let gameSceneRef = null;
+
+// ── Menu Scene ─────────────────────────────────────────────────────────
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+
+  create() {
+    audioCtx.resume();
+    const { width, height } = this.scale;
+
+    // Starfield (two layers)
+    this.starLayers = [];
+    for (let layer = 0; layer < 2; layer++) {
+      const g = this.add.graphics();
+      const stars = [];
+      for (let i = 0; i < 60; i++) {
+        const x = Phaser.Math.Between(0, width);
+        const y = Phaser.Math.Between(0, height);
+        const r = layer === 0 ? 1 : 2;
+        const a = Phaser.Math.FloatBetween(0.2, 0.9);
+        stars.push({ x, y, a });
+        g.fillStyle(0xffffff, a);
+        g.fillRect(x, y, r, r);
+      }
+      this.starLayers.push({ g, stars, speed: layer === 0 ? 0.3 : 0.7, layer });
+    }
+
+    // Nebula blobs
+    const nb = this.add.graphics();
+    const nebColors = [0x9b59b6, 0x3498db, 0x2ecc71, 0xe74c3c];
+    for (let i = 0; i < 4; i++) {
+      nb.fillStyle(nebColors[i], 0.045);
+      nb.fillCircle(
+        Phaser.Math.Between(120, width - 120),
+        Phaser.Math.Between(120, height - 120),
+        Phaser.Math.Between(90, 200)
+      );
+    }
+
+    // Title
+    const title = this.add.text(width / 2, height * 0.22, 'RECOIL RUSH', {
+      fontFamily: 'Orbitron', fontSize: '52px', fontStyle: 'bold',
+      color: '#9b59b6', stroke: '#fff', strokeThickness: 1,
+      shadow: { offsetX: 0, offsetY: 0, color: '#9b59b6', blur: 20, fill: true }
+    }).setOrigin(0.5);
+
+    this.tweens.add({
+      targets: title, scaleX: 1.02, scaleY: 1.02,
+      duration: 2000, yoyo: true, repeat: -1, ease: 'Sine.InOut'
+    });
+
+    // Subtitle
+    this.add.text(width / 2, height * 0.34, 'YOU CAN ONLY MOVE BY SHOOTING', {
+      fontFamily: 'Orbitron', fontSize: '13px', color: '#e74c3c', letterSpacing: 2
+    }).setOrigin(0.5);
+
+    // Ship preview (procedural)
+    const shipGfx = this.add.graphics();
+    shipGfx.setPosition(width / 2, height / 2 - 10);
+    this._drawShip(shipGfx, 0, 0, 1.6);
+
+    // Pulsing engine glow
+    this.tweens.add({
+      targets: shipGfx, alpha: 0.7, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.InOut'
+    });
+
+    // Instructions
+    const lines = [
+      ['CLICK / TAP', 'to shoot   →   recoil moves you'],
+      ['AIM CAREFULLY', 'each shot is a dodge AND a kill'],
+      ['GRAB AMMO PACKS', 'to keep firing (you need them)'],
+      ['SURVIVE', 'as long as possible']
+    ];
+    lines.forEach(([key, val], i) => {
+      const y = height * 0.62 + i * 26;
+      this.add.text(width / 2 - 8, y, key + '  ', {
+        fontFamily: 'Orbitron', fontSize: '10px', color: '#f1c40f', fontStyle: 'bold'
+      }).setOrigin(1, 0.5);
+      this.add.text(width / 2 - 8, y, '  ' + val, {
+        fontFamily: 'Orbitron', fontSize: '10px', color: '#aaa'
+      }).setOrigin(0, 0.5);
+    });
+
+    // Start prompt
+    const startTxt = this.add.text(width / 2, height * 0.88, '— CLICK OR TAP TO LAUNCH —', {
+      fontFamily: 'Orbitron', fontSize: '14px', color: '#f1c40f', fontStyle: 'bold'
+    }).setOrigin(0.5);
+    this.tweens.add({ targets: startTxt, alpha: 0.1, duration: 750, yoyo: true, repeat: -1 });
+
+    this.input.once('pointerdown', () => {
+      audioCtx.resume();
+      this.scene.start('GameScene');
+    });
+    this.input.keyboard.once('keydown', () => {
+      audioCtx.resume();
+      this.scene.start('GameScene');
+    });
+  }
+
+  _drawShip(g, x, y, scale = 1) {
+    const s = scale;
+    g.fillStyle(0x9b59b6, 1);
+    g.beginPath();
+    g.moveTo(x, y - 22 * s);
+    g.lineTo(x + 14 * s, y + 16 * s);
+    g.lineTo(x, y + 8 * s);
+    g.lineTo(x - 14 * s, y + 16 * s);
+    g.closePath();
+    g.fillPath();
+    // Highlight
+    g.fillStyle(0xffffff, 0.35);
+    g.beginPath();
+    g.moveTo(x, y - 18 * s);
+    g.lineTo(x + 5 * s, y + 4 * s);
+    g.lineTo(x, y + 0 * s);
+    g.closePath();
+    g.fillPath();
+    // Engine glow
+    g.fillStyle(0xe74c3c, 0.9);
+    g.fillRect(x - 5 * s, y + 14 * s, 10 * s, 6 * s);
+    g.fillStyle(0xf1c40f, 0.8);
+    g.fillRect(x - 3 * s, y + 18 * s, 6 * s, 5 * s);
+    // Cockpit
+    g.fillStyle(0x00bcd4, 0.8);
+    g.fillCircle(x, y - 8 * s, 5 * s);
+  }
+
+  update() {
+    // scroll stars
+  }
+}
+
+// ── Game Scene ─────────────────────────────────────────────────────────
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  create() {
+    gameSceneRef = this;
+    const { width, height } = this.scale;
+
+    this.score = 0;
+    this.bonusPoints = 0;
+    this.gameStartTime = this.time.now;
+    this.alive = true;
+    this.ammo = 20;
+    this.lastShootTime = 0;
+    this.shootCooldown = 190; // ms
+    this.shielded = false;
+
+    // ── Background ──────────────────────────────────────────────────
+    // Stars (two layers for parallax)
+    this.starData = [];
+    for (let layer = 0; layer < 2; layer++) {
+      const g = this.add.graphics().setDepth(0);
+      const stars = [];
+      for (let i = 0; i < 70; i++) {
+        stars.push({
+          x: Phaser.Math.FloatBetween(0, width),
+          y: Phaser.Math.FloatBetween(0, height),
+          r: layer === 0 ? 1 : 1.5,
+          a: Phaser.Math.FloatBetween(0.2, 0.85),
+          speed: layer === 0 ? 0.35 : 0.9
+        });
+      }
+      this.starData.push({ g, stars });
+    }
+
+    // Nebula (static decorative)
+    const neb = this.add.graphics().setDepth(0);
+    const nebCols = [0x9b59b6, 0x3498db, 0x27ae60, 0xe74c3c, 0xf1c40f];
+    for (let i = 0; i < 5; i++) {
+      neb.fillStyle(nebCols[i], 0.04);
+      neb.fillCircle(
+        Phaser.Math.Between(80, width - 80),
+        Phaser.Math.Between(80, height - 80),
+        Phaser.Math.Between(80, 180)
+      );
+    }
+
+    // Arena border
+    const border = this.add.graphics().setDepth(1);
+    border.lineStyle(2, 0x9b59b6, 0.4);
+    border.strokeRect(2, 2, width - 4, height - 4);
+    border.lineStyle(1, 0x3498db, 0.2);
+    border.strokeRect(6, 6, width - 12, height - 12);
+
+    // ── Create textures ─────────────────────────────────────────────
+    this._makeTextures(width, height);
+
+    // ── Player ─────────────────────────────────────────────────────
+    this.player = this.physics.add.sprite(width / 2, height / 2, 'playerTex');
+    this.player.setCollideWorldBounds(true);
+    this.player.setBounce(0.25);
+    this.player.setDrag(160);
+    this.player.setMaxVelocity(520);
+    this.player.body.setSize(28, 28); // forgiving hitbox (20% smaller than 36px texture)
+    this.player.setDepth(8);
+
+    // Shield ring (hidden by default)
+    this.shieldRing = this.add.graphics().setDepth(9);
+
+    // ── Aim line ───────────────────────────────────────────────────
+    this.aimLine = this.add.graphics().setDepth(7);
+
+    // ── Physics groups ─────────────────────────────────────────────
+    this.bullets = this.physics.add.group({ maxSize: 40, runChildUpdate: false });
+    this.enemies = this.physics.add.group();
+    this.pickups = this.physics.add.group();
+
+    // ── Collisions ─────────────────────────────────────────────────
+    this.physics.add.overlap(this.bullets, this.enemies, this._bulletHitEnemy, null, this);
+    this.physics.add.overlap(this.player, this.enemies, this._playerHitEnemy, null, this);
+    this.physics.add.overlap(this.player, this.pickups, this._collectPickup, null, this);
+
+    // ── Input ──────────────────────────────────────────────────────
+    this.input.on('pointerdown', () => this._shoot());
+    this.input.on('pointermove', () => {}); // keep pointer tracked by Phaser
+    this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+
+    // ── HUD ────────────────────────────────────────────────────────
+    this.scoreTxt = this.add.text(12, 10, 'SCORE: 0', {
+      fontFamily: 'Orbitron', fontSize: '15px', color: '#f1c40f', fontStyle: 'bold'
+    }).setDepth(15);
+
+    this.ammoTxt = this.add.text(12, 32, 'AMMO: 20 ●●●●●●●●●●', {
+      fontFamily: 'Orbitron', fontSize: '11px', color: '#3498db'
+    }).setDepth(15);
+
+    this.timeTxt = this.add.text(width - 10, 10, 'TIME: 0s', {
+      fontFamily: 'Orbitron', fontSize: '13px', color: '#888'
+    }).setOrigin(1, 0).setDepth(15);
+
+    this.waveTxt = this.add.text(width / 2, 10, '', {
+      fontFamily: 'Orbitron', fontSize: '12px', color: '#e74c3c'
+    }).setOrigin(0.5, 0).setDepth(15);
+
+    // ── Spawn state ────────────────────────────────────────────────
+    this.spawnAccum = 0;
+    this.lastPickupSpawn = this.time.now;
+    this.lastPickupInterval = 10000;
+
+    // Initial pickup so player has a target from the start
+    this.time.delayedCall(3000, () => {
+      if (this.alive) this._spawnPickup();
+    });
+  }
+
+  _makeTextures() {
+    // Player ship (pointing up = 0° offset, we'll rotate it in update)
+    const pg = this.make.graphics({ add: false });
+    // Body
+    pg.fillStyle(0x9b59b6, 1);
+    pg.beginPath();
+    pg.moveTo(32, 2);
+    pg.lineTo(54, 56);
+    pg.lineTo(32, 44);
+    pg.lineTo(10, 56);
+    pg.closePath();
+    pg.fillPath();
+    // Wing outline
+    pg.lineStyle(2, 0xffffff, 0.5);
+    pg.strokePath();
+    // Highlight
+    pg.fillStyle(0xffffff, 0.28);
+    pg.beginPath();
+    pg.moveTo(32, 8);
+    pg.lineTo(40, 36);
+    pg.lineTo(32, 30);
+    pg.closePath();
+    pg.fillPath();
+    // Cockpit
+    pg.fillStyle(0x00e5ff, 0.9);
+    pg.fillCircle(32, 20, 6);
+    pg.lineStyle(1, 0xffffff, 0.6);
+    pg.strokeCircle(32, 20, 6);
+    // Engine flame
+    pg.fillStyle(0xe74c3c, 1);
+    pg.fillRect(26, 50, 12, 7);
+    pg.fillStyle(0xf1c40f, 1);
+    pg.fillRect(28, 55, 8, 5);
+    pg.generateTexture('playerTex', 64, 64);
+    pg.destroy();
+
+    // Bullet
+    const bg = this.make.graphics({ add: false });
+    bg.fillStyle(0xf1c40f, 1);
+    bg.fillCircle(5, 5, 5);
+    bg.lineStyle(1, 0xffffff, 0.7);
+    bg.strokeCircle(5, 5, 5);
+    bg.generateTexture('bulletTex', 10, 10);
+    bg.destroy();
+
+    // Enemy 1: Seeker (red circle)
+    const e1 = this.make.graphics({ add: false });
+    e1.fillStyle(0xe74c3c, 1);
+    e1.fillCircle(24, 24, 22);
+    e1.lineStyle(3, 0xff8888, 0.8);
+    e1.strokeCircle(24, 24, 22);
+    e1.lineStyle(2, 0xff4444, 1);
+    e1.beginPath(); e1.moveTo(12, 12); e1.lineTo(36, 36); e1.strokePath();
+    e1.beginPath(); e1.moveTo(36, 12); e1.lineTo(12, 36); e1.strokePath();
+    e1.fillStyle(0xffffff, 0.3);
+    e1.fillCircle(18, 16, 6);
+    e1.generateTexture('enemy1Tex', 48, 48);
+    e1.destroy();
+
+    // Enemy 2: Dasher (cyan diamond)
+    const e2 = this.make.graphics({ add: false });
+    e2.fillStyle(0x00bcd4, 1);
+    e2.beginPath();
+    e2.moveTo(20, 0); e2.lineTo(40, 20); e2.lineTo(20, 40); e2.lineTo(0, 20);
+    e2.closePath();
+    e2.fillPath();
+    e2.lineStyle(2, 0xffffff, 0.7);
+    e2.strokePath();
+    e2.fillStyle(0xffffff, 0.5);
+    e2.fillRect(16, 16, 8, 8);
+    e2.generateTexture('enemy2Tex', 40, 40);
+    e2.destroy();
+
+    // Enemy 3: Tanker (green armored block)
+    const e3 = this.make.graphics({ add: false });
+    e3.fillStyle(0x1a6b3a, 1);
+    e3.fillRect(0, 0, 64, 64);
+    e3.fillStyle(0x27ae60, 1);
+    e3.fillRect(6, 6, 52, 52);
+    e3.lineStyle(3, 0x2ecc71, 0.9);
+    e3.strokeRect(6, 6, 52, 52);
+    e3.lineStyle(2, 0x2ecc71, 0.5);
+    e3.beginPath(); e3.moveTo(6, 6); e3.lineTo(58, 58); e3.strokePath();
+    e3.beginPath(); e3.moveTo(58, 6); e3.lineTo(6, 58); e3.strokePath();
+    e3.fillStyle(0x2ecc71, 0.8);
+    e3.fillRect(22, 22, 20, 20);
+    e3.lineStyle(2, 0xffffff, 0.3);
+    e3.strokeRect(22, 22, 20, 20);
+    e3.generateTexture('enemy3Tex', 64, 64);
+    e3.destroy();
+
+    // Ammo pickup (blue + symbol)
+    const am = this.make.graphics({ add: false });
+    am.fillStyle(0x1565c0, 1);
+    am.fillCircle(16, 16, 14);
+    am.lineStyle(2, 0x42a5f5, 1);
+    am.strokeCircle(16, 16, 14);
+    am.fillStyle(0xffffff, 1);
+    am.fillRect(13, 8, 6, 16);
+    am.fillRect(8, 13, 16, 6);
+    am.generateTexture('ammoTex', 32, 32);
+    am.destroy();
+
+    // Energy cell (gold circle)
+    const en = this.make.graphics({ add: false });
+    en.fillStyle(0xf39c12, 1);
+    en.fillCircle(16, 16, 14);
+    en.lineStyle(2, 0xf1c40f, 1);
+    en.strokeCircle(16, 16, 14);
+    en.fillStyle(0xffffff, 0.9);
+    en.fillCircle(12, 12, 5);
+    en.fillStyle(0xffffff, 0.5);
+    en.fillCircle(16, 16, 8);
+    en.generateTexture('energyTex', 32, 32);
+    en.destroy();
+  }
+
+  _shoot() {
+    if (!this.alive) return;
+    const now = this.time.now;
+    if (now - this.lastShootTime < this.shootCooldown) return;
+
+    if (this.ammo <= 0) {
+      sfxNoAmmo();
+      // Quick shake to show empty gun
+      this.tweens.add({
+        targets: this.player, x: this.player.x + 4,
+        duration: 40, yoyo: true, repeat: 1, ease: 'Linear'
+      });
+      return;
+    }
+
+    this.lastShootTime = now;
+    this.ammo = Math.max(0, this.ammo - 1);
+
+    const px = this.player.x;
+    const py = this.player.y;
+    const ptr = this.input.activePointer;
+    // Convert screen coords to game world coords (handles FIT scaling)
+    const wx = (ptr.x - this.cameras.main.x) / this.cameras.main.zoom;
+    const wy = (ptr.y - this.cameras.main.y) / this.cameras.main.zoom;
+    const angle = Phaser.Math.Angle.Between(px, py, wx, wy);
+
+    // Fire bullet
+    const bullet = this.bullets.get();
+    if (bullet) {
+      bullet.setTexture('bulletTex');
+      bullet.setActive(true).setVisible(true).setDepth(6);
+      bullet.body.reset(px, py);
+      bullet.body.setAllowGravity(false);
+      const bSpeed = 640;
+      bullet.body.velocity.x = Math.cos(angle) * bSpeed;
+      bullet.body.velocity.y = Math.sin(angle) * bSpeed;
+      bullet._born = now;
+    }
+
+    // RECOIL: push player opposite to aim direction
+    const recoil = 300;
+    this.player.body.velocity.x -= Math.cos(angle) * recoil;
+    this.player.body.velocity.y -= Math.sin(angle) * recoil;
+
+    sfxShoot();
+    this._updateAmmoHUD();
+
+    // Muzzle squash
+    this.tweens.add({
+      targets: this.player,
+      scaleX: 0.88, scaleY: 1.14,
+      duration: 55, yoyo: true, ease: 'Power1'
+    });
+
+    // Muzzle flash
+    const flash = this.add.circle(
+      px + Math.cos(angle) * 24,
+      py + Math.sin(angle) * 24,
+      7, 0xf1c40f, 0.9
+    ).setDepth(10);
+    this.tweens.add({
+      targets: flash, alpha: 0, scaleX: 2, scaleY: 2, duration: 100,
+      onComplete: () => flash.destroy()
+    });
+  }
+
+  _updateAmmoHUD() {
+    const filled = '●'.repeat(Math.max(0, this.ammo));
+    const empty = '○'.repeat(Math.max(0, 20 - this.ammo));
+    const col = this.ammo <= 4 ? '#ff4444' : this.ammo <= 8 ? '#f1c40f' : '#3498db';
+    this.ammoTxt.setText(`AMMO ${filled}${empty}`).setColor(col);
+  }
+
+  _spawnEnemy(elapsed, difficulty) {
+    const { width, height } = this.scale;
+
+    // Determine type
+    let texKey = 'enemy1Tex', type = 1, hp = 1;
+    let speed = Phaser.Math.Linear(55, 185, Math.pow(difficulty, 0.8));
+
+    const r = Math.random();
+    if (elapsed > 15 && r < Phaser.Math.Linear(0, 0.45, Math.min((elapsed - 15) / 60, 1))) {
+      texKey = 'enemy2Tex'; type = 2; hp = 1;
+      speed = Phaser.Math.Linear(115, 275, Math.pow(difficulty, 0.75));
+    } else if (elapsed > 35 && r > 0.72 && Math.random() < Phaser.Math.Linear(0, 0.3, Math.min((elapsed - 35) / 60, 1))) {
+      texKey = 'enemy3Tex'; type = 3; hp = 3;
+      speed = Phaser.Math.Linear(38, 95, Math.pow(difficulty, 0.7));
+    }
+
+    // Spawn off-screen edge
+    const side = Phaser.Math.Between(0, 3);
+    let sx, sy;
+    if (side === 0)      { sx = Phaser.Math.Between(20, width - 20); sy = -50; }
+    else if (side === 1) { sx = width + 50; sy = Phaser.Math.Between(20, height - 20); }
+    else if (side === 2) { sx = Phaser.Math.Between(20, width - 20); sy = height + 50; }
+    else                 { sx = -50; sy = Phaser.Math.Between(20, height - 20); }
+
+    const e = this.enemies.create(sx, sy, texKey);
+    e.enemyType = type;
+    e.hp = hp;
+    e.maxHp = hp;
+    e.moveSpeed = speed;
+    e.setDepth(5);
+    e.body.setCollideWorldBounds(false);
+
+    // Forgiving hitboxes
+    const s = type === 3 ? 0.72 : 0.78;
+    e.body.setSize(e.width * s, e.height * s);
+    e.body.setOffset(e.width * (1 - s) / 2, e.height * (1 - s) / 2);
+
+    // Zigzag phase for dashers
+    if (type === 2) e._zigPhase = Math.random() * Math.PI * 2;
+
+    // HP bar (only for tankers)
+    if (type === 3) {
+      e._hpBarBg = this.add.rectangle(sx, sy + 38, 52, 6, 0x333333).setDepth(6);
+      e._hpBar   = this.add.rectangle(sx - 0, sy + 38, 52, 6, 0x2ecc71).setDepth(7);
+    }
+  }
+
+  _updateEnemies(elapsed, difficulty, dt) {
+    const px = this.player.x, py = this.player.y;
+
+    this.enemies.getChildren().forEach(e => {
+      if (!e.active) return;
+
+      const { width, height } = this.scale;
+      // Cull far off-screen
+      if (e.x < -150 || e.x > width + 150 || e.y < -150 || e.y > height + 150) {
+        if (e._hpBarBg) { e._hpBarBg.destroy(); e._hpBar.destroy(); }
+        e.destroy();
+        return;
+      }
+
+      const angle = Phaser.Math.Angle.Between(e.x, e.y, px, py);
+
+      if (e.enemyType === 1) {
+        // Seeker: direct pursuit
+        e.body.velocity.x = Math.cos(angle) * e.moveSpeed;
+        e.body.velocity.y = Math.sin(angle) * e.moveSpeed;
+        e.rotation = angle + Math.PI / 2;
+
+      } else if (e.enemyType === 2) {
+        // Dasher: zigzag
+        e._zigPhase += dt * 0.095;
+        const perp = angle + Math.PI / 2;
+        const zigAmp = 80 + Math.sin(e._zigPhase * 0.3) * 40;
+        const zigSin = Math.sin(e._zigPhase) * zigAmp;
+        e.body.velocity.x = Math.cos(angle) * e.moveSpeed + Math.cos(perp) * zigSin;
+        e.body.velocity.y = Math.sin(angle) * e.moveSpeed + Math.sin(perp) * zigSin;
+        e.rotation = angle + Math.PI / 2;
+
+      } else if (e.enemyType === 3) {
+        // Tanker: slow, rotates
+        e.body.velocity.x = Math.cos(angle) * e.moveSpeed;
+        e.body.velocity.y = Math.sin(angle) * e.moveSpeed;
+        e.rotation += 0.008 * dt;
+
+        // HP bar follows
+        if (e._hpBarBg) {
+          e._hpBarBg.setPosition(e.x, e.y + 38);
+          e._hpBar.setPosition(e.x - 26 * (1 - e.hp / e.maxHp), e.y + 38);
+          e._hpBar.width = 52 * (e.hp / e.maxHp);
+          const t = e.hp / e.maxHp;
+          e._hpBar.fillColor = Phaser.Display.Color.GetColor(
+            Math.floor(Phaser.Math.Linear(0xe7, 0x2e, 1 - t)),
+            Math.floor(Phaser.Math.Linear(0x4c, 0xcc, 1 - t)),
+            Math.floor(Phaser.Math.Linear(0x3c, 0x71, 1 - t))
+          );
+        }
+      }
+    });
+  }
+
+  _bulletHitEnemy(bullet, enemy) {
+    bullet.setActive(false).setVisible(false);
+    bullet.body.reset(-999, -999);
+
+    enemy.hp--;
+    sfxEnemyHit();
+
+    // Hit flash
+    enemy.setTint(0xffffff);
+    this.time.delayedCall(70, () => { if (enemy.active) enemy.clearTint(); });
+
+    const cols = [0xe74c3c, 0x00bcd4, 0x2ecc71];
+    emitBurst(this, enemy.x, enemy.y, cols[enemy.enemyType - 1], 5, 40, 140);
+
+    if (enemy.hp <= 0) {
+      sfxEnemyDie();
+      emitBurst(this, enemy.x, enemy.y, cols[enemy.enemyType - 1], 14, 60, 220);
+
+      const pts = [20, 35, 75][enemy.enemyType - 1];
+      this.bonusPoints += pts;
+
+      // Floating score pop
+      const pop = this.add.text(enemy.x, enemy.y - 18, `+${pts}`, {
+        fontFamily: 'Orbitron', fontSize: '13px', color: '#f1c40f', fontStyle: 'bold'
+      }).setDepth(25).setOrigin(0.5);
+      this.tweens.add({
+        targets: pop, y: pop.y - 45, alpha: 0, duration: 900, ease: 'Power2',
+        onComplete: () => pop.destroy()
+      });
+
+      if (enemy._hpBarBg) { enemy._hpBarBg.destroy(); enemy._hpBar.destroy(); }
+      enemy.destroy();
+    }
+  }
+
+  _playerHitEnemy(player, enemy) {
+    if (!this.alive || this.shielded) return;
+    this._die();
+  }
+
+  _collectPickup(player, pickup) {
+    if (!pickup.active) return;
+    sfxCollect();
+    emitBurst(this, pickup.x, pickup.y, pickup._isAmmo ? 0x3498db : 0xf1c40f, 10, 50, 160);
+    pickup.destroy();
+
+    if (pickup._isAmmo) {
+      this.ammo = Math.min(20, this.ammo + 10);
+      this._updateAmmoHUD();
+
+      const pop = this.add.text(pickup.x, pickup.y - 18, '+10 AMMO', {
+        fontFamily: 'Orbitron', fontSize: '11px', color: '#3498db', fontStyle: 'bold'
+      }).setDepth(25).setOrigin(0.5);
+      this.tweens.add({ targets: pop, y: pop.y - 40, alpha: 0, duration: 900, onComplete: () => pop.destroy() });
+
+    } else {
+      // Energy cell: shield + bonus points
+      this.bonusPoints += 75;
+      this.shielded = true;
+      sfxShield();
+
+      const pop = this.add.text(pickup.x, pickup.y - 18, '+75 SHIELD!', {
+        fontFamily: 'Orbitron', fontSize: '11px', color: '#f1c40f', fontStyle: 'bold'
+      }).setDepth(25).setOrigin(0.5);
+      this.tweens.add({ targets: pop, y: pop.y - 40, alpha: 0, duration: 900, onComplete: () => pop.destroy() });
+
+      this.player.setTint(0xf1c40f);
+      this.time.delayedCall(2500, () => {
+        if (!this.alive) return;
+        this.shielded = false;
+        this.player.clearTint();
+      });
+    }
+  }
+
+  _spawnPickup() {
+    const { width, height } = this.scale;
+    const isAmmo = Math.random() < 0.65;
+    const px = Phaser.Math.Between(60, width - 60);
+    const py = Phaser.Math.Between(60, height - 60);
+    const p = this.pickups.create(px, py, isAmmo ? 'ammoTex' : 'energyTex');
+    p._isAmmo = isAmmo;
+    p.body.setAllowGravity(false);
+    p.body.setVelocity(0, 0);
+    p.setDepth(4);
+
+    // Bobbing
+    this.tweens.add({
+      targets: p, y: py - 12, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.InOut'
+    });
+    // Spin for energy
+    if (!isAmmo) {
+      this.tweens.add({ targets: p, angle: 360, duration: 2200, repeat: -1 });
+    }
+    // Glow pulse
+    this.tweens.add({
+      targets: p, alpha: 0.55, duration: 600, yoyo: true, repeat: -1, ease: 'Sine.InOut'
+    });
+
+    // Auto-expire after 12s
+    this.time.delayedCall(12000, () => {
+      if (p.active) {
+        this.tweens.add({
+          targets: p, alpha: 0, duration: 600,
+          onComplete: () => { if (p.active) p.destroy(); }
+        });
+      }
+    });
+  }
+
+  _die() {
+    this.alive = false;
+    sfxDeath();
+    this.cameras.main.shake(280, 0.018);
+    this.cameras.main.flash(180, 200, 0, 0);
+
+    emitBurst(this, this.player.x, this.player.y, 0x9b59b6, 30, 80, 280);
+    emitBurst(this, this.player.x, this.player.y, 0xe74c3c, 15, 40, 160);
+
+    this.player.setVisible(false);
+    this.aimLine.clear();
+
+    const elapsed = (this.time.now - this.gameStartTime) / 1000;
+    const finalScore = Math.floor(elapsed * 10 + this.bonusPoints);
+
+    this.time.delayedCall(700, () => {
+      this.scene.pause();
+      showGameOverUI(finalScore);
+    });
+  }
+
+  update(time, delta) {
+    if (!this.alive) return;
+
+    const dt = delta / 16.667;
+    const elapsed = (time - this.gameStartTime) / 1000;
+    // Sqrt curve: gentle ramp early, harder late
+    const difficulty = Math.min(Math.sqrt(elapsed / 120), 1);
+
+    // Spacebar shoot
+    if (Phaser.Input.Keyboard.JustDown(this.spaceKey)) this._shoot();
+
+    // Score update (time + bonus)
+    const timeScore = Math.floor(elapsed * 10);
+    this.scoreTxt.setText('SCORE: ' + (timeScore + this.bonusPoints));
+    this.timeTxt.setText('TIME: ' + Math.floor(elapsed) + 's');
+
+    // Scroll stars (parallax)
+    const { width, height } = this.scale;
+    this.starData.forEach(layer => {
+      layer.g.clear();
+      layer.stars.forEach(s => {
+        s.y += s.speed * dt;
+        if (s.y > height) s.y = 0;
+        layer.g.fillStyle(0xffffff, s.a);
+        layer.g.fillRect(s.x, s.y, s.r * 2, s.r * 2);
+      });
+    });
+
+    // Player rotation toward pointer
+    const ptr = this.input.activePointer;
+    const wx = (ptr.x - this.cameras.main.x) / this.cameras.main.zoom;
+    const wy = (ptr.y - this.cameras.main.y) / this.cameras.main.zoom;
+    const aimAngle = Phaser.Math.Angle.Between(this.player.x, this.player.y, wx, wy);
+    this.player.rotation = aimAngle - Math.PI / 2; // ship nose points toward aim
+
+    // Aim indicator (dashed line)
+    this.aimLine.clear();
+    if (this.ammo > 0) {
+      const dashLen = 7, gapLen = 9;
+      let dist = 30, maxDist = 180;
+      const cx = Math.cos(aimAngle), cy = Math.sin(aimAngle);
+      while (dist < maxDist) {
+        const alpha = Phaser.Math.Linear(0.55, 0.05, dist / maxDist);
+        this.aimLine.lineStyle(1, 0xffffff, alpha);
+        this.aimLine.beginPath();
+        this.aimLine.moveTo(this.player.x + cx * dist, this.player.y + cy * dist);
+        this.aimLine.lineTo(this.player.x + cx * Math.min(dist + dashLen, maxDist),
+                             this.player.y + cy * Math.min(dist + dashLen, maxDist));
+        this.aimLine.strokePath();
+        dist += dashLen + gapLen;
+      }
+    }
+
+    // Shield ring
+    this.shieldRing.clear();
+    if (this.shielded) {
+      const pulse = 0.5 + 0.5 * Math.sin(time * 0.01);
+      this.shieldRing.lineStyle(3, 0xf1c40f, 0.5 + pulse * 0.4);
+      this.shieldRing.strokeCircle(this.player.x, this.player.y, 28 + pulse * 5);
+    }
+
+    // Update enemies
+    this._updateEnemies(elapsed, difficulty, dt);
+
+    // Cull old bullets
+    this.bullets.getChildren().forEach(b => {
+      if (b.active && time - b._born > 1400) {
+        b.setActive(false).setVisible(false);
+        b.body.reset(-999, -999);
+      }
+    });
+
+    // Enemy spawning
+    const spawnRate = Phaser.Math.Linear(0.35, 4.0, Math.pow(difficulty, 0.7));
+    this.spawnAccum += dt * 16.667; // ms
+    const spawnInterval = 1000 / spawnRate;
+    if (this.spawnAccum >= spawnInterval) {
+      this.spawnAccum -= spawnInterval;
+      this._spawnEnemy(elapsed, difficulty);
+    }
+
+    // Pickup spawning (every 9–14s, faster as difficulty rises)
+    const pickupInterval = Phaser.Math.Linear(14000, 8000, difficulty);
+    if (time - this.lastPickupSpawn > pickupInterval) {
+      this.lastPickupSpawn = time;
+      this._spawnPickup();
+    }
+
+    // Difficulty label (subtle)
+    if (elapsed < 3) {
+      this.waveTxt.setText('');
+    } else if (elapsed < 20) {
+      this.waveTxt.setText('');
+    }
+  }
+}
+
+// ── Phaser Config ──────────────────────────────────────────────────────
+const config = {
+  type: Phaser.AUTO,
+  width: 800,
+  height: 600,
+  backgroundColor: '#050510',
+  physics: {
+    default: 'arcade',
+    arcade: { gravity: { y: 0 }, debug: false }
+  },
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
+  scene: [MenuScene, GameScene]
+};
+
+const game = new Phaser.Game(config);
+
+// ── Game Over UI ───────────────────────────────────────────────────────
+function showGameOverUI(finalScore) {
+  const overlay = document.getElementById('ui-overlay');
+  overlay.style.display = 'flex';
+  document.getElementById('final-score').textContent = finalScore;
+  document.getElementById('player-name').value = '';
+  document.getElementById('leaderboard').innerHTML = '';
+  const btn = document.getElementById('submit-btn');
+  btn.textContent = 'SUBMIT SCORE';
+  btn.disabled = false;
+}
+
+document.getElementById('submit-btn').addEventListener('click', async () => {
+  const nameEl = document.getElementById('player-name');
+  const name = nameEl.value.trim() || 'Pilot';
+  const score = parseInt(document.getElementById('final-score').textContent) || 0;
+
+  const btn = document.getElementById('submit-btn');
+  btn.textContent = 'TRANSMITTING…';
+  btn.disabled = true;
+
+  await submitScore(name, score);
+  const scores = await getLeaderboard(10);
+
+  const lbDiv = document.getElementById('leaderboard');
+  if (scores.length === 0) {
+    lbDiv.innerHTML = '<h3>🏆 LEADERBOARD</h3><p style="color:#666;font-size:0.7em;margin-top:6px">No scores yet — be the first!</p>';
+  } else {
+    const medals = ['gold', 'silver', 'bronze'];
+    lbDiv.innerHTML = '<h3>🏆 LEADERBOARD</h3>' + scores.map((s, i) =>
+      `<div class="lb-entry ${medals[i] || ''}">
+        <span class="lb-rank">#${i + 1}</span>
+        <span class="lb-name">${s.playerName}</span>
+        <span class="lb-score">${s.score}</span>
+      </div>`
+    ).join('');
+  }
+
+  btn.textContent = 'SCORE SUBMITTED ✓';
+});
+
+document.getElementById('play-again-btn').addEventListener('click', () => {
+  document.getElementById('ui-overlay').style.display = 'none';
+  if (gameSceneRef) {
+    gameSceneRef.scene.resume();
+    gameSceneRef.scene.restart();
+  }
+});
+</script>
+</body>
+</html>
