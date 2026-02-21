@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Dream Escape</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #050018;
+    display: flex; justify-content: center; align-items: center;
+    height: 100vh; overflow: hidden; touch-action: none;
+  }
+  #ui-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    display: none; flex-direction: column; justify-content: center; align-items: center;
+    z-index: 10;
+    background: radial-gradient(ellipse at center, rgba(30,0,60,0.97) 0%, rgba(5,0,24,0.99) 100%);
+    font-family: 'Cinzel', serif; color: #e8d5ff;
+  }
+  #ui-overlay h2 {
+    font-size: 2.8em; font-weight: 900; color: #c8a8ff;
+    text-shadow: 0 0 30px #9b59b6, 0 0 60px #6c3483;
+    margin-bottom: 6px; letter-spacing: 0.1em;
+  }
+  #ui-overlay .subtitle { font-size: 1em; color: #a89bc8; margin-bottom: 18px; font-style: italic; }
+  #ui-overlay .score-display {
+    font-size: 2em; color: #ffd700;
+    text-shadow: 0 0 20px #ffd700;
+    margin-bottom: 18px;
+  }
+  #ui-overlay input {
+    background: rgba(155,89,182,0.2); border: 1px solid rgba(155,89,182,0.6);
+    color: #fff; padding: 10px 24px; font-size: 1em; border-radius: 8px;
+    outline: none; font-family: 'Cinzel', serif; text-align: center;
+    margin-bottom: 12px; width: 260px;
+  }
+  #ui-overlay input::placeholder { color: rgba(200,168,255,0.5); }
+  .ui-btn {
+    background: linear-gradient(135deg, #6c3483 0%, #9b59b6 100%);
+    color: #fff; border: none; padding: 12px 32px; font-size: 0.95em;
+    border-radius: 8px; cursor: pointer; margin: 5px; font-family: 'Cinzel', serif;
+    transition: all 0.2s; box-shadow: 0 0 18px rgba(155,89,182,0.5);
+    letter-spacing: 0.05em;
+  }
+  .ui-btn:hover { transform: scale(1.05); box-shadow: 0 0 30px rgba(155,89,182,0.85); }
+  .ui-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .ui-btn.replay {
+    background: linear-gradient(135deg, #1a3a6c 0%, #3498db 100%);
+    box-shadow: 0 0 18px rgba(52,152,219,0.5);
+  }
+  .ui-btn.replay:hover { box-shadow: 0 0 30px rgba(52,152,219,0.85); }
+  #leaderboard { margin-top: 16px; width: 320px; display: none; }
+  #leaderboard h3 { color: #c8a8ff; font-size: 0.9em; margin-bottom: 8px; text-align: center; letter-spacing: 0.15em; }
+  .lb-entry {
+    display: flex; justify-content: space-between; padding: 5px 10px;
+    border-bottom: 1px solid rgba(155,89,182,0.2); font-size: 0.82em;
+  }
+  .lb-entry:nth-child(odd) { background: rgba(155,89,182,0.08); }
+  .lb-rank { color: #9b59b6; width: 28px; font-weight: 700; }
+  .lb-name { flex: 1; }
+  .lb-score { color: #ffd700; font-weight: 700; }
+</style>
+</head>
+<body>
+
+<div id="ui-overlay">
+  <h2>AWAKENED</h2>
+  <p class="subtitle">The dream has shattered…</p>
+  <div class="score-display">Score: <span id="final-score">0</span></div>
+  <input type="text" id="player-name" placeholder="Enter your name" maxlength="20">
+  <button class="ui-btn" id="submit-btn">Submit Score</button>
+  <div id="leaderboard">
+    <h3>— DREAM RECORDS —</h3>
+    <div id="lb-entries"></div>
+  </div>
+  <button class="ui-btn replay" id="replay-btn">Enter the Dream Again</button>
+</div>
+
+<script>
+/*
+=============================================================
+  DESIGN HEADER — Dream Escape
+=============================================================
+  Reference: Subway Surfers (3-lane endless runner, swipe controls, obstacle dodge)
+  Adaptation: Re-themed as escaping a collapsing dream. All IP replaced.
+
+  Controls:
+    Keyboard — LEFT/RIGHT (or A/D) to switch lanes | SPACE/UP (or W) to jump
+    Touch    — Swipe LEFT/RIGHT to switch lanes | Swipe UP to jump
+
+  Core Loop:
+    Player auto-runs rightward through 3 dream lanes. The Void (collapse wall)
+    chases from the left. Dodge nightmares, rifts, and wraiths. Collect dream
+    shards for bonus points. Survive as long as possible.
+
+  Death Conditions:
+    1. The Void wall catches the player (right edge crosses player X)
+    2. Two obstacle hits without invincibility (first hit = grace, second = death)
+
+  Hazards:
+    1. Nightmare Pillars — static obstacles in a lane (dodge by switching or jumping)
+    2. Dream Rifts     — low crackling voids that can be jumped over or avoided by lane
+    3. Shadow Wraiths  — drifting entities that slowly slide between lanes
+
+  Pickups:
+    1. Dream Shards (gold)   — +50 pts each, appear in clusters
+    2. Lucid Crystal (cyan)  — 3s speed surge + invincibility; risk: obstacles come faster
+
+  Scoring:
+    score = Math.floor(timeAlive * 10 + bonusPoints) — monotonically increasing
+
+  Difficulty (smooth lerp + easeIn over 120s):
+    worldSpeed:  3 → 11 px/frame
+    voidSpeed:   0.2 → 7  px/frame (approaches faster with time)
+    spawnRate:   1800ms → 450ms interval
+
+  Visual: Deep purple twilight | Lavender, gold, fuchsia accents
+          Parallax dream islands, twinkling stars, particle dust
+  Font: Cinzel (elegant & ethereal)
+  Audio: Sine/triangle/sawtooth tones; chime collects, whisper jumps, dissonant death
+=============================================================
+*/
+
+const GAME_ID   = 'dream-escape-7f3a';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const GAME_W    = 800;
+const GAME_H    = 600;
+const LANES     = [175, 305, 435];  // Y centers for lanes 0 (top), 1 (mid), 2 (bot)
+const PLAYER_X  = 160;
+
+// ── Leaderboard ──────────────────────────────────────────
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch (e) { console.warn('Leaderboard unavailable:', e); return null; }
+}
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch (e) { console.warn('Leaderboard unavailable:', e); return []; }
+}
+
+// ── Audio ─────────────────────────────────────────────────
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playTone(type, freq, dur, vol, freqEnd) {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  if (freqEnd) osc.frequency.linearRampToValueAtTime(freqEnd, audioCtx.currentTime + dur);
+  gain.gain.setValueAtTime(Math.min(vol, 0.4), audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+  osc.start(); osc.stop(audioCtx.currentTime + dur);
+}
+function sfxJump()    { playTone('sine', 280, 0.12, 0.15, 480); playTone('triangle', 560, 0.08, 0.08); }
+function sfxLane()    { playTone('sine', 340, 0.08, 0.12, 500); }
+function sfxCollect() { playTone('sine', 880, 0.08, 0.22, 1200); playTone('triangle', 1320, 0.07, 0.14); }
+function sfxBoost()   { playTone('sine', 400, 0.12, 0.2, 900); playTone('sawtooth', 200, 0.09, 0.12, 500); }
+function sfxHit()     { playTone('sawtooth', 180, 0.18, 0.28); playTone('square', 90, 0.25, 0.2); }
+function sfxDeath()   { playTone('sawtooth', 260, 0.55, 0.3, 45); playTone('sawtooth', 120, 0.75, 0.22); playTone('sine', 55, 0.9, 0.2); }
+function sfxMilestone(){ playTone('triangle', 700, 0.09, 0.18); playTone('triangle', 1050, 0.11, 0.16); }
+function sfxStart()   { [500,700,900].forEach((f,i)=>setTimeout(()=>playTone('sine',f,0.15,0.18,f+200),i*100)); }
+
+// ── Math helpers ──────────────────────────────────────────
+function lerp(a, b, t) { return a + (b - a) * t; }
+function easeIn(t)     { return t * t; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// ═══════════════════════════════════════════════════════════
+// MENU SCENE
+// ═══════════════════════════════════════════════════════════
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+
+  create() {
+    audioCtx.resume();
+
+    // BG gradient via graphics
+    const bg = this.add.graphics();
+    bg.fillGradientStyle(0x050018, 0x050018, 0x1a0840, 0x0d0030, 1);
+    bg.fillRect(0, 0, GAME_W, GAME_H);
+
+    // Stars
+    this.stars = [];
+    for (let i = 0; i < 90; i++) {
+      const s = this.add.circle(
+        Phaser.Math.Between(0, GAME_W),
+        Phaser.Math.Between(0, GAME_H),
+        Math.random() * 2 + 0.3,
+        0xe8d5ff,
+        Math.random() * 0.6 + 0.2
+      );
+      this.stars.push({ obj: s, phase: Math.random() * Math.PI * 2, spd: Math.random() * 0.02 + 0.008 });
+    }
+
+    // Floating dream islands
+    const iGfx = this.add.graphics();
+    [[90,210,130,32],[660,280,100,28],[350,430,150,38],[520,160,80,22]].forEach(([x,y,w,h])=>{
+      iGfx.fillStyle(0x3d1f7a, 0.5); iGfx.fillEllipse(x, y, w, h);
+      iGfx.fillStyle(0x7a4fc4, 0.3); iGfx.fillEllipse(x, y - h*0.25, w*0.8, h*0.55);
+    });
+
+    // Title
+    this.add.text(GAME_W/2, 105, 'DREAM ESCAPE', {
+      fontFamily:'Cinzel', fontSize:'54px', fontStyle:'900',
+      color:'#e8d5ff', stroke:'#6c3483', strokeThickness:5,
+    }).setOrigin(0.5).setShadow(0, 0, '#9b59b6', 25, true, true);
+
+    this.add.text(GAME_W/2, 168, 'The dream is collapsing…  run.', {
+      fontFamily:'Cinzel', fontSize:'18px', color:'#b39ddb',
+    }).setOrigin(0.5);
+
+    // How to play
+    const instrs = [
+      '  ←  →  Arrow Keys to switch lanes',
+      '  ↑  or SPACE to jump over obstacles',
+      '  ✦  Collect Dream Shards for bonus points',
+      '  ★  Grab Lucid Crystals for a speed surge',
+      '  The Void closes in — stay ahead or be consumed',
+    ];
+    const panel = this.add.graphics();
+    panel.fillStyle(0x1a0840, 0.5);
+    panel.fillRoundedRect(GAME_W/2 - 290, 208, 580, 192, 12);
+    panel.lineStyle(1, 0x9b59b6, 0.35);
+    panel.strokeRoundedRect(GAME_W/2 - 290, 208, 580, 192, 12);
+    instrs.forEach((line, i) => {
+      this.add.text(GAME_W/2, 228 + i * 36, line, {
+        fontFamily:'Cinzel', fontSize:'14.5px', color:'#c8a8ff', alpha:0.85,
+      }).setOrigin(0.5);
+    });
+
+    // Lane preview lines
+    const prev = this.add.graphics();
+    [0,1,2].forEach(i => {
+      const y = 440 + i * 28;
+      prev.lineStyle(2, 0x9b59b6, 0.3);
+      prev.lineBetween(GAME_W/2 - 140, y, GAME_W/2 + 140, y);
+    });
+
+    // Tap to start
+    const startTxt = this.add.text(GAME_W/2, 545, '— TAP OR PRESS ANY KEY TO ENTER THE DREAM —', {
+      fontFamily:'Cinzel', fontSize:'13px', color:'#ffd700',
+    }).setOrigin(0.5);
+    this.tweens.add({ targets:startTxt, alpha:0.15, duration:900, yoyo:true, repeat:-1, ease:'Sine.easeInOut' });
+
+    this.input.once('pointerdown', () => this._launch());
+    this.input.keyboard.once('keydown', () => this._launch());
+  }
+
+  _launch() {
+    sfxStart();
+    this.cameras.main.fadeOut(600, 5, 0, 25);
+    this.time.delayedCall(600, () => this.scene.start('GameScene'));
+  }
+
+  update() {
+    this.stars.forEach(s => {
+      s.phase += s.spd;
+      s.obj.setAlpha(0.25 + Math.abs(Math.sin(s.phase)) * 0.55);
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// GAME SCENE
+// ═══════════════════════════════════════════════════════════
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  // ── Texture generation ────────────────────────────────────
+  _makeTextures() {
+    // Player
+    {
+      const g = this.make.graphics({add:false});
+      // outer glow
+      g.fillStyle(0x9b59b6, 0.25); g.fillEllipse(32,40,42,62);
+      // torso
+      g.fillStyle(0xd8aaff, 1); g.fillRoundedRect(20,22,24,36,7);
+      // head
+      g.fillStyle(0xf0deff, 1); g.fillCircle(32,14,13);
+      // face glow
+      g.fillStyle(0xffd700, 0.85); g.fillCircle(32,12,4);
+      // legs
+      g.fillStyle(0x9b59b6, 1);
+      g.fillRoundedRect(21,54,10,14,3); g.fillRoundedRect(33,54,10,14,3);
+      // arms
+      g.fillStyle(0xd8aaff, 0.9);
+      g.fillRoundedRect(8,25,11,18,5); g.fillRoundedRect(45,25,11,18,5);
+      // outline
+      g.lineStyle(2, 0xc44dff, 0.5); g.strokeCircle(32,14,14);
+      g.generateTexture('player', 64, 72); g.destroy();
+    }
+    // Nightmare pillar
+    {
+      const g = this.make.graphics({add:false});
+      g.fillStyle(0x100025, 1); g.fillRect(2,2,44,52);
+      g.fillStyle(0x2e0058, 1); g.fillRect(6,6,36,44);
+      // cracks
+      g.lineStyle(2, 0xc44dff, 0.85);
+      g.beginPath(); g.moveTo(16,8); g.lineTo(22,26); g.lineTo(14,38); g.lineTo(20,52); g.strokePath();
+      g.lineStyle(1, 0xff00ff, 0.5);
+      g.beginPath(); g.moveTo(36,10); g.lineTo(30,30); g.lineTo(38,44); g.strokePath();
+      // eyes
+      g.fillStyle(0xff0066, 1); g.fillCircle(17,22,6); g.fillCircle(33,22,6);
+      g.fillStyle(0xff99cc, 1); g.fillCircle(17,22,2.5); g.fillCircle(33,22,2.5);
+      g.generateTexture('nightmare', 48, 56); g.destroy();
+    }
+    // Dream rift (low horizontal crack)
+    {
+      const g = this.make.graphics({add:false});
+      g.fillStyle(0x050018, 0.97); g.fillRoundedRect(2,5,78,22,4);
+      g.lineStyle(3, 0x8e44ad, 0.9); g.strokeRoundedRect(2,5,78,22,4);
+      g.lineStyle(1, 0xd44fff, 0.7);
+      for (let x=10; x<76; x+=14) {
+        const by = 5 + Math.random()*22;
+        g.beginPath(); g.moveTo(x,by); g.lineTo(x+7,by+6); g.lineTo(x+4,by+14); g.strokePath();
+      }
+      g.fillStyle(0xd44fff, 0.15); g.fillRoundedRect(4,7,74,18,3);
+      g.generateTexture('rift', 82, 32); g.destroy();
+    }
+    // Shadow wraith
+    {
+      const g = this.make.graphics({add:false});
+      g.fillStyle(0x08001e, 0.95); g.fillEllipse(32,34,52,62);
+      g.fillStyle(0x200050, 0.8); g.fillEllipse(32,30,40,50);
+      // tendrils
+      g.lineStyle(3, 0x5c2e9a, 0.85);
+      g.beginPath(); g.moveTo(22,52); g.lineTo(12,70); g.strokePath();
+      g.beginPath(); g.moveTo(32,58); g.lineTo(32,76); g.strokePath();
+      g.beginPath(); g.moveTo(42,52); g.lineTo(52,70); g.strokePath();
+      // eyes
+      g.fillStyle(0xff00ff, 0.95); g.fillEllipse(22,27,12,14); g.fillEllipse(42,27,12,14);
+      g.fillStyle(0xff99ff, 1); g.fillCircle(22,27,3); g.fillCircle(42,27,3);
+      g.generateTexture('wraith', 64, 78); g.destroy();
+    }
+    // Dream shard (golden diamond)
+    {
+      const g = this.make.graphics({add:false});
+      g.fillStyle(0xffd700, 0.92);
+      g.fillTriangle(18,0, 36,18, 18,36);
+      g.fillTriangle(18,0, 0,18,  18,36);
+      g.lineStyle(2, 0xffff66, 1);
+      g.strokeTriangle(18,0, 36,18, 18,36);
+      g.strokeTriangle(18,0, 0,18,  18,36);
+      g.fillStyle(0xffffff, 0.55); g.fillCircle(13,11,5);
+      g.generateTexture('shard', 36, 36); g.destroy();
+    }
+    // Lucid crystal (cyan star)
+    {
+      const g = this.make.graphics({add:false});
+      const cx=22, cy=22, pts=[];
+      for (let i=0;i<10;i++) {
+        const a = (i*Math.PI/5) - Math.PI/2;
+        const r = i%2===0 ? 18 : 8;
+        pts.push({x: cx+Math.cos(a)*r, y: cy+Math.sin(a)*r});
+      }
+      g.fillStyle(0x00e5ff, 0.92);
+      g.beginPath(); g.moveTo(pts[0].x,pts[0].y);
+      pts.forEach(p=>g.lineTo(p.x,p.y)); g.closePath(); g.fillPath();
+      g.lineStyle(2, 0xaaffff, 1);
+      g.beginPath(); g.moveTo(pts[0].x,pts[0].y);
+      pts.forEach(p=>g.lineTo(p.x,p.y)); g.closePath(); g.strokePath();
+      g.fillStyle(0xffffff, 0.6); g.fillCircle(cx-5, cy-5, 5);
+      g.generateTexture('crystal', 44, 44); g.destroy();
+    }
+    // Particle dot
+    {
+      const g = this.make.graphics({add:false});
+      g.fillStyle(0xc44dff, 1); g.fillCircle(4,4,4);
+      g.generateTexture('dot', 8, 8); g.destroy();
+    }
+    // Gold particle
+    {
+      const g = this.make.graphics({add:false});
+      g.fillStyle(0xffd700, 1); g.fillCircle(3,3,3);
+      g.generateTexture('golddot', 6, 6); g.destroy();
+    }
+    // Void wall texture
+    {
+      const g = this.make.graphics({add:false});
+      for (let y=0; y<GAME_H; y+=4) {
+        const c = Math.floor(Math.random()*35);
+        g.fillStyle(Phaser.Display.Color.GetColor(c,0,c*2+10), 0.9);
+        g.fillRect(0,y,100,4);
+      }
+      g.lineStyle(4, 0xc44dff, 1);
+      g.lineBetween(98,0,98,GAME_H);
+      g.lineStyle(2, 0xff66ff, 0.5);
+      g.lineBetween(92,0,92,GAME_H);
+      g.generateTexture('void', 100, GAME_H); g.destroy();
+    }
+  }
+
+  create() {
+    // Generate all textures first
+    this._makeTextures();
+
+    // State
+    this.isAlive     = true;
+    this.invincible  = false;
+    this.boosting    = false;
+    this.firstHit    = false;
+    this.bonusPoints = 0;
+    this.timeAlive   = 0;
+    this.score       = 0;
+    this.lastMilestone = 0;
+
+    // Player lane
+    this.playerLane  = 1;
+    this.groundY     = LANES[1];
+    this.playerJumping = false;
+    this.jumpVelY    = 0;
+
+    // Spawn timers
+    this.obstacleTimer = 0;
+    this.shardTimer    = 0;
+    this.crystalTimer  = Phaser.Math.Between(6000,12000);
+
+    // Lane switch debounce
+    this.lastSwitchTime = 0;
+
+    // Void wall
+    this.voidRightX  = -20;  // screen X of void's right edge
+
+    // ── Background ────────────────────────────────────────
+    const bgGfx = this.add.graphics().setDepth(0);
+    bgGfx.fillGradientStyle(0x050018, 0x050018, 0x1a0840, 0x0c0030, 1);
+    bgGfx.fillRect(0, 0, GAME_W, GAME_H);
+
+    // Stars layer
+    this._stars = [];
+    this._starGfx = this.add.graphics().setDepth(1);
+    for (let i=0;i<70;i++) {
+      this._stars.push({
+        x: Math.random()*GAME_W*1.5,
+        y: Math.random()*GAME_H,
+        r: Math.random()*1.5+0.3,
+        spd: Math.random()*0.4+0.05,
+        phase: Math.random()*Math.PI*2,
+      });
+    }
+
+    // Floating dream islands (parallax, depth 1.5)
+    this._islands = [];
+    this._islandGfx = this.add.graphics().setDepth(2);
+    for (let i=0;i<6;i++) {
+      this._islands.push({
+        x: Math.random()*(GAME_W+300)+100,
+        y: Phaser.Math.Between(60, GAME_H-60),
+        w: Phaser.Math.Between(80,180),
+        h: Phaser.Math.Between(18,45),
+        spd: Math.random()*0.8+0.3,
+        phase: Math.random()*Math.PI*2,
+        col: [0x3d1f7a,0x6a3fad,0x2a0d5e,0x5c2e9a][i%4],
+      });
+    }
+
+    // Lane guide lines
+    const laneGfx = this.add.graphics().setDepth(3);
+    LANES.forEach((y,i) => {
+      laneGfx.lineStyle(1, 0x6c3483, 0.3);
+      for (let x=0;x<GAME_W;x+=28) { laneGfx.lineBetween(x,y+32,x+14,y+32); }
+    });
+    // Mid-lane dividers
+    [[LANES[0],LANES[1]],[LANES[1],LANES[2]]].forEach(([y1,y2]) => {
+      const my = (y1+y2)/2;
+      laneGfx.lineStyle(1, 0x4a2080, 0.2);
+      for (let x=0;x<GAME_W;x+=40) { laneGfx.lineBetween(x,my,x+20,my); }
+    });
+
+    // ── Game objects ────────────────────────────────────────
+    // Physics groups
+    this.obstacles  = this.physics.add.group();
+    this.shards     = this.physics.add.group();
+    this.crystals   = this.physics.add.group();
+
+    // Player sprite
+    this.player = this.physics.add.sprite(PLAYER_X, LANES[1], 'player');
+    this.player.body.setSize(40, 56).setOffset(12, 10);
+    this.player.setDepth(6);
+
+    // Idle bob tween
+    this.bobTween = this.tweens.add({
+      targets: this.player, y: this.player.y - 9,
+      duration: 580, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+    });
+
+    // Ambient particle emitter
+    this.dustEmitter = this.add.particles(0, 0, 'dot', {
+      x: {min:0, max:GAME_W}, y: {min:0, max:GAME_H},
+      speedX: {min:-50, max:-15}, speedY: {min:-8, max:8},
+      lifespan: {min:1800, max:4000},
+      scale: {start:0.6, end:0},
+      alpha: {start:0.25, end:0},
+      frequency: 250, quantity:1, blendMode:'ADD',
+    }).setDepth(2);
+
+    // Void wall sprite
+    this.voidSprite = this.add.tileSprite(this.voidRightX - 100, 0, 100, GAME_H, 'void')
+      .setOrigin(0, 0).setDepth(7);
+
+    // ── UI ──────────────────────────────────────────────────
+    this.scoreText = this.add.text(18, 16, 'Score: 0', {
+      fontFamily:'Cinzel', fontSize:'21px', color:'#ffd700',
+      stroke:'#000', strokeThickness:3,
+    }).setDepth(10);
+
+    this.voidWarning = this.add.text(GAME_W/2, 16, '', {
+      fontFamily:'Cinzel', fontSize:'14px', color:'#ff6666',
+      stroke:'#000', strokeThickness:2,
+    }).setOrigin(0.5, 0).setDepth(10);
+
+    this.boostBar = this.add.text(GAME_W - 18, 16, '', {
+      fontFamily:'Cinzel', fontSize:'14px', color:'#00e5ff',
+      stroke:'#000', strokeThickness:2,
+    }).setOrigin(1, 0).setDepth(10);
+
+    // ── Collisions ──────────────────────────────────────────
+    this.physics.add.overlap(this.player, this.obstacles, this._hitObstacle, null, this);
+    this.physics.add.overlap(this.player, this.shards,    this._collectShard,   null, this);
+    this.physics.add.overlap(this.player, this.crystals,  this._collectCrystal, null, this);
+
+    // ── Input ───────────────────────────────────────────────
+    this.keys = this.input.keyboard.addKeys({
+      left:  Phaser.Input.Keyboard.KeyCodes.LEFT,
+      right: Phaser.Input.Keyboard.KeyCodes.RIGHT,
+      up:    Phaser.Input.Keyboard.KeyCodes.UP,
+      space: Phaser.Input.Keyboard.KeyCodes.SPACE,
+      a:     Phaser.Input.Keyboard.KeyCodes.A,
+      d:     Phaser.Input.Keyboard.KeyCodes.D,
+      w:     Phaser.Input.Keyboard.KeyCodes.W,
+    });
+
+    // Track key state for edge detection
+    this._prevLeft  = false;
+    this._prevRight = false;
+    this._prevJump  = false;
+
+    // Touch swipe
+    this._swipeX = null; this._swipeY = null;
+    this.input.on('pointerdown', p => { this._swipeX = p.x; this._swipeY = p.y; });
+    this.input.on('pointerup',   p => {
+      if (this._swipeX === null) return;
+      const dx = p.x - this._swipeX, dy = p.y - this._swipeY;
+      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
+        if (dx > 0) this._switchLane(1); else this._switchLane(-1);
+      } else if (dy < -45) {
+        this._doJump();
+      }
+      this._swipeX = null;
+    });
+
+    // ── Game start time ─────────────────────────────────────
+    this.gameStartTime = this.time.now;
+    this.cameras.main.fadeIn(600, 5, 0, 25);
+  }
+
+  // ── Lane switching ─────────────────────────────────────────
+  _switchLane(dir) {
+    if (!this.isAlive) return;
+    const now = this.time.now;
+    if (now - this.lastSwitchTime < 160) return;
+    const newLane = clamp(this.playerLane + dir, 0, 2);
+    if (newLane === this.playerLane) return;
+    this.playerLane = newLane;
+    this.groundY    = LANES[newLane];
+    this.lastSwitchTime = now;
+    sfxLane();
+    this.bobTween.pause();
+    this.tweens.add({
+      targets: this.player, y: this.groundY, duration: 110, ease: 'Sine.easeOut',
+      onComplete: () => { if (!this.playerJumping && this.isAlive) this.bobTween.resume(); },
+    });
+  }
+
+  _doJump() {
+    if (!this.isAlive || this.playerJumping) return;
+    this.playerJumping = true;
+    this.jumpVelY = -13;
+    this.bobTween.pause();
+    sfxJump();
+  }
+
+  // ── Spawning ──────────────────────────────────────────────
+  _spawnObstacle(diff) {
+    const lane = Phaser.Math.Between(0, 2);
+    const y    = LANES[lane];
+    const rand = Math.random();
+    let   key;
+    if (rand < 0.50) key = 'nightmare';
+    else if (rand < 0.80) key = 'rift';
+    else key = 'wraith';
+
+    const obs = this.obstacles.create(GAME_W + 70, y, key);
+    obs.obstacleType = key;
+    obs.body.setSize(obs.width * 0.72, obs.height * 0.72)
+             .setOffset(obs.width * 0.14, obs.height * 0.14);
+    obs.setDepth(5);
+    if (key === 'wraith') {
+      obs.targetLane       = lane;
+      obs.wraithTimer      = 0;
+      obs.wraithSwitchMs   = Phaser.Math.Between(2000, 4000);
+    }
+
+    // Possibly a second obstacle staggered
+    if (diff > 0.35 && Math.random() < 0.3) {
+      const lane2 = (lane + 1 + Math.floor(Math.random()*2)) % 3;
+      const key2  = Math.random() < 0.6 ? 'nightmare' : 'rift';
+      const obs2  = this.obstacles.create(GAME_W + 70 + Phaser.Math.Between(60, 140), LANES[lane2], key2);
+      obs2.obstacleType = key2;
+      obs2.body.setSize(obs2.width * 0.72, obs2.height * 0.72)
+               .setOffset(obs2.width * 0.14, obs2.height * 0.14);
+      obs2.setDepth(5);
+    }
+  }
+
+  _spawnShard() {
+    const lane = Phaser.Math.Between(0, 2);
+    const base = GAME_W + 55;
+    const count = Math.random() < 0.4 ? 3 : 1;
+    for (let i=0; i<count; i++) {
+      const s = this.shards.create(base + i*55, LANES[lane], 'shard');
+      s.body.setSize(26, 26).setOffset(5, 5);
+      s.laneY = LANES[lane];
+      s.phase = Math.random() * Math.PI * 2;
+      s.setDepth(5);
+    }
+  }
+
+  _spawnCrystal() {
+    const lane = Phaser.Math.Between(0, 2);
+    const c = this.crystals.create(GAME_W + 55, LANES[lane] - 10, 'crystal');
+    c.body.setSize(32, 32).setOffset(6, 6);
+    c.setDepth(5);
+  }
+
+  // ── Collision callbacks ────────────────────────────────────
+  _hitObstacle(player, obs) {
+    if (this.invincible || !this.isAlive) return;
+    sfxHit();
+    this.cameras.main.shake(140, 0.009);
+    this.cameras.main.flash(180, 140, 0, 60);
+    this.player.setTint(0xff4444);
+    this.invincible = true;
+    if (!this.firstHit) {
+      this.firstHit = true;
+      this._popup(player.x, player.y - 45, '💥 DAMAGED!', '#ff6666');
+      this.time.delayedCall(1400, () => {
+        if (this.isAlive) { this.invincible = false; this.player.clearTint(); }
+      });
+    } else {
+      this._triggerDeath();
+    }
+  }
+
+  _collectShard(player, shard) {
+    this.bonusPoints += 50;
+    sfxCollect();
+    this._popup(shard.x, shard.y - 20, '+50', '#ffd700');
+    // Gold burst
+    const emitter = this.add.particles(shard.x, shard.y, 'golddot', {
+      speed:{min:60,max:160}, angle:{min:0,max:360},
+      scale:{start:1,end:0}, alpha:{start:1,end:0},
+      lifespan:450, quantity:8, blendMode:'ADD',
+    }).setDepth(6);
+    this.time.delayedCall(500, () => emitter.destroy());
+    shard.destroy();
+  }
+
+  _collectCrystal(player, crystal) {
+    this.bonusPoints += 100;
+    sfxBoost();
+    this._popup(crystal.x, crystal.y - 25, '✦ LUCID BOOST ✦', '#00e5ff');
+    this.boosting = true;
+    this.boostTimeLeft = 3000;
+    this.invincible = true;
+    this.player.setTint(0x55eeff);
+    // Cyan burst
+    const emitter = this.add.particles(crystal.x, crystal.y, 'dot', {
+      speed:{min:80,max:200}, angle:{min:0,max:360},
+      scale:{start:1.2,end:0}, alpha:{start:1,end:0},
+      lifespan:600, quantity:15, blendMode:'ADD',
+    }).setDepth(6);
+    this.time.delayedCall(700, () => emitter.destroy());
+    crystal.destroy();
+  }
+
+  _popup(x, y, text, color) {
+    const t = this.add.text(x, y, text, {
+      fontFamily:'Cinzel', fontSize:'17px', color: color||'#fff',
+      stroke:'#000', strokeThickness:3,
+    }).setOrigin(0.5).setDepth(9);
+    this.tweens.add({
+      targets:t, y:y-55, alpha:0, duration:850, ease:'Sine.easeOut',
+      onComplete: () => t.destroy(),
+    });
+  }
+
+  _triggerDeath() {
+    if (!this.isAlive) return;
+    this.isAlive = false;
+    sfxDeath();
+    this.cameras.main.shake(320, 0.016);
+    this.cameras.main.flash(450, 90, 0, 110);
+
+    // Purple burst
+    const emitter = this.add.particles(this.player.x, this.player.y, 'dot', {
+      speed:{min:100,max:260}, angle:{min:0,max:360},
+      scale:{start:2,end:0}, alpha:{start:1,end:0},
+      lifespan:900, quantity:30, blendMode:'ADD',
+    }).setDepth(8);
+    this.time.delayedCall(1000, ()=>emitter.destroy());
+
+    // Dissolve player
+    this.tweens.add({
+      targets: this.player, alpha:0, scale:2.2, angle:45,
+      duration:600, ease:'Sine.easeIn',
+    });
+    this.bobTween.stop();
+
+    const finalScore = Math.floor(this.timeAlive * 10 + this.bonusPoints);
+    this.time.delayedCall(750, () => {
+      this.scene.pause();
+      showGameOverUI(finalScore);
+    });
+  }
+
+  // ── Main update ───────────────────────────────────────────
+  update(time, delta) {
+    if (!this.isAlive) return;
+
+    const dt      = delta / 16.667;
+    const elapsed = (time - this.gameStartTime) / 1000;
+    const t       = clamp(elapsed / 120, 0, 1);
+    const diff    = easeIn(t);
+
+    // Live values
+    const worldSpeed = lerp(3, 11, diff) * dt;
+    const voidChase  = lerp(0.2, 7, diff) * dt;
+
+    this.timeAlive   = elapsed;
+    this.score       = Math.floor(elapsed * 10 + this.bonusPoints);
+
+    // Score milestone
+    const ms = Math.floor(this.score / 500);
+    if (ms > this.lastMilestone) { this.lastMilestone = ms; sfxMilestone(); }
+
+    // ── Update UI ────────────────────────────────────────
+    this.scoreText.setText(`Score: ${this.score}`);
+
+    // Boost bar
+    if (this.boosting) {
+      this.boostTimeLeft -= delta;
+      if (this.boostTimeLeft <= 0) {
+        this.boosting   = false;
+        this.invincible = false;
+        this.player.clearTint();
+      }
+      const pct = Math.max(0, this.boostTimeLeft / 3000);
+      this.boostBar.setText(`LUCID ${'█'.repeat(Math.ceil(pct*6))}${'░'.repeat(6-Math.ceil(pct*6))}`);
+    } else {
+      this.boostBar.setText('');
+    }
+
+    // ── Void wall ────────────────────────────────────────
+    this.voidRightX += voidChase;
+    if (this.voidRightX < -20) this.voidRightX = -20; // can't go left
+    this.voidSprite.setX(this.voidRightX - 100);
+
+    // Void warning
+    const gap = PLAYER_X - this.voidRightX;
+    if (gap < 220) {
+      this.voidWarning.setText('⚠  THE VOID CLOSES IN  ⚠');
+      this.voidWarning.setAlpha(0.6 + Math.sin(time * 0.012) * 0.4);
+    } else {
+      this.voidWarning.setText('');
+    }
+
+    // Void catches player?
+    if (this.voidRightX >= PLAYER_X - 18 && !this.invincible) {
+      this._triggerDeath();
+      return;
+    }
+
+    // ── Player jump ──────────────────────────────────────
+    if (this.playerJumping) {
+      this.jumpVelY += 0.65 * dt;
+      this.player.y += this.jumpVelY * dt;
+      if (this.player.y >= this.groundY) {
+        this.player.y = this.groundY;
+        this.playerJumping = false;
+        this.jumpVelY = 0;
+        if (this.isAlive) this.bobTween.resume();
+      }
+    }
+
+    // ── Keyboard input ───────────────────────────────────
+    const lDown = this.keys.left.isDown  || this.keys.a.isDown;
+    const rDown = this.keys.right.isDown || this.keys.d.isDown;
+    const jDown = this.keys.up.isDown    || this.keys.space.isDown || this.keys.w.isDown;
+
+    if (lDown && !this._prevLeft)  this._switchLane(-1);
+    if (rDown && !this._prevRight) this._switchLane(1);
+    if (jDown && !this._prevJump)  this._doJump();
+
+    this._prevLeft  = lDown;
+    this._prevRight = rDown;
+    this._prevJump  = jDown;
+
+    // ── Obstacle spawning ────────────────────────────────
+    this.obstacleTimer += delta;
+    const spawnMs = lerp(1800, 450, diff);
+    if (this.obstacleTimer >= spawnMs) {
+      this.obstacleTimer = 0;
+      this._spawnObstacle(diff);
+    }
+
+    // ── Shard spawning ───────────────────────────────────
+    this.shardTimer += delta;
+    const shardMs = lerp(2200, 800, diff);
+    if (this.shardTimer >= shardMs) {
+      this.shardTimer = 0;
+      this._spawnShard();
+    }
+
+    // ── Crystal spawning ─────────────────────────────────
+    this.crystalTimer -= delta;
+    if (this.crystalTimer <= 0) {
+      this._spawnCrystal();
+      this.crystalTimer = Phaser.Math.Between(8000, 16000);
+    }
+
+    // ── Move obstacles ───────────────────────────────────
+    const boostedSpeed = this.boosting ? worldSpeed * 1.55 : worldSpeed;
+    this.obstacles.getChildren().forEach(obs => {
+      // Wraith: drift between lanes
+      if (obs.obstacleType === 'wraith') {
+        obs.wraithTimer += delta;
+        if (obs.wraithTimer > obs.wraithSwitchMs) {
+          obs.wraithTimer    = 0;
+          obs.wraithSwitchMs = Phaser.Math.Between(1500, 3500);
+          obs.targetLane     = Phaser.Math.Between(0, 2);
+        }
+        obs.y = Phaser.Math.Linear(obs.y, LANES[obs.targetLane], 0.025 * dt);
+      }
+      obs.x -= boostedSpeed;
+      if (obs.x < -120) obs.destroy();
+    });
+
+    // ── Move shards & crystals ───────────────────────────
+    this.shards.getChildren().forEach(s => {
+      s.x -= boostedSpeed;
+      s.y  = s.laneY + Math.sin(time * 0.003 + s.phase) * 7;
+      s.rotation += 0.02 * dt;
+      if (s.x < -60) s.destroy();
+    });
+    this.crystals.getChildren().forEach(c => {
+      c.x -= boostedSpeed;
+      c.rotation += 0.035 * dt;
+      if (c.x < -60) c.destroy();
+    });
+
+    // ── Parallax background ──────────────────────────────
+    this._updateBG(dt, time);
+  }
+
+  _updateBG(dt, time) {
+    // Stars
+    this._starGfx.clear();
+    this._stars.forEach(s => {
+      s.x -= s.spd * dt;
+      if (s.x < 0) s.x = GAME_W + 5;
+      s.phase += 0.015;
+      const alpha = 0.2 + Math.abs(Math.sin(s.phase)) * 0.5;
+      this._starGfx.fillStyle(0xe8d5ff, alpha);
+      this._starGfx.fillCircle(s.x, s.y, s.r);
+    });
+    // Islands
+    this._islandGfx.clear();
+    this._islands.forEach(isl => {
+      isl.x -= isl.spd * dt;
+      if (isl.x < -isl.w) isl.x = GAME_W + isl.w + 80;
+      isl.phase += 0.008;
+      const yo = Math.sin(isl.phase) * 7;
+      this._islandGfx.fillStyle(isl.col, 0.4);
+      this._islandGfx.fillEllipse(isl.x, isl.y + yo, isl.w, isl.h);
+      this._islandGfx.fillStyle(0x8a6fcf, 0.2);
+      this._islandGfx.fillEllipse(isl.x, isl.y + yo - isl.h*0.3, isl.w*0.75, isl.h*0.55);
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PHASER GAME CONFIG
+// ═══════════════════════════════════════════════════════════
+const config = {
+  type: Phaser.AUTO,
+  width:  GAME_W,
+  height: GAME_H,
+  backgroundColor: '#050018',
+  physics: { default:'arcade', arcade:{ gravity:{y:0}, debug:false } },
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: [MenuScene, GameScene],
+};
+const game = new Phaser.Game(config);
+
+// ═══════════════════════════════════════════════════════════
+// GAME OVER UI
+// ═══════════════════════════════════════════════════════════
+function showGameOverUI(finalScore) {
+  document.getElementById('final-score').textContent = finalScore;
+  document.getElementById('ui-overlay').style.display = 'flex';
+}
+
+document.getElementById('submit-btn').addEventListener('click', async () => {
+  const name = (document.getElementById('player-name').value.trim() || 'Dreamer').slice(0,20);
+  const score = parseInt(document.getElementById('final-score').textContent, 10);
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true; btn.textContent = 'Submitting…';
+
+  await submitScore(name, score);
+  const scores = await getLeaderboard();
+
+  const lbDiv = document.getElementById('leaderboard');
+  const entries = document.getElementById('lb-entries');
+  entries.innerHTML = '';
+  scores.forEach((e, i) => {
+    const div = document.createElement('div');
+    div.className = 'lb-entry';
+    div.innerHTML = `<span class="lb-rank">#${i+1}</span><span class="lb-name">${e.playerName}</span><span class="lb-score">${e.score}</span>`;
+    entries.appendChild(div);
+  });
+  lbDiv.style.display = 'block';
+  btn.textContent = 'Submitted ✓';
+});
+
+document.getElementById('replay-btn').addEventListener('click', () => {
+  document.getElementById('ui-overlay').style.display = 'none';
+  document.getElementById('leaderboard').style.display = 'none';
+  document.getElementById('lb-entries').innerHTML = '';
+  document.getElementById('submit-btn').disabled = false;
+  document.getElementById('submit-btn').textContent = 'Submit Score';
+  document.getElementById('player-name').value = '';
+  game.scene.stop('GameScene');
+  game.scene.start('GameScene');
+});
+</script>
+</body>
+</html>
