@@ -1,0 +1,1103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Temporal Fugitive</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #050510;
+    display: flex; justify-content: center; align-items: center;
+    height: 100vh; overflow: hidden; touch-action: none;
+  }
+  #ui-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    display: none; flex-direction: column; justify-content: center; align-items: center;
+    z-index: 10; background: rgba(5,5,20,0.92);
+    font-family: 'Orbitron', sans-serif; color: #e0d0ff;
+  }
+  #ui-overlay h2 {
+    font-size: 2.2em; font-weight: 900; color: #c084fc;
+    text-shadow: 0 0 20px #c084fc, 0 0 40px #7c3aed;
+    margin-bottom: 12px; letter-spacing: 2px;
+  }
+  #ui-overlay .score-display {
+    font-size: 1.6em; font-weight: 700; color: #a5f3fc;
+    text-shadow: 0 0 15px #22d3ee; margin-bottom: 8px;
+  }
+  #ui-overlay .time-display {
+    font-size: 1em; color: #9ca3af; margin-bottom: 28px;
+  }
+  #ui-overlay input {
+    background: rgba(124,58,237,0.2); border: 2px solid #7c3aed;
+    color: #e0d0ff; font-family: 'Orbitron', sans-serif;
+    font-size: 1em; padding: 10px 16px; border-radius: 8px;
+    outline: none; margin-bottom: 12px; width: 240px; text-align: center;
+  }
+  #ui-overlay input::placeholder { color: #6b7280; }
+  #ui-overlay input:focus { border-color: #c084fc; box-shadow: 0 0 12px #7c3aed; }
+  #ui-overlay button {
+    background: linear-gradient(135deg, #7c3aed, #4f46e5);
+    border: none; color: #fff; font-family: 'Orbitron', sans-serif;
+    font-size: 1em; font-weight: 700; padding: 12px 28px;
+    border-radius: 8px; cursor: pointer; margin: 6px;
+    text-shadow: 0 0 8px rgba(255,255,255,0.5);
+    transition: all 0.2s;
+  }
+  #ui-overlay button:hover { transform: scale(1.05); box-shadow: 0 0 16px #7c3aed; }
+  #ui-overlay button.replay-btn {
+    background: linear-gradient(135deg, #06b6d4, #0891b2);
+    box-shadow: 0 0 12px rgba(6,182,212,0.3);
+  }
+  #ui-overlay button.replay-btn:hover { box-shadow: 0 0 20px #06b6d4; }
+  #leaderboard-container {
+    margin-top: 20px; width: 300px;
+  }
+  #leaderboard-container h3 {
+    font-size: 0.85em; color: #c084fc; letter-spacing: 3px;
+    margin-bottom: 10px; text-align: center;
+  }
+  .lb-entry {
+    display: flex; justify-content: space-between;
+    padding: 5px 10px; margin: 3px 0;
+    background: rgba(124,58,237,0.12); border-radius: 4px;
+    font-size: 0.8em; color: #d1d5db;
+    border-left: 3px solid #7c3aed;
+  }
+  .lb-entry.lb-gold { border-left-color: #fbbf24; color: #fef3c7; }
+  .lb-entry.lb-silver { border-left-color: #9ca3af; }
+  .lb-entry.lb-bronze { border-left-color: #d97706; }
+  #phase-bar-container {
+    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+    z-index: 5; display: flex; align-items: center; gap: 8px;
+    font-family: 'Orbitron', sans-serif; font-size: 0.65em; color: #a5f3fc;
+  }
+  #phase-bar {
+    width: 120px; height: 10px; background: rgba(0,0,0,0.4);
+    border: 1px solid #06b6d4; border-radius: 6px; overflow: hidden;
+  }
+  #phase-bar-fill {
+    height: 100%; width: 0%; background: linear-gradient(90deg,#22d3ee,#818cf8);
+    transition: width 0.1s linear;
+  }
+</style>
+</head>
+<body>
+
+<div id="ui-overlay">
+  <h2>⟨ TIMELINE BREACHED ⟩</h2>
+  <div class="score-display" id="final-score">SCORE: 0</div>
+  <div class="time-display" id="final-time">SURVIVED: 0s</div>
+  <input type="text" id="player-name" placeholder="ENTER YOUR NAME" maxlength="16">
+  <div>
+    <button onclick="handleSubmit()">SUBMIT SCORE</button>
+    <button class="replay-btn" onclick="handleReplay()">PLAY AGAIN</button>
+  </div>
+  <div id="leaderboard-container" style="display:none">
+    <h3>— TOP CHRONONAUTS —</h3>
+    <div id="leaderboard-list"></div>
+  </div>
+</div>
+
+<div id="phase-bar-container" style="display:none">
+  <span>PHASE SHIFT</span>
+  <div id="phase-bar"><div id="phase-bar-fill"></div></div>
+</div>
+
+<script>
+/*
+=== DESIGN HEADER ===
+GAME: Temporal Fugitive
+PROMPT: You're a time traveler chased by your own alternate selves.
+
+CONTROLS:
+  - Move: WASD / Arrow Keys / Touch drag (virtual joystick via pointer)
+  - Phase Shift (invincibility): SPACE / Tap ability button (cooldown: 8s)
+
+CORE LOOP / DEATH:
+  - Top-down arena survivor. Player evades alternate selves that spawn and chase.
+  - Death = collision with an alternate self. No win state. Endless survival.
+
+HAZARDS (3 distinct):
+  1. Echo Self (blue-white): Mimics player's movement path with ~2s delay. Slow, numerous.
+  2. Paradox Self (red-orange): Fast, aggressive seeker. Teleports briefly every 8-12s.
+  3. Temporal Rift (purple static zone): Spawns and pulses for 4s. Instant death on contact.
+
+PICKUPS / RISK-REWARD:
+  1. Chrono Crystal (gold): +50 bonus, brief speed boost. Risk: nearby echoes lurch toward you.
+  2. Phase Shard (cyan): Refills Phase Shift cooldown instantly. Risk: spawns 1 extra Echo Self.
+
+SCORING:
+  score = Math.floor(timeAlive * 10 + bonusPoints) — strictly monotonic.
+
+DIFFICULTY (0→1 over 120s):
+  - Echo spawn rate: lerp(0.25, 2.5, ease)
+  - Echo speed: lerp(55, 180, ease)
+  - Paradox speed: lerp(90, 260, ease)
+  - Rift spawn rate: lerp(0, 0.5, ease) — rifts don't appear until 15s
+  - Max entities: lerp(3, 20, difficulty)
+
+VISUAL: Cosmic/temporal — starfield BG, deep indigo-purple palette, particle trails.
+FONT: Orbitron (bold, futuristic)
+AUDIO: Synth tones — sine/triangle for pickups, sawtooth for hits, distorted for death.
+=== END DESIGN HEADER ===
+*/
+
+const GAME_ID = 'temporal-fugitive-a7f2';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+// ─── Audio ───────────────────────────────────────────────────────────────────
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playSound(type, freq, duration, volume = 0.3, freqEnd = null) {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  if (freqEnd) osc.frequency.linearRampToValueAtTime(freqEnd, audioCtx.currentTime + duration);
+  gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  osc.start();
+  osc.stop(audioCtx.currentTime + duration);
+}
+
+function sfxStart() {
+  playSound('sine', 300, 0.08, 0.15, 600);
+  setTimeout(() => playSound('sine', 600, 0.12, 0.18, 900), 100);
+  setTimeout(() => playSound('triangle', 900, 0.2, 0.2, 1200), 200);
+}
+function sfxCrystal() {
+  playSound('triangle', 880, 0.1, 0.25, 1320);
+  setTimeout(() => playSound('triangle', 1100, 0.15, 0.2), 80);
+}
+function sfxShard() {
+  playSound('sine', 660, 0.08, 0.2, 440);
+  setTimeout(() => playSound('sine', 880, 0.12, 0.18, 1100), 60);
+}
+function sfxPhase() {
+  playSound('sine', 220, 0.3, 0.25, 110);
+  setTimeout(() => playSound('triangle', 440, 0.25, 0.2, 220), 50);
+}
+function sfxHit() {
+  playSound('sawtooth', 180, 0.15, 0.35, 80);
+  setTimeout(() => playSound('square', 90, 0.2, 0.25), 60);
+}
+function sfxTeleport() {
+  playSound('sawtooth', 600, 0.05, 0.2, 200);
+  setTimeout(() => playSound('sawtooth', 200, 0.08, 0.2, 600), 80);
+}
+function sfxDeath() {
+  playSound('sawtooth', 400, 0.6, 0.4, 50);
+  setTimeout(() => playSound('sawtooth', 200, 0.5, 0.3, 40), 100);
+  setTimeout(() => playSound('square', 120, 0.8, 0.25, 30), 250);
+  setTimeout(() => playSound('sine', 60, 1.2, 0.2), 400);
+}
+function sfxRiftAppear() {
+  playSound('triangle', 130, 0.4, 0.2, 100);
+}
+function sfxMilestone() {
+  playSound('triangle', 600, 0.1, 0.2);
+  setTimeout(() => playSound('triangle', 800, 0.1, 0.2), 80);
+  setTimeout(() => playSound('triangle', 1000, 0.15, 0.25), 160);
+}
+
+// ─── Leaderboard ─────────────────────────────────────────────────────────────
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch (e) {
+    console.warn('Leaderboard unavailable:', e);
+    return null;
+  }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch (e) {
+    console.warn('Leaderboard unavailable:', e);
+    return [];
+  }
+}
+
+// ─── Game state ───────────────────────────────────────────────────────────────
+let finalScore = 0;
+let finalTime = 0;
+let gameSceneRef = null;
+
+function handleSubmit() {
+  const name = document.getElementById('player-name').value.trim() || 'CHRONONAUT';
+  submitScore(name, finalScore).then(() => {
+    getLeaderboard().then(scores => {
+      const container = document.getElementById('leaderboard-container');
+      const list = document.getElementById('leaderboard-list');
+      list.innerHTML = '';
+      if (scores.length === 0) {
+        list.innerHTML = '<div style="text-align:center;color:#6b7280;font-size:0.75em">No scores yet</div>';
+      } else {
+        scores.forEach((s, i) => {
+          const div = document.createElement('div');
+          div.className = 'lb-entry' + (i === 0 ? ' lb-gold' : i === 1 ? ' lb-silver' : i === 2 ? ' lb-bronze' : '');
+          div.innerHTML = `<span>#${i+1} ${s.playerName}</span><span>${s.score}</span>`;
+          list.appendChild(div);
+        });
+      }
+      container.style.display = 'block';
+    });
+  });
+}
+
+function handleReplay() {
+  document.getElementById('ui-overlay').style.display = 'none';
+  document.getElementById('phase-bar-container').style.display = 'none';
+  if (gameSceneRef) {
+    gameSceneRef.scene.restart();
+  }
+}
+
+function showGameOverUI(score, timeAlive) {
+  finalScore = score;
+  finalTime = timeAlive;
+  document.getElementById('final-score').textContent = `SCORE: ${score}`;
+  document.getElementById('final-time').textContent = `SURVIVED: ${timeAlive.toFixed(1)}s`;
+  document.getElementById('leaderboard-container').style.display = 'none';
+  document.getElementById('player-name').value = '';
+  document.getElementById('ui-overlay').style.display = 'flex';
+}
+
+// ─── Lerp helpers ─────────────────────────────────────────────────────────────
+function lerp(a, b, t) { return a + (b - a) * t; }
+function easeIn(t) { return t * t; }
+function clamp(v, min, max) { return Math.min(max, Math.max(min, v)); }
+
+// ─── Scenes ───────────────────────────────────────────────────────────────────
+
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+
+    // Starfield
+    this.stars = [];
+    for (let i = 0; i < 160; i++) {
+      const g = this.add.graphics();
+      const r = Phaser.Math.Between(1, 3) * 0.5;
+      const alpha = Phaser.Math.FloatBetween(0.3, 1.0);
+      g.fillStyle(0xffffff, alpha);
+      g.fillCircle(0, 0, r);
+      g.setPosition(Math.random() * W, Math.random() * H);
+      this.stars.push({ g, speed: Phaser.Math.FloatBetween(0.1, 0.5) });
+    }
+
+    // BG gradient overlay (graphics quad)
+    const bg = this.add.graphics();
+    bg.fillGradientStyle(0x050510, 0x050510, 0x1a0533, 0x0d0a2e, 1);
+    bg.fillRect(0, 0, W, H);
+    bg.setDepth(-1);
+    this.children.sendToBack(bg);
+
+    // Title text with glow
+    const title = this.add.text(W / 2, H * 0.28, 'TEMPORAL\nFUGITIVE', {
+      fontFamily: 'Orbitron',
+      fontSize: Math.floor(W * 0.085) + 'px',
+      fontStyle: 'bold',
+      color: '#c084fc',
+      align: 'center',
+      stroke: '#7c3aed',
+      strokeThickness: 2,
+      lineSpacing: 8
+    }).setOrigin(0.5);
+
+    this.tweens.add({
+      targets: title,
+      alpha: { from: 0.7, to: 1 },
+      scaleX: { from: 0.98, to: 1.02 },
+      scaleY: { from: 0.98, to: 1.02 },
+      yoyo: true, repeat: -1, duration: 2000, ease: 'Sine.easeInOut'
+    });
+
+    // Subtitle
+    this.add.text(W / 2, H * 0.50, 'Your alternate selves are closing in.', {
+      fontFamily: 'Orbitron', fontSize: Math.floor(W * 0.022) + 'px',
+      color: '#a78bfa', align: 'center'
+    }).setOrigin(0.5);
+
+    // Instructions
+    const instLines = [
+      'WASD / Arrows — Move',
+      'SPACE / Screen Tap — Phase Shift (invincibility)',
+      '',
+      '◈  Echo Selves copy your path — stay moving',
+      '◈  Paradox Selves are fast and teleport',
+      '◈  Temporal Rifts pulse and consume you',
+      '',
+      '⬡  Chrono Crystal  +50pts + speed boost',
+      '⬡  Phase Shard  refills Phase Shift',
+    ];
+    this.add.text(W / 2, H * 0.70, instLines.join('\n'), {
+      fontFamily: 'Orbitron', fontSize: Math.floor(W * 0.017) + 'px',
+      color: '#94a3b8', align: 'center', lineSpacing: 6
+    }).setOrigin(0.5);
+
+    // Tap prompt
+    const tap = this.add.text(W / 2, H * 0.91, '— TAP OR PRESS ANY KEY TO BEGIN —', {
+      fontFamily: 'Orbitron', fontSize: Math.floor(W * 0.02) + 'px',
+      color: '#22d3ee'
+    }).setOrigin(0.5);
+    this.tweens.add({ targets: tap, alpha: 0, yoyo: true, repeat: -1, duration: 700 });
+
+    // Draw player icon
+    const px = W / 2, py = H * 0.40;
+    const pg = this.add.graphics();
+    drawPlayerShape(pg, px, py, 18, 0xa5f3fc, 0x7c3aed);
+    this.tweens.add({ targets: pg, y: py - 8, yoyo: true, repeat: -1, duration: 1400, ease: 'Sine.easeInOut' });
+
+    // Start handlers
+    const startGame = () => {
+      audioCtx.resume();
+      sfxStart();
+      this.scene.start('GameScene');
+    };
+    this.input.once('pointerdown', startGame);
+    this.input.keyboard.once('keydown', startGame);
+  }
+
+  update() {
+    // Drift stars
+    if (this.stars) {
+      this.stars.forEach(s => {
+        s.g.y += s.speed;
+        if (s.g.y > this.scale.height + 4) s.g.y = -4;
+      });
+    }
+  }
+}
+
+// ─── Procedural sprite helpers ────────────────────────────────────────────────
+
+function drawPlayerShape(g, x, y, r, colorFill, colorStroke) {
+  g.clear();
+  // Outer glow ring
+  g.lineStyle(3, colorStroke, 0.5);
+  g.strokeCircle(x, y, r + 5);
+  // Body diamond
+  g.fillStyle(colorFill, 1);
+  g.fillTriangle(x, y - r, x - r * 0.8, y + r * 0.6, x + r * 0.8, y + r * 0.6);
+  // Core
+  g.fillStyle(0xffffff, 0.9);
+  g.fillCircle(x, y - r * 0.1, r * 0.35);
+  // Highlight
+  g.fillStyle(0x818cf8, 0.6);
+  g.fillCircle(x - r * 0.2, y - r * 0.3, r * 0.18);
+}
+
+function generatePlayerTexture(scene) {
+  const g = scene.add.graphics();
+  const s = 64;
+  g.fillStyle(0xa5f3fc, 1);
+  g.fillTriangle(s/2, 4, 8, s-8, s-8, s-8);
+  // Core glow
+  g.fillStyle(0xffffff, 0.85);
+  g.fillCircle(s/2, s/2 - 4, 10);
+  // Ring
+  g.lineStyle(3, 0x7c3aed, 0.8);
+  g.strokeCircle(s/2, s/2, 24);
+  // Detail
+  g.fillStyle(0x818cf8, 0.7);
+  g.fillCircle(s/2 - 5, s/2 - 8, 4);
+  g.generateTexture('player', s, s);
+  g.destroy();
+}
+
+function generateEchoTexture(scene) {
+  const g = scene.add.graphics();
+  const s = 56;
+  // Ghostly self
+  g.fillStyle(0x60a5fa, 0.85);
+  g.fillTriangle(s/2, 4, 9, s-9, s-9, s-9);
+  // Glitch lines
+  g.lineStyle(2, 0xbfdbfe, 0.6);
+  g.strokeRect(s/2 - 6, s/2 - 2, 12, 2);
+  g.strokeRect(s/2 - 10, s/2 + 4, 20, 2);
+  // Core
+  g.fillStyle(0xbfdbfe, 0.9);
+  g.fillCircle(s/2, s/2 - 4, 7);
+  g.generateTexture('echo', s, s);
+  g.destroy();
+}
+
+function generateParadoxTexture(scene) {
+  const g = scene.add.graphics();
+  const s = 60;
+  // Red-orange aggressive form
+  g.fillStyle(0xf97316, 1);
+  g.fillTriangle(s/2, 2, 5, s-5, s-5, s-5);
+  // Dark core
+  g.fillStyle(0x7f1d1d, 1);
+  g.fillTriangle(s/2, 14, 14, s-14, s-14, s-14);
+  // Eye
+  g.fillStyle(0xfef2f2, 1);
+  g.fillCircle(s/2, s/2, 8);
+  g.fillStyle(0xdc2626, 1);
+  g.fillCircle(s/2, s/2, 5);
+  g.fillStyle(0xff0000, 0.8);
+  g.fillCircle(s/2, s/2, 3);
+  g.generateTexture('paradox', s, s);
+  g.destroy();
+}
+
+function generateRiftTexture(scene) {
+  const g = scene.add.graphics();
+  const s = 80;
+  // Purple swirling rift
+  g.fillStyle(0x4c1d95, 0.6);
+  g.fillCircle(s/2, s/2, 36);
+  g.lineStyle(4, 0x7c3aed, 0.9);
+  g.strokeCircle(s/2, s/2, 36);
+  g.lineStyle(2, 0xc084fc, 0.7);
+  g.strokeCircle(s/2, s/2, 26);
+  g.fillStyle(0x1a0533, 0.8);
+  g.fillCircle(s/2, s/2, 18);
+  g.fillStyle(0x000000, 0.9);
+  g.fillCircle(s/2, s/2, 10);
+  g.generateTexture('rift', s, s);
+  g.destroy();
+}
+
+function generateCrystalTexture(scene) {
+  const g = scene.add.graphics();
+  const s = 40;
+  g.fillStyle(0xfbbf24, 1);
+  g.fillTriangle(s/2, 2, s/2-10, s-4, s/2+10, s-4);
+  g.fillStyle(0xfef3c7, 0.9);
+  g.fillTriangle(s/2, 6, s/2-6, s/2, s/2+6, s/2);
+  g.lineStyle(2, 0xf59e0b, 0.8);
+  g.strokeTriangle(s/2, 2, s/2-10, s-4, s/2+10, s-4);
+  g.generateTexture('crystal', s, s);
+  g.destroy();
+}
+
+function generateShardTexture(scene) {
+  const g = scene.add.graphics();
+  const s = 40;
+  g.fillStyle(0x22d3ee, 1);
+  g.fillCircle(s/2, s/2, 14);
+  g.fillStyle(0xa5f3fc, 0.9);
+  g.fillCircle(s/2 - 3, s/2 - 4, 6);
+  g.lineStyle(2, 0x0891b2, 0.8);
+  g.strokeCircle(s/2, s/2, 14);
+  g.lineStyle(1, 0xffffff, 0.5);
+  g.strokeCircle(s/2, s/2, 8);
+  g.generateTexture('shard', s, s);
+  g.destroy();
+}
+
+// ─── Game Scene ───────────────────────────────────────────────────────────────
+
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  create() {
+    gameSceneRef = this;
+    const W = this.scale.width, H = this.scale.height;
+
+    // Audio resume
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+
+    // State
+    this.score = 0;
+    this.bonusPoints = 0;
+    this.gameStartTime = this.time.now;
+    this.timeAlive = 0;
+    this.isDead = false;
+    this.lastMilestone = 0;
+
+    // Phase shift
+    this.phaseActive = false;
+    this.phaseCooldown = 0;
+    this.PHASE_DURATION = 2000; // ms
+    this.PHASE_MAX_COOLDOWN = 8000; // ms
+
+    // Player movement path recording (for echo selves)
+    this.playerPath = [];
+    this.pathRecord = 0;
+
+    // Touch drag joystick
+    this.touchStart = null;
+    this.touchDir = { x: 0, y: 0 };
+
+    // ── Background ──
+    const bg = this.add.graphics();
+    bg.fillGradientStyle(0x050510, 0x050510, 0x0d0a2e, 0x1a0533, 1);
+    bg.fillRect(0, 0, W, H);
+    bg.setDepth(-10);
+
+    // Starfield
+    this.starGraphics = this.add.graphics();
+    this.starGraphics.setDepth(-9);
+    this.starData = [];
+    for (let i = 0; i < 180; i++) {
+      this.starData.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        r: Math.random() * 1.5 + 0.3,
+        alpha: Math.random() * 0.6 + 0.2,
+        twinkle: Math.random() * Math.PI * 2
+      });
+    }
+
+    // Grid lines (timestream effect)
+    this.gridGraphics = this.add.graphics();
+    this.gridGraphics.setDepth(-8);
+    this.gridOffset = 0;
+
+    // ── Generate textures ──
+    generatePlayerTexture(this);
+    generateEchoTexture(this);
+    generateParadoxTexture(this);
+    generateRiftTexture(this);
+    generateCrystalTexture(this);
+    generateShardTexture(this);
+
+    // ── Physics groups ──
+    this.echoes = this.physics.add.group();
+    this.paradoxes = this.physics.add.group();
+    this.rifts = this.add.group(); // non-physics, overlap-checked manually
+    this.pickups = this.physics.add.group();
+
+    // ── Player ──
+    this.player = this.physics.add.sprite(W / 2, H / 2, 'player');
+    this.player.setDepth(5);
+    this.player.setCollideWorldBounds(true);
+    this.player.body.setSize(38, 38); // 64*0.6 forgiving hitbox
+    this.player.setDrag(200, 200);
+
+    // Player trail emitter
+    this.playerTrail = this.add.particles(0, 0, 'player', {
+      follow: this.player,
+      lifespan: 350,
+      scale: { start: 0.4, end: 0 },
+      alpha: { start: 0.5, end: 0 },
+      tint: [0x818cf8, 0x7c3aed, 0x4f46e5],
+      frequency: 40,
+      speed: 20,
+      angle: { min: 0, max: 360 },
+      depth: 4
+    });
+
+    // Phase shield visual
+    this.phaseShield = this.add.graphics();
+    this.phaseShield.setDepth(6);
+
+    // ── Collisions ──
+    this.physics.add.overlap(this.player, this.echoes, () => this.tryDie(), null, this);
+    this.physics.add.overlap(this.player, this.paradoxes, () => this.tryDie(), null, this);
+    this.physics.add.overlap(this.player, this.pickups, (player, pickup) => this.collectPickup(pickup), null, this);
+
+    // ── Input ──
+    this.cursors = this.input.keyboard.createCursorKeys();
+    this.wasd = this.input.keyboard.addKeys({
+      up: Phaser.Input.Keyboard.KeyCodes.W,
+      down: Phaser.Input.Keyboard.KeyCodes.S,
+      left: Phaser.Input.Keyboard.KeyCodes.A,
+      right: Phaser.Input.Keyboard.KeyCodes.D,
+      phase: Phaser.Input.Keyboard.KeyCodes.SPACE
+    });
+
+    this.input.on('pointerdown', (p) => {
+      this.touchStart = { x: p.x, y: p.y };
+      // Phase shift on double-tap or tap in top half
+      if (p.y < H * 0.35) this.activatePhase();
+    });
+    this.input.on('pointermove', (p) => {
+      if (this.touchStart) {
+        const dx = p.x - this.touchStart.x;
+        const dy = p.y - this.touchStart.y;
+        const len = Math.sqrt(dx*dx + dy*dy);
+        if (len > 5) {
+          this.touchDir.x = dx / Math.max(len, 40);
+          this.touchDir.y = dy / Math.max(len, 40);
+        }
+      }
+    });
+    this.input.on('pointerup', () => {
+      this.touchStart = null;
+      this.touchDir = { x: 0, y: 0 };
+    });
+
+    // ── UI ──
+    const uiDepth = 20;
+    this.scoreTxt = this.add.text(12, 12, 'SCORE: 0', {
+      fontFamily: 'Orbitron', fontSize: Math.floor(W * 0.028) + 'px',
+      color: '#a5f3fc', stroke: '#0e7490', strokeThickness: 3
+    }).setDepth(uiDepth);
+
+    this.timeTxt = this.add.text(12, 46, 'TIME: 0s', {
+      fontFamily: 'Orbitron', fontSize: Math.floor(W * 0.022) + 'px',
+      color: '#94a3b8'
+    }).setDepth(uiDepth);
+
+    this.dangerTxt = this.add.text(W / 2, H * 0.08, '', {
+      fontFamily: 'Orbitron', fontSize: Math.floor(W * 0.025) + 'px',
+      color: '#f87171', align: 'center'
+    }).setOrigin(0.5).setDepth(uiDepth);
+
+    // Phase bar (HTML)
+    this.updatePhaseBar(1);
+    document.getElementById('phase-bar-container').style.display = 'flex';
+
+    // ── Spawn timers ──
+    this.lastEchoSpawn = -5000;
+    this.lastParadoxSpawn = -10000;
+    this.lastRiftSpawn = -10000;
+    this.lastCrystalSpawn = -8000;
+    this.lastShardSpawn = -15000;
+
+    // ── Fade in ──
+    this.cameras.main.fadeIn(400);
+
+    sfxStart();
+  }
+
+  updatePhaseBar(fill) {
+    const el = document.getElementById('phase-bar-fill');
+    if (el) el.style.width = (fill * 100) + '%';
+  }
+
+  tryDie() {
+    if (this.isDead || this.phaseActive) return;
+    this.die();
+  }
+
+  activatePhase() {
+    if (this.phaseActive || this.phaseCooldown > 0 || this.isDead) return;
+    this.phaseActive = true;
+    this.phaseCooldown = this.PHASE_MAX_COOLDOWN;
+    sfxPhase();
+
+    // Visual
+    this.player.setTint(0x818cf8);
+    this.cameras.main.flash(200, 100, 100, 255, false);
+
+    this.time.delayedCall(this.PHASE_DURATION, () => {
+      this.phaseActive = false;
+      this.player.clearTint();
+    });
+  }
+
+  spawnEcho() {
+    const W = this.scale.width, H = this.scale.height;
+    const side = Phaser.Math.Between(0, 3);
+    let x, y;
+    const pad = 30;
+    if (side === 0) { x = Math.random()*W; y = -pad; }
+    else if (side === 1) { x = Math.random()*W; y = H+pad; }
+    else if (side === 2) { x = -pad; y = Math.random()*H; }
+    else { x = W+pad; y = Math.random()*H; }
+
+    const echo = this.echoes.create(x, y, 'echo');
+    echo.setDepth(3);
+    echo.body.setSize(34, 34);
+    echo.setOrigin(0.5);
+    // Echo stores a copy of the player path to follow (delayed)
+    echo.pathQueue = [...this.playerPath];
+    echo.pathIndex = 0;
+    echo.usePathMode = false; // starts by seeking, switches to path replay
+    this.tweens.add({ targets: echo, alpha: { from: 0, to: 0.85 }, duration: 400 });
+  }
+
+  spawnParadox() {
+    const W = this.scale.width, H = this.scale.height;
+    const side = Phaser.Math.Between(0, 3);
+    let x, y;
+    const pad = 30;
+    if (side === 0) { x = Math.random()*W; y = -pad; }
+    else if (side === 1) { x = Math.random()*W; y = H+pad; }
+    else if (side === 2) { x = -pad; y = Math.random()*H; }
+    else { x = W+pad; y = Math.random()*H; }
+
+    const p = this.paradoxes.create(x, y, 'paradox');
+    p.setDepth(3);
+    p.body.setSize(36, 36);
+    p.setOrigin(0.5);
+    p.nextTeleport = this.time.now + Phaser.Math.Between(8000, 14000);
+    p.alpha = 0;
+    this.tweens.add({ targets: p, alpha: 1, duration: 600 });
+  }
+
+  spawnRift() {
+    const W = this.scale.width, H = this.scale.height;
+    const margin = 80;
+    const x = margin + Math.random() * (W - margin * 2);
+    const y = margin + Math.random() * (H - margin * 2);
+    // Ensure not on top of player
+    const distToPlayer = Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y);
+    if (distToPlayer < 120) return; // skip if too close
+
+    const rift = this.add.sprite(x, y, 'rift').setDepth(2).setAlpha(0);
+    rift.birthTime = this.time.now;
+    rift.lifetime = 4000 + Math.random() * 2000;
+    rift.radius = 34;
+
+    sfxRiftAppear();
+    this.tweens.add({ targets: rift, alpha: 0.85, duration: 600, yoyo: false });
+
+    // Pulse animation
+    this.tweens.add({
+      targets: rift,
+      scaleX: { from: 0.9, to: 1.15 },
+      scaleY: { from: 0.9, to: 1.15 },
+      yoyo: true, repeat: -1, duration: 800, ease: 'Sine.easeInOut'
+    });
+
+    this.rifts.add(rift);
+  }
+
+  spawnCrystal() {
+    const W = this.scale.width, H = this.scale.height;
+    const margin = 60;
+    const x = margin + Math.random() * (W - margin * 2);
+    const y = margin + Math.random() * (H - margin * 2);
+    const c = this.pickups.create(x, y, 'crystal');
+    c.type = 'crystal';
+    c.setDepth(3);
+    c.body.setSize(28, 28);
+    c.setOrigin(0.5);
+    this.tweens.add({ targets: c, y: y - 10, yoyo: true, repeat: -1, duration: 1000, ease: 'Sine.easeInOut' });
+  }
+
+  spawnShard() {
+    const W = this.scale.width, H = this.scale.height;
+    const margin = 60;
+    const x = margin + Math.random() * (W - margin * 2);
+    const y = margin + Math.random() * (H - margin * 2);
+    const s = this.pickups.create(x, y, 'shard');
+    s.type = 'shard';
+    s.setDepth(3);
+    s.body.setSize(26, 26);
+    s.setOrigin(0.5);
+    this.tweens.add({ targets: s, angle: 360, repeat: -1, duration: 2000, ease: 'Linear' });
+  }
+
+  collectPickup(pickup) {
+    const type = pickup.type;
+    pickup.destroy();
+    if (type === 'crystal') {
+      this.bonusPoints += 50;
+      sfxCrystal();
+      // Speed burst
+      const vel = this.player.body.velocity;
+      const spd = Math.sqrt(vel.x*vel.x + vel.y*vel.y);
+      this.player.setTint(0xfbbf24);
+      this.time.delayedCall(200, () => { if (!this.isDead) this.player.clearTint(); });
+      this.showFloatingText(this.player.x, this.player.y - 30, '+50', '#fbbf24');
+      // Risk: nearby echoes lurch
+      this.echoes.children.iterate(echo => {
+        if (!echo) return;
+        const d = Phaser.Math.Distance.Between(echo.x, echo.y, this.player.x, this.player.y);
+        if (d < 250) {
+          this.physics.moveToObject(echo, this.player, 400);
+        }
+      });
+    } else if (type === 'shard') {
+      sfxShard();
+      this.phaseCooldown = 0;
+      this.showFloatingText(this.player.x, this.player.y - 30, 'PHASE READY!', '#22d3ee');
+      // Risk: spawn extra echo
+      this.spawnEcho();
+    }
+  }
+
+  showFloatingText(x, y, text, color) {
+    const t = this.add.text(x, y, text, {
+      fontFamily: 'Orbitron', fontSize: '18px', color: color,
+      stroke: '#000', strokeThickness: 3
+    }).setOrigin(0.5).setDepth(25);
+    this.tweens.add({
+      targets: t, y: y - 50, alpha: 0, duration: 1000,
+      ease: 'Cubic.easeOut', onComplete: () => t.destroy()
+    });
+  }
+
+  die() {
+    if (this.isDead) return;
+    this.isDead = true;
+
+    sfxDeath();
+    this.cameras.main.shake(400, 0.018);
+    this.cameras.main.flash(300, 255, 50, 50);
+
+    // Death explosion particles
+    const emitter = this.add.particles(this.player.x, this.player.y, 'player', {
+      speed: { min: 100, max: 350 },
+      scale: { start: 0.6, end: 0 },
+      alpha: { start: 1, end: 0 },
+      tint: [0xa5f3fc, 0x7c3aed, 0xffffff, 0xf97316],
+      lifespan: 800,
+      quantity: 30,
+      angle: { min: 0, max: 360 },
+      emitting: false
+    });
+    emitter.explode(30, this.player.x, this.player.y);
+
+    this.player.setVisible(false);
+    this.playerTrail.setVisible(false);
+
+    const finalScoreVal = Math.floor(this.timeAlive * 10 + this.bonusPoints);
+
+    this.time.delayedCall(800, () => {
+      this.scene.pause();
+      showGameOverUI(finalScoreVal, this.timeAlive);
+    });
+  }
+
+  update(time, delta) {
+    if (this.isDead) return;
+
+    const dt = delta / 16.667;
+    const elapsed = (time - this.gameStartTime) / 1000;
+    this.timeAlive = elapsed;
+
+    // Difficulty
+    const rawT = clamp(elapsed / 120, 0, 1);
+    const difficulty = easeIn(rawT);
+
+    // Score
+    this.score = Math.floor(elapsed * 10 + this.bonusPoints);
+    this.scoreTxt.setText('SCORE: ' + this.score);
+    this.timeTxt.setText('TIME: ' + elapsed.toFixed(1) + 's');
+
+    // Milestones
+    const mstep = Math.floor(elapsed / 30);
+    if (mstep > this.lastMilestone && elapsed > 5) {
+      this.lastMilestone = mstep;
+      sfxMilestone();
+      this.dangerTxt.setText('⚠ TIMELINE FRACTURING ⚠');
+      this.time.delayedCall(2000, () => { if (!this.isDead) this.dangerTxt.setText(''); });
+    }
+
+    // ── Background animations ──
+    this.gridOffset = (this.gridOffset + dt * 0.5) % 40;
+    this.gridGraphics.clear();
+    this.gridGraphics.lineStyle(1, 0x4c1d95, 0.15 + difficulty * 0.15);
+    const W = this.scale.width, H = this.scale.height;
+    for (let x = -40 + this.gridOffset; x < W + 40; x += 40) {
+      this.gridGraphics.lineBetween(x, 0, x, H);
+    }
+    for (let y = -40 + this.gridOffset; y < H + 40; y += 40) {
+      this.gridGraphics.lineBetween(0, y, W, y);
+    }
+
+    // Twinkle stars
+    this.starGraphics.clear();
+    const t2 = time / 1000;
+    this.starData.forEach(s => {
+      const a = s.alpha * (0.5 + 0.5 * Math.sin(t2 * 1.5 + s.twinkle));
+      this.starGraphics.fillStyle(0xffffff, a);
+      this.starGraphics.fillCircle(s.x, s.y, s.r);
+    });
+
+    // ── Player movement ──
+    const SPEED = lerp(200, 280, difficulty);
+    let vx = 0, vy = 0;
+    if (this.cursors.left.isDown || this.wasd.left.isDown) vx = -1;
+    else if (this.cursors.right.isDown || this.wasd.right.isDown) vx = 1;
+    if (this.cursors.up.isDown || this.wasd.up.isDown) vy = -1;
+    else if (this.cursors.down.isDown || this.wasd.down.isDown) vy = 1;
+
+    // Touch joystick
+    if (this.touchStart && (Math.abs(this.touchDir.x) > 0.1 || Math.abs(this.touchDir.y) > 0.1)) {
+      vx = this.touchDir.x;
+      vy = this.touchDir.y;
+    }
+
+    // Normalize diagonal
+    if (vx !== 0 && vy !== 0) { vx *= 0.707; vy *= 0.707; }
+    this.player.setVelocity(vx * SPEED, vy * SPEED);
+
+    // Player rotation toward movement
+    if (vx !== 0 || vy !== 0) {
+      const angle = Math.atan2(vy, vx) + Math.PI / 2;
+      this.player.setRotation(angle);
+    }
+
+    // Phase activation (keyboard)
+    if (Phaser.Input.Keyboard.JustDown(this.wasd.phase)) {
+      this.activatePhase();
+    }
+
+    // Phase cooldown
+    if (!this.phaseActive && this.phaseCooldown > 0) {
+      this.phaseCooldown -= delta;
+      if (this.phaseCooldown < 0) this.phaseCooldown = 0;
+    }
+    this.updatePhaseBar(1 - (this.phaseCooldown / this.PHASE_MAX_COOLDOWN));
+
+    // Phase shield visual
+    this.phaseShield.clear();
+    if (this.phaseActive) {
+      const pulse = 0.5 + 0.5 * Math.sin(time / 80);
+      this.phaseShield.lineStyle(3 + pulse * 2, 0x818cf8, 0.6 + pulse * 0.3);
+      this.phaseShield.strokeCircle(this.player.x, this.player.y, 36 + pulse * 4);
+      this.phaseShield.lineStyle(2, 0xa5f3fc, 0.3 + pulse * 0.2);
+      this.phaseShield.strokeCircle(this.player.x, this.player.y, 46 + pulse * 5);
+    }
+
+    // ── Record player path for echo selves ──
+    this.pathRecord += delta;
+    if (this.pathRecord >= 100) { // record every 100ms
+      this.pathRecord = 0;
+      this.playerPath.push({ x: this.player.x, y: this.player.y, t: time });
+      if (this.playerPath.length > 200) this.playerPath.shift();
+    }
+
+    // ── Spawn rates (time-based) ──
+    const echoInterval = lerp(3500, 700, difficulty);
+    if (time - this.lastEchoSpawn > echoInterval) {
+      const maxEchoes = Math.floor(lerp(2, 14, difficulty));
+      if (this.echoes.getLength() < maxEchoes) {
+        this.lastEchoSpawn = time;
+        this.spawnEcho();
+      }
+    }
+
+    const paradoxInterval = lerp(12000, 3500, difficulty);
+    if (elapsed > 8 && time - this.lastParadoxSpawn > paradoxInterval) {
+      const maxParadox = Math.floor(lerp(0, 5, difficulty));
+      if (this.paradoxes.getLength() < maxParadox) {
+        this.lastParadoxSpawn = time;
+        this.spawnParadox();
+      }
+    }
+
+    const riftInterval = lerp(8000, 2500, difficulty);
+    if (elapsed > 15 && time - this.lastRiftSpawn > riftInterval) {
+      this.lastRiftSpawn = time;
+      this.spawnRift();
+    }
+
+    // Pickups
+    if (time - this.lastCrystalSpawn > 6000) {
+      this.lastCrystalSpawn = time;
+      if (this.pickups.getLength() < 3) this.spawnCrystal();
+    }
+    if (time - this.lastShardSpawn > 15000) {
+      this.lastShardSpawn = time;
+      this.spawnShard();
+    }
+
+    // ── Update Echo Selves ──
+    const ECHO_SPEED = lerp(55, 200, difficulty);
+    const ECHO_DELAY_MS = lerp(3500, 1200, difficulty); // delay before path following
+
+    this.echoes.children.iterate(echo => {
+      if (!echo || !echo.active) return;
+
+      // Check if we have path data old enough to follow
+      const delayedPath = this.playerPath.filter(p => time - p.t >= ECHO_DELAY_MS);
+      if (delayedPath.length > 0) {
+        const target = delayedPath[delayedPath.length - 1];
+        this.physics.moveToObject(echo, target, ECHO_SPEED);
+      } else {
+        // Not enough history — drift slowly toward player
+        this.physics.moveToObject(echo, this.player, ECHO_SPEED * 0.3);
+      }
+
+      // Clean up off-screen echoes that wander too far
+      const margin = 200;
+      if (echo.x < -margin || echo.x > W + margin || echo.y < -margin || echo.y > H + margin) {
+        echo.destroy();
+      }
+    });
+
+    // ── Update Paradox Selves ──
+    const PARADOX_SPEED = lerp(90, 280, difficulty);
+    this.paradoxes.children.iterate(paradox => {
+      if (!paradox || !paradox.active) return;
+      this.physics.moveToObject(paradox, this.player, PARADOX_SPEED);
+
+      // Teleport
+      if (time > paradox.nextTeleport) {
+        sfxTeleport();
+        paradox.setAlpha(0);
+        const margin = 80;
+        paradox.x = margin + Math.random() * (W - margin * 2);
+        paradox.y = margin + Math.random() * (H - margin * 2);
+        // Ensure not immediately on player
+        const nearPlayer = Phaser.Math.Distance.Between(paradox.x, paradox.y, this.player.x, this.player.y) < 100;
+        if (nearPlayer) {
+          // Push away
+          if (paradox.x > W / 2) paradox.x -= 150; else paradox.x += 150;
+        }
+        this.tweens.add({ targets: paradox, alpha: 1, duration: 400 });
+        paradox.nextTeleport = time + Phaser.Math.Between(8000, 14000);
+      }
+
+      // Rotate toward player
+      const angle = Phaser.Math.Angle.Between(paradox.x, paradox.y, this.player.x, this.player.y) + Math.PI / 2;
+      paradox.setRotation(angle);
+    });
+
+    // ── Update Rifts (manual collision check) ──
+    const riftsToRemove = [];
+    this.rifts.children.iterate(rift => {
+      if (!rift || !rift.active) return;
+      const age = time - rift.birthTime;
+      if (age > rift.lifetime) {
+        this.tweens.add({ targets: rift, alpha: 0, duration: 400, onComplete: () => rift.destroy() });
+        riftsToRemove.push(rift);
+        return;
+      }
+
+      // Pulse alpha based on age
+      const lifeFrac = age / rift.lifetime;
+      if (lifeFrac > 0.8) {
+        rift.setAlpha(rift.alpha * (1 - (lifeFrac - 0.8) / 0.2));
+      }
+
+      // Rift collision check
+      const dist = Phaser.Math.Distance.Between(rift.x, rift.y, this.player.x, this.player.y);
+      if (dist < rift.radius * 0.85 && !this.phaseActive) {
+        this.tryDie();
+      }
+    });
+    riftsToRemove.forEach(r => this.rifts.remove(r, false, false));
+  }
+}
+
+// ─── Phaser Config ────────────────────────────────────────────────────────────
+
+const config = {
+  type: Phaser.AUTO,
+  width: 800,
+  height: 560,
+  backgroundColor: '#050510',
+  physics: {
+    default: 'arcade',
+    arcade: { gravity: { y: 0 }, debug: false }
+  },
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
+  scene: [MenuScene, GameScene]
+};
+
+const game = new Phaser.Game(config);
+</script>
+</body>
+</html>
