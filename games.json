@@ -178,6 +178,13 @@
       "date": "2026-02-21T08:42:49.532176Z",
       "model": "codex",
       "archived": false
+    },
+    {
+      "slug": "haunted-grocery-survivor-e9f5",
+      "title": "Haunted Grocery Survivors",
+      "description": "A Vampire Survivors-style auto-shooter in a haunted grocery store. Dodge ghosts, grab coupons, and outlast the aisle of doom.",
+      "creator": "discord-user",
+      "date": "2026-02-21T08:42:56Z"
     }
   ]
 }

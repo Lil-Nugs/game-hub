@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Haunted Grocery Survivors</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: radial-gradient(circle at 20% 20%, #5c3d1e, #2d1f0e 60%, #1d1309);
+      display: flex; justify-content: center; align-items: center;
+      height: 100vh; overflow: hidden; touch-action: none;
+      font-family: Arial, sans-serif;
+    }
+    #ui-overlay {
+      position: fixed; inset: 0; display: none; justify-content: center; align-items: center;
+      background: rgba(10, 6, 3, 0.85); z-index: 10;
+    }
+    .panel {
+      width: min(92vw, 460px); background: #2e1f10; color: #f4e3c4;
+      border: 2px solid #daa520; border-radius: 14px; padding: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+    }
+    .title { font: 700 32px 'Bungee', cursive; color: #f4a460; margin-bottom: 8px; }
+    .score { font-size: 24px; margin: 10px 0 14px; color: #ffd27f; }
+    input, button {
+      width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #b8872e;
+      margin-bottom: 10px; font-size: 16px;
+    }
+    button { cursor: pointer; background: #cd853f; color: #fff; border: none; font-weight: 700; }
+    button:hover { filter: brightness(1.06); }
+    #leaderboard { margin: 8px 0 12px; max-height: 180px; overflow: auto; font-size: 14px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div id="ui-overlay">
+    <div class="panel">
+      <div class="title">Aisle of Doom</div>
+      <div class="score" id="final-score">Score: 0</div>
+      <input id="player-name" maxlength="20" placeholder="Your name" />
+      <button id="submit-score">Submit Score</button>
+      <div id="leaderboard">Top scores appear here.</div>
+      <button id="play-again">Play Again</button>
+    </div>
+  </div>
+
+<script>
+// Design: Vampire Survivors-like auto-shooter in haunted grocery aisles.
+// Genre: Arena survivor. Core loop: kite ghosts, auto-fire produce shots, collect coupons.
+// Death: HP reaches 0 from ghost collisions. Difficulty ramps over 120s by spawn rate/speed/elite chance.
+// Visual style: Desert/warm supermarket-at-midnight palette, chunky silhouettes and floating shelf debris.
+// Score: floor(timeAlive*10 + couponBonus + killBonus).
+
+const GAME_ID = 'haunted-grocery-survivor-e9f5';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch (e) { console.warn('Leaderboard unavailable:', e); return null; }
+}
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch (e) { console.warn('Leaderboard unavailable:', e); return []; }
+}
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playSound(type, freq, duration, volume=0.2) {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  osc.start(); osc.stop(audioCtx.currentTime + duration);
+}
+const sfxStart = () => { playSound('triangle', 320, .10, .16); playSound('triangle', 540, .14, .13); };
+const sfxShoot = () => playSound('square', 520, .05, .08);
+const sfxPickup = () => { playSound('sine', 760, .08, .17); playSound('sine', 920, .08, .12); };
+const sfxHit = () => playSound('sawtooth', 150, .14, .18);
+const sfxDeath = () => { playSound('sawtooth', 300, .3, .2); playSound('sawtooth', 95, .6, .16); };
+
+const lerp = (a,b,t) => a + (b-a)*t;
+const easeIn = t => t*t;
+
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+  create() {
+    const { width, height } = this.scale;
+    const g = this.add.graphics();
+    g.fillGradientStyle(0x5c3d1e,0x5c3d1e,0x2d1f0e,0x2d1f0e,1);
+    g.fillRect(0,0,width,height);
+
+    this.add.text(width/2, height*0.24, 'HAUNTED\nGROCERY\nSURVIVORS', {
+      fontFamily: 'Bungee', fontSize: '48px', align: 'center', color: '#ffd27f', stroke: '#000000', strokeThickness: 6
+    }).setOrigin(0.5);
+
+    this.add.text(width/2, height*0.62,
+      'Move: WASD / Arrow Keys\nAuto-shoots nearest ghost\nTouch: drag to move\nCollect glowing coupons for bonus points\nSurvive as long as possible!',
+      { fontFamily: 'Arial', fontSize: '20px', align: 'center', color: '#f4e3c4', lineSpacing: 8 }).setOrigin(0.5);
+
+    const start = this.add.text(width/2, height*0.88, 'Tap or Press Any Key to Start', {
+      fontFamily: 'Bungee', fontSize: '20px', color: '#f4a460'
+    }).setOrigin(0.5);
+    this.tweens.add({ targets: start, alpha: 0.3, yoyo: true, repeat: -1, duration: 700 });
+
+    const begin = () => {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      sfxStart();
+      this.scene.start('GameScene');
+    };
+    this.input.once('pointerdown', begin);
+    this.input.keyboard.once('keydown', begin);
+  }
+}
+
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+  create() {
+    window.currentScene = this;
+    this.isGameOver = false;
+    this.score = 0;
+    this.bonus = 0;
+    this.gameStartTime = this.time.now;
+    this.lastHit = 0;
+    this.hp = 100;
+
+    const { width, height } = this.scale;
+    this.physics.world.setBounds(20, 20, width-40, height-40);
+
+    this.bg = this.add.tileSprite(width/2, height/2, width, height, null).setAlpha(0.35);
+    const bgG = this.add.graphics();
+    bgG.fillStyle(0x3a2715, 1).fillRect(0,0,128,128);
+    bgG.lineStyle(3, 0x6a4a24, .85);
+    for (let i=0;i<5;i++) bgG.strokeRect(8+i*24, 6, 14, 116);
+    bgG.fillStyle(0x8f6a36, .55);
+    bgG.fillRect(0, 58, 128, 8);
+    bgG.generateTexture('floorPattern', 128, 128);
+    bgG.destroy();
+    this.bg.setTexture('floorPattern');
+
+    this.createTextures();
+
+    this.player = this.physics.add.sprite(width/2, height/2, 'player').setDepth(3);
+    this.player.setCollideWorldBounds(true);
+    this.player.body.setCircle(18, 14, 14);
+
+    this.enemies = this.physics.add.group();
+    this.bullets = this.physics.add.group({ maxSize: 120 });
+    this.coupons = this.physics.add.group();
+
+    this.physics.add.overlap(this.bullets, this.enemies, this.hitEnemy, null, this);
+    this.physics.add.overlap(this.player, this.enemies, this.playerHit, null, this);
+    this.physics.add.overlap(this.player, this.coupons, this.collectCoupon, null, this);
+
+    this.cursors = this.input.keyboard.createCursorKeys();
+    this.keys = this.input.keyboard.addKeys('W,A,S,D');
+
+    this.touchActive = false;
+    this.touchTarget = new Phaser.Math.Vector2(width/2, height/2);
+    this.input.on('pointerdown', p => { this.touchActive = true; this.touchTarget.set(p.worldX, p.worldY); });
+    this.input.on('pointermove', p => { if (p.isDown) this.touchTarget.set(p.worldX, p.worldY); });
+    this.input.on('pointerup', () => { this.touchActive = false; });
+
+    this.time.addEvent({ delay: 360, loop: true, callback: () => this.autoShoot() });
+    this.time.addEvent({ delay: 400, loop: true, callback: () => this.spawnEnemy() });
+    this.time.addEvent({ delay: 2900, loop: true, callback: () => this.spawnCoupon() });
+
+    this.scoreText = this.add.text(16, 12, 'Score: 0', { fontFamily: 'Bungee', fontSize: '20px', color: '#ffd27f' }).setDepth(10);
+    this.hpText = this.add.text(16, 40, 'HP: 100', { fontFamily: 'Arial', fontSize: '18px', color: '#f4e3c4' }).setDepth(10);
+  }
+
+  createTextures() {
+    const p = this.add.graphics();
+    p.fillStyle(0x84e1ff, 1); p.fillCircle(32, 32, 20);
+    p.fillStyle(0x4bb4d8, 1); p.fillCircle(32, 40, 14);
+    p.fillStyle(0xffffff, 0.7); p.fillCircle(39, 25, 6);
+    p.lineStyle(4, 0x1a4f5f, 1); p.strokeCircle(32, 32, 20);
+    p.generateTexture('player', 64, 64); p.destroy();
+
+    const e = this.add.graphics();
+    e.fillStyle(0xb38cff, 0.92); e.fillEllipse(36, 36, 46, 54);
+    e.fillStyle(0x5f3e9f, 0.95); e.fillEllipse(36, 45, 36, 28);
+    e.fillStyle(0xffffff, 1); e.fillCircle(28, 30, 4); e.fillCircle(43, 30, 4);
+    e.lineStyle(4, 0x2f1d5a, 1); e.strokeEllipse(36, 36, 46, 54);
+    e.generateTexture('enemy', 72, 72); e.destroy();
+
+    const b = this.add.graphics();
+    b.fillStyle(0xe67e22, 1); b.fillCircle(14, 14, 10);
+    b.fillStyle(0xf4a460, 0.7); b.fillCircle(17, 10, 4);
+    b.lineStyle(2, 0x8a4b11, 1); b.strokeCircle(14,14,10);
+    b.generateTexture('bullet', 28, 28); b.destroy();
+
+    const c = this.add.graphics();
+    c.fillStyle(0xffe08a, 1); c.fillRoundedRect(4, 4, 34, 26, 6);
+    c.lineStyle(2, 0xaa7c1f, 1); c.strokeRoundedRect(4, 4, 34, 26, 6);
+    c.fillStyle(0xc0872f, 1); c.fillRect(10, 12, 20, 3);
+    c.generateTexture('coupon', 42, 34); c.destroy();
+  }
+
+  spawnEnemy() {
+    if (this.isGameOver) return;
+    const t = Math.min((this.time.now - this.gameStartTime) / 120000, 1);
+    const d = easeIn(t);
+    const spawnChance = lerp(0.55, 1.0, d);
+    if (Math.random() > spawnChance) return;
+
+    const { width, height } = this.scale;
+    const side = Phaser.Math.Between(0, 3);
+    let x, y;
+    if (side === 0) { x = -20; y = Phaser.Math.Between(30, height-30); }
+    else if (side === 1) { x = width+20; y = Phaser.Math.Between(30, height-30); }
+    else if (side === 2) { x = Phaser.Math.Between(30, width-30); y = -20; }
+    else { x = Phaser.Math.Between(30, width-30); y = height+20; }
+
+    if (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < 220) return;
+
+    const enemy = this.enemies.create(x, y, 'enemy');
+    enemy.setScale(Phaser.Math.FloatBetween(0.85, 1.15));
+    enemy.hp = Math.random() < lerp(0.07, 0.36, d) ? 3 : 2;
+    enemy.speed = lerp(48, 170, d) * Phaser.Math.FloatBetween(0.9, 1.2);
+    enemy.body.setCircle(17, 19, 20);
+    this.tweens.add({ targets: enemy, y: enemy.y + 6, yoyo: true, repeat: -1, duration: 650 + Math.random()*350 });
+  }
+
+  spawnCoupon() {
+    if (this.isGameOver) return;
+    const { width, height } = this.scale;
+    const c = this.coupons.create(Phaser.Math.Between(40, width-40), Phaser.Math.Between(40, height-40), 'coupon');
+    c.body.setSize(26, 18).setOffset(8, 8);
+    this.tweens.add({ targets: c, scale: 1.12, yoyo: true, repeat: -1, duration: 400 });
+    this.time.delayedCall(7000, () => c.active && c.destroy());
+  }
+
+  autoShoot() {
+    if (this.isGameOver || !this.player.active) return;
+    let target = null; let dist = Infinity;
+    this.enemies.getChildren().forEach(e => {
+      const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, e.x, e.y);
+      if (d < dist) { dist = d; target = e; }
+    });
+    if (!target || dist > 360) return;
+    const bullet = this.bullets.get(this.player.x, this.player.y, 'bullet');
+    if (!bullet) return;
+    bullet.setActive(true).setVisible(true);
+    bullet.body.enable = true;
+    bullet.body.setCircle(7, 7, 7);
+    bullet.damage = 1;
+    const angle = Phaser.Math.Angle.Between(this.player.x, this.player.y, target.x, target.y);
+    const speed = 330;
+    bullet.setVelocity(Math.cos(angle)*speed, Math.sin(angle)*speed);
+    this.time.delayedCall(1400, () => { if (bullet.active) { bullet.disableBody(true, true); } });
+    sfxShoot();
+  }
+
+  hitEnemy(bullet, enemy) {
+    bullet.disableBody(true, true);
+    enemy.hp -= bullet.damage;
+    enemy.setTint(0xffffff);
+    this.time.delayedCall(60, () => enemy.clearTint());
+    if (enemy.hp <= 0) {
+      this.bonus += 18;
+      this.addKillPop(enemy.x, enemy.y, '+18');
+      enemy.destroy();
+    }
+  }
+
+  playerHit(player, enemy) {
+    const now = this.time.now;
+    if (now - this.lastHit < 500) return;
+    this.lastHit = now;
+    this.hp -= 10;
+    sfxHit();
+    this.cameras.main.shake(80, 0.004);
+    player.setTint(0xffaaaa);
+    this.time.delayedCall(120, () => player.clearTint());
+    if (this.hp <= 0) this.gameOver();
+  }
+
+  collectCoupon(player, coupon) {
+    coupon.destroy();
+    this.bonus += 35;
+    sfxPickup();
+    this.addKillPop(player.x + 18, player.y - 26, '+35');
+  }
+
+  addKillPop(x,y,text) {
+    const t = this.add.text(x,y,text,{fontFamily:'Bungee',fontSize:'16px',color:'#ffe08a'}).setOrigin(0.5).setDepth(12);
+    this.tweens.add({ targets: t, y: y-22, alpha: 0, duration: 450, onComplete: () => t.destroy() });
+  }
+
+  update(time, delta) {
+    if (this.isGameOver) return;
+    const dt = delta / 16.667;
+    const elapsed = (time - this.gameStartTime) / 1000;
+    const d = Math.min(elapsed / 120, 1);
+
+    let vx = 0, vy = 0;
+    if (this.cursors.left.isDown || this.keys.A.isDown) vx -= 1;
+    if (this.cursors.right.isDown || this.keys.D.isDown) vx += 1;
+    if (this.cursors.up.isDown || this.keys.W.isDown) vy -= 1;
+    if (this.cursors.down.isDown || this.keys.S.isDown) vy += 1;
+
+    if (this.touchActive) {
+      const ang = Phaser.Math.Angle.Between(this.player.x, this.player.y, this.touchTarget.x, this.touchTarget.y);
+      const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, this.touchTarget.x, this.touchTarget.y);
+      if (dist > 12) { vx = Math.cos(ang); vy = Math.sin(ang); }
+    }
+
+    const speed = lerp(175, 220, d);
+    const norm = Math.hypot(vx, vy) || 1;
+    this.player.setVelocity((vx / norm) * speed * dt, (vy / norm) * speed * dt);
+
+    this.enemies.getChildren().forEach(e => {
+      if (!e.active) return;
+      const ang = Phaser.Math.Angle.Between(e.x, e.y, this.player.x, this.player.y);
+      e.setVelocity(Math.cos(ang) * e.speed * dt, Math.sin(ang) * e.speed * dt);
+    });
+
+    this.bg.tilePositionX += lerp(0.25, 0.9, d) * dt;
+    this.bg.tilePositionY += lerp(0.1, 0.55, d) * dt;
+
+    this.score = Math.floor(elapsed * 10 + this.bonus);
+    this.scoreText.setText(`Score: ${this.score}`);
+    this.hpText.setText(`HP: ${Math.max(0, this.hp)}`);
+  }
+
+  gameOver() {
+    if (this.isGameOver) return;
+    this.isGameOver = true;
+    sfxDeath();
+    this.player.setTint(0xff4444);
+    this.tweens.add({ targets: this.player, alpha: 0, scale: 1.8, duration: 420, ease: 'Cubic.In' });
+    this.cameras.main.shake(260, 0.012);
+    this.cameras.main.flash(220, 255, 200, 200);
+    this.time.delayedCall(520, () => {
+      this.scene.pause();
+      showGameOverUI(this.score);
+    });
+  }
+}
+
+const config = {
+  type: Phaser.AUTO,
+  width: 960,
+  height: 600,
+  backgroundColor: '#2d1f0e',
+  physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: false } },
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: [MenuScene, GameScene]
+};
+
+new Phaser.Game(config);
+
+const overlay = document.getElementById('ui-overlay');
+const finalScoreEl = document.getElementById('final-score');
+const playerNameEl = document.getElementById('player-name');
+const leaderboardEl = document.getElementById('leaderboard');
+const submitBtn = document.getElementById('submit-score');
+const playAgainBtn = document.getElementById('play-again');
+let pendingFinalScore = 0;
+
+function showGameOverUI(finalScore) {
+  pendingFinalScore = finalScore;
+  finalScoreEl.textContent = `Score: ${finalScore}`;
+  leaderboardEl.textContent = 'Submit your score to see the latest top 10.';
+  overlay.style.display = 'flex';
+  playerNameEl.focus();
+}
+
+submitBtn.addEventListener('click', async () => {
+  const name = (playerNameEl.value || 'Shopper').trim().slice(0, 20) || 'Shopper';
+  submitBtn.disabled = true;
+  await submitScore(name, pendingFinalScore);
+  const scores = await getLeaderboard(10);
+  leaderboardEl.innerHTML = scores.length
+    ? scores.map((s, i) => `${i+1}. ${s.playerName} — ${s.score}`).join('<br>')
+    : 'Leaderboard unavailable right now.';
+  submitBtn.disabled = false;
+});
+
+playAgainBtn.addEventListener('click', () => {
+  overlay.style.display = 'none';
+  playerNameEl.value = '';
+  const game = Phaser.GAMES[0];
+  game.scene.stop('GameScene');
+  game.scene.start('GameScene');
+});
+</script>
+</body>
+</html>
