@@ -225,6 +225,14 @@
       "creator": "codex-gamehub",
       "date": "2026-02-21T08:48:59.476Z",
       "model": "codex"
+    },
+    {
+      "slug": "dream-escape-7f3a",
+      "title": "Dream Escape",
+      "description": "Endless runner — escape a collapsing dreamworld across 3 lanes. Dodge nightmares, rifts, and wraiths. Collect dream shards. Survive the encroaching Void.",
+      "creator": "vimgo",
+      "model": "claude",
+      "date": "2026-02-21T08:50:53Z"
     }
   ]
 }
