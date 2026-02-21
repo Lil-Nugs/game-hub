@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Whisper Run: City of Silence</title>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: radial-gradient(circle at 30% 20%, #1e3a5f, #0a1628);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      overflow: hidden;
+      touch-action: none;
+      font-family: 'Rajdhani', sans-serif;
+      color: #e6f7ff;
+    }
+    #ui-overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      justify-content: center;
+      align-items: center;
+      background: rgba(3, 10, 20, 0.85);
+      z-index: 10;
+      padding: 16px;
+    }
+    #panel {
+      width: min(92vw, 420px);
+      background: rgba(12, 28, 45, 0.95);
+      border: 2px solid #48cae4;
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: 0 0 28px rgba(72, 202, 228, 0.28);
+    }
+    h1 { font-size: 32px; color: #90e0ef; margin-bottom: 8px; text-align: center; }
+    p { font-size: 18px; margin: 4px 0; }
+    .score { font-size: 38px; font-weight: 700; color: #00b4d8; text-align: center; margin: 8px 0 12px; }
+    input, button {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid #48cae4;
+      padding: 11px 12px;
+      font-size: 18px;
+      margin-top: 8px;
+      font-family: 'Rajdhani', sans-serif;
+    }
+    input { background: #081521; color: #e6f7ff; }
+    button { background: #0f3f5f; color: #e6f7ff; font-weight: 700; cursor: pointer; }
+    button:hover { background: #14638f; }
+    #leaderboard { margin-top: 12px; font-size: 16px; line-height: 1.35; max-height: 220px; overflow-y: auto; }
+    #leaderboard .row { display: flex; justify-content: space-between; border-bottom: 1px solid rgba(144, 224, 239, 0.2); padding: 3px 0; }
+    .hint { color: #90e0ef; font-size: 14px; opacity: 0.85; text-align: center; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <div id="ui-overlay">
+    <div id="panel">
+      <h1>Rumor Silenced</h1>
+      <p>Final Reach</p>
+      <div class="score" id="final-score">0</div>
+      <input id="name-input" maxlength="20" placeholder="Your name" />
+      <button id="submit-btn">Submit Score</button>
+      <div id="leaderboard"></div>
+      <button id="replay-btn">Spread Again</button>
+      <div class="hint">Leaderboard tracks top rumors globally.</div>
+    </div>
+  </div>
+
+<script>
+const GAME_ID = 'whisper-run-city-of-silence-9f3a';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+/*
+DESIGN HEADER
+- Controls: WASD/Arrow keys + touch drag/hold to steer rumor orb.
+- Core loop/death: survive while moving through a city map as "silencing" hazards escalate; any hazard touch ends run.
+- Hazards: (1) Censor drones that home toward player, (2) Mute zones drifting pulse fields, (3) Sweep vans crossing lanes quickly.
+- Pickups/risk-reward: Secret scraps (+bonus points, but raises Heat so spawn pressure increases); Safehouses reduce Heat but are rarer.
+- Scoring: score = floor(timeAlive*10 + bonusPoints), monotonic and always visible.
+- Difficulty: smooth time ramp over 120s scales spawn rate, hazard speed, and max concurrent hazards using lerp + smoothstep.
+- Visual: ocean/cool palette, moving city-grid parallax, soft glow particles, Rajdhani font.
+- Audio: airy triangle/sine collect cues, rough sawtooth hit/death cues, short start chirp.
+*/
+
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch (e) {
+    console.warn('Leaderboard unavailable:', e);
+    return null;
+  }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch (e) {
+    console.warn('Leaderboard unavailable:', e);
+    return [];
+  }
+}
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playSound(type, freq, duration, volume, glideTo = null) {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  if (glideTo) osc.frequency.exponentialRampToValueAtTime(glideTo, audioCtx.currentTime + duration);
+  gain.gain.setValueAtTime(volume || 0.25, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  osc.start();
+  osc.stop(audioCtx.currentTime + duration);
+}
+const sfxStart = () => { playSound('triangle', 420, 0.11, 0.2, 660); playSound('sine', 660, 0.08, 0.14); };
+const sfxCollect = () => { playSound('triangle', 700, 0.08, 0.17, 980); };
+const sfxHeatDown = () => { playSound('sine', 520, 0.1, 0.2, 360); };
+const sfxHit = () => { playSound('sawtooth', 210, 0.22, 0.26, 90); };
+const sfxDeath = () => { playSound('sawtooth', 250, 0.45, 0.3, 70); playSound('square', 140, 0.36, 0.16, 50); };
+
+const overlay = document.getElementById('ui-overlay');
+const finalScoreEl = document.getElementById('final-score');
+const nameInput = document.getElementById('name-input');
+const submitBtn = document.getElementById('submit-btn');
+const replayBtn = document.getElementById('replay-btn');
+const leaderboardEl = document.getElementById('leaderboard');
+
+let activeScene = null;
+let pendingScore = 0;
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+function smoothstep(t) { return t * t * (3 - 2 * t); }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+async function renderLeaderboard() {
+  const rows = await getLeaderboard(10);
+  if (!rows.length) {
+    leaderboardEl.innerHTML = '<p style="opacity:.8">No scores yet — be first.</p>';
+    return;
+  }
+  leaderboardEl.innerHTML = '<p style="margin-bottom:6px;color:#90e0ef">Top 10</p>' + rows.map((r, i) =>
+    `<div class="row"><span>${i + 1}. ${String(r.playerName || 'Anon').slice(0, 20)}</span><strong>${r.score}</strong></div>`
+  ).join('');
+}
+
+function showGameOverUI(finalScore) {
+  pendingScore = finalScore;
+  finalScoreEl.textContent = String(finalScore);
+  overlay.style.display = 'flex';
+  nameInput.value = '';
+  leaderboardEl.innerHTML = '<p style="opacity:.8">Loading leaderboard...</p>';
+  renderLeaderboard();
+}
+
+submitBtn.onclick = async () => {
+  submitBtn.disabled = true;
+  const playerName = (nameInput.value || 'Anonymous').trim().slice(0, 20);
+  await submitScore(playerName || 'Anonymous', pendingScore);
+  await renderLeaderboard();
+  submitBtn.disabled = false;
+};
+
+replayBtn.onclick = () => {
+  overlay.style.display = 'none';
+  if (activeScene) activeScene.scene.restart();
+};
+
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+  create() {
+    const w = this.scale.width;
+    const h = this.scale.height;
+
+    const bg = this.add.graphics();
+    bg.fillGradientStyle(0x0a1628, 0x0a1628, 0x1e3a5f, 0x1e3a5f, 1);
+    bg.fillRect(0, 0, w, h);
+
+    this.add.text(w / 2, h * 0.2, 'WHISPER RUN', { fontFamily: 'Rajdhani', fontSize: '64px', color: '#90e0ef', fontStyle: '700' }).setOrigin(0.5);
+    this.add.text(w / 2, h * 0.31, 'City of Silence', { fontFamily: 'Rajdhani', fontSize: '32px', color: '#48cae4' }).setOrigin(0.5);
+    this.add.text(w / 2, h * 0.52,
+      'Move: WASD / Arrows / Touch Drag\nAvoid drones, mute zones, and sweep vans\nCollect Secrets (+score, +heat) and Safehouses (-heat)',
+      { align: 'center', fontFamily: 'Rajdhani', fontSize: '25px', color: '#d9f2ff' }).setOrigin(0.5);
+
+    const pulse = this.add.text(w / 2, h * 0.82, 'Tap / Press Any Key to Spread', {
+      fontFamily: 'Rajdhani', fontSize: '36px', color: '#00b4d8', fontStyle: '700'
+    }).setOrigin(0.5);
+    this.tweens.add({ targets: pulse, alpha: 0.3, yoyo: true, repeat: -1, duration: 700 });
+
+    const start = () => {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      sfxStart();
+      this.scene.start('GameScene');
+    };
+    this.input.once('pointerdown', start);
+    this.input.keyboard.once('keydown', start);
+  }
+}
+
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  create() {
+    activeScene = this;
+    this.dead = false;
+    this.timeAlive = 0;
+    this.bonusPoints = 0;
+    this.score = 0;
+    this.heat = 0;
+    this.gameStartTime = this.time.now;
+
+    const w = this.scale.width;
+    const h = this.scale.height;
+
+    this.bgTiles = [];
+    for (let i = 0; i < 3; i++) {
+      const g = this.add.graphics();
+      g.lineStyle(2 - i * 0.4, i === 0 ? 0x1e4f70 : 0x163a58, 0.35 - i * 0.08);
+      for (let x = 0; x < w; x += 48 + i * 12) g.lineBetween(x, 0, x, h);
+      for (let y = 0; y < h; y += 48 + i * 12) g.lineBetween(0, y, w, y);
+      g.generateTexture(`grid${i}`, w, h);
+      g.destroy();
+      const tile = this.add.tileSprite(w / 2, h / 2, w, h, `grid${i}`);
+      tile.setAlpha(0.35 - i * 0.07);
+      this.bgTiles.push(tile);
+    }
+
+    const p = this.add.graphics();
+    p.fillStyle(0x00b4d8, 1); p.fillCircle(48, 48, 32);
+    p.lineStyle(5, 0x90e0ef, 0.9); p.strokeCircle(48, 48, 32);
+    p.fillStyle(0xffffff, 0.5); p.fillCircle(60, 36, 10);
+    p.generateTexture('playerRumor', 96, 96); p.destroy();
+
+    const d = this.add.graphics();
+    d.fillStyle(0x225577, 1);
+    d.beginPath(); d.moveTo(48, 10); d.lineTo(86, 82); d.lineTo(10, 82); d.closePath(); d.fillPath();
+    d.lineStyle(4, 0x90e0ef, 0.9);
+    d.beginPath(); d.moveTo(48, 16); d.lineTo(78, 76); d.lineTo(18, 76); d.closePath(); d.strokePath();
+    d.generateTexture('drone', 96, 96); d.destroy();
+
+    const z = this.add.graphics();
+    z.fillStyle(0x102a3b, 0.95); z.fillCircle(48, 48, 34);
+    z.lineStyle(6, 0x48cae4, 0.7); z.strokeCircle(48, 48, 34);
+    z.generateTexture('mute', 96, 96); z.destroy();
+
+    const v = this.add.graphics();
+    v.fillStyle(0x0e2a44, 1); v.fillRoundedRect(8, 24, 112, 48, 12);
+    v.lineStyle(4, 0x90e0ef, 1); v.strokeRoundedRect(8, 24, 112, 48, 12);
+    v.fillStyle(0x48cae4, 1); v.fillCircle(26, 76, 8); v.fillCircle(102, 76, 8);
+    v.generateTexture('van', 128, 96); v.destroy();
+
+    const s = this.add.graphics();
+    s.fillStyle(0xffd166, 1); s.fillCircle(24, 24, 12);
+    s.fillStyle(0xffffff, 0.85); s.fillCircle(24, 24, 5);
+    s.generateTexture('secret', 48, 48); s.destroy();
+
+    const sh = this.add.graphics();
+    sh.fillStyle(0x2ecc71, 1); sh.fillRoundedRect(6, 12, 52, 40, 9);
+    sh.lineStyle(3, 0xd6ffe5, 1); sh.strokeRoundedRect(6, 12, 52, 40, 9);
+    sh.generateTexture('safehouse', 64, 64); sh.destroy();
+
+    this.player = this.physics.add.sprite(w / 2, h / 2, 'playerRumor').setScale(0.55);
+    this.player.setDepth(3);
+    this.player.body.setCircle(this.player.width * 0.26);
+    this.player.body.setOffset(this.player.width * 0.24, this.player.height * 0.24);
+
+    this.hazards = this.physics.add.group();
+    this.pickups = this.physics.add.group();
+    this.safehouses = this.physics.add.group();
+
+    this.physics.add.overlap(this.player, this.hazards, () => this.triggerGameOver(), null, this);
+    this.physics.add.overlap(this.player, this.pickups, (_, obj) => {
+      obj.destroy();
+      this.bonusPoints += 25;
+      this.heat = clamp(this.heat + 0.04, 0, 1);
+      sfxCollect();
+      this.popText('+25 / Heat+', this.player.x, this.player.y - 30, '#ffd166');
+    }, null, this);
+
+    this.physics.add.overlap(this.player, this.safehouses, (_, obj) => {
+      obj.destroy();
+      this.heat = clamp(this.heat - 0.12, 0, 1);
+      this.bonusPoints += 10;
+      sfxHeatDown();
+      this.popText('Heat Down', this.player.x, this.player.y - 28, '#6bffce');
+    }, null, this);
+
+    this.keys = this.input.keyboard.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT');
+    this.pointerActive = false;
+    this.pointerPos = new Phaser.Math.Vector2(w / 2, h / 2);
+
+    this.input.on('pointerdown', (pnt) => { this.pointerActive = true; this.pointerPos.set(pnt.x, pnt.y); });
+    this.input.on('pointermove', (pnt) => { if (pnt.isDown) { this.pointerActive = true; this.pointerPos.set(pnt.x, pnt.y); } });
+    this.input.on('pointerup', () => { this.pointerActive = false; });
+
+    this.spawnTimer = 0;
+    this.pickupTimer = 0;
+    this.safehouseTimer = 0;
+    this.vanTimer = 1.6;
+
+    this.scoreText = this.add.text(18, 16, 'Score: 0', { fontFamily: 'Rajdhani', fontSize: '34px', color: '#e6f7ff', fontStyle: '700' }).setDepth(5);
+    this.heatText = this.add.text(18, 52, 'Heat: 0%', { fontFamily: 'Rajdhani', fontSize: '24px', color: '#90e0ef' }).setDepth(5);
+
+    this.ambient = this.add.particles(0, 0, 'secret', {
+      x: { min: 0, max: w }, y: { min: 0, max: h },
+      lifespan: 5000, quantity: 1, frequency: 280,
+      scale: { start: 0.1, end: 0.01 }, alpha: { start: 0.25, end: 0 }, speedY: { min: -20, max: -8 }
+    });
+  }
+
+  popText(msg, x, y, color) {
+    const t = this.add.text(x, y, msg, { fontFamily: 'Rajdhani', fontSize: '24px', color, fontStyle: '700' }).setOrigin(0.5).setDepth(8);
+    this.tweens.add({ targets: t, y: y - 36, alpha: 0, duration: 650, onComplete: () => t.destroy() });
+  }
+
+  spawnDrone(speed) {
+    const w = this.scale.width, h = this.scale.height;
+    const edge = Phaser.Math.Between(0, 3);
+    let x = 0, y = 0;
+    if (edge === 0) { x = Phaser.Math.Between(0, w); y = -30; }
+    if (edge === 1) { x = w + 30; y = Phaser.Math.Between(0, h); }
+    if (edge === 2) { x = Phaser.Math.Between(0, w); y = h + 30; }
+    if (edge === 3) { x = -30; y = Phaser.Math.Between(0, h); }
+    if (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < 140) return;
+
+    const e = this.hazards.create(x, y, 'drone').setScale(0.42);
+    e.type = 'drone';
+    e.body.setCircle(e.width * 0.19);
+    e.body.setOffset(e.width * 0.31, e.height * 0.31);
+    e.baseSpeed = speed;
+    this.tweens.add({ targets: e, angle: 360, repeat: -1, duration: 2600, ease: 'Linear' });
+  }
+
+  spawnMuteZone(speed) {
+    const w = this.scale.width, h = this.scale.height;
+    const x = Phaser.Math.Between(50, w - 50);
+    const y = Phaser.Math.Between(50, h - 50);
+    if (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < 120) return;
+
+    const m = this.hazards.create(x, y, 'mute').setScale(0.48);
+    m.type = 'mute';
+    m.body.setCircle(m.width * 0.2);
+    m.body.setOffset(m.width * 0.3, m.height * 0.3);
+    m.vx = Phaser.Math.FloatBetween(-speed * 0.35, speed * 0.35);
+    m.vy = Phaser.Math.FloatBetween(-speed * 0.35, speed * 0.35);
+    this.tweens.add({ targets: m, scale: 0.56, yoyo: true, repeat: -1, duration: 700 });
+  }
+
+  spawnVan(speed) {
+    const w = this.scale.width, h = this.scale.height;
+    const fromLeft = Phaser.Math.Between(0, 1) === 0;
+    const y = Phaser.Math.Between(80, h - 70);
+    const x = fromLeft ? -80 : w + 80;
+    const v = this.hazards.create(x, y, 'van').setScale(0.45);
+    v.type = 'van';
+    v.body.setSize(v.width * 0.68, v.height * 0.5);
+    v.body.setOffset(v.width * 0.16, v.height * 0.2);
+    v.vx = (fromLeft ? 1 : -1) * speed * 1.65;
+  }
+
+  spawnPickup() {
+    const w = this.scale.width, h = this.scale.height;
+    const p = this.pickups.create(Phaser.Math.Between(40, w - 40), Phaser.Math.Between(40, h - 40), 'secret').setScale(0.8);
+    p.body.setCircle(11);
+    this.tweens.add({ targets: p, y: p.y - 7, yoyo: true, repeat: -1, duration: 450 });
+  }
+
+  spawnSafehouse() {
+    const w = this.scale.width, h = this.scale.height;
+    const s = this.safehouses.create(Phaser.Math.Between(50, w - 50), Phaser.Math.Between(50, h - 50), 'safehouse').setScale(0.72);
+    s.body.setSize(s.width * 0.58, s.height * 0.58);
+    s.body.setOffset(s.width * 0.21, s.height * 0.21);
+  }
+
+  triggerGameOver() {
+    if (this.dead) return;
+    this.dead = true;
+    sfxHit();
+    sfxDeath();
+    this.player.setTint(0xffffff);
+    this.cameras.main.shake(220, 0.012);
+    this.cameras.main.flash(200, 100, 220, 255);
+    const burst = this.add.particles(this.player.x, this.player.y, 'secret', {
+      speed: { min: 80, max: 240 }, angle: { min: 0, max: 360 }, lifespan: 500,
+      quantity: 28, scale: { start: 0.38, end: 0 }, alpha: { start: 1, end: 0 }
+    });
+    this.player.destroy();
+    this.time.delayedCall(450, () => burst.destroy());
+
+    this.time.delayedCall(500, () => {
+      this.scene.pause();
+      showGameOverUI(Math.floor(this.timeAlive * 10 + this.bonusPoints));
+    });
+  }
+
+  update(time, delta) {
+    if (this.dead) return;
+    const dt = delta / 16.667;
+    const elapsed = (time - this.gameStartTime) / 1000;
+    this.timeAlive = Math.max(this.timeAlive, elapsed);
+
+    const t = clamp(elapsed / 120, 0, 1);
+    const difficulty = smoothstep(t);
+    const hazardSpeed = lerp(1.6, 5.9, difficulty) + this.heat * 1.1;
+    const spawnRate = lerp(0.4, 2.3, difficulty) + this.heat * 0.45;
+    const maxHazards = Math.floor(lerp(6, 22, difficulty + this.heat * 0.25));
+
+    for (let i = 0; i < this.bgTiles.length; i++) {
+      this.bgTiles[i].tilePositionX += (0.15 + i * 0.1) * dt;
+      this.bgTiles[i].tilePositionY += (0.05 + i * 0.04) * dt;
+    }
+
+    let xDir = 0, yDir = 0;
+    if (this.keys.A.isDown || this.keys.LEFT.isDown) xDir -= 1;
+    if (this.keys.D.isDown || this.keys.RIGHT.isDown) xDir += 1;
+    if (this.keys.W.isDown || this.keys.UP.isDown) yDir -= 1;
+    if (this.keys.S.isDown || this.keys.DOWN.isDown) yDir += 1;
+
+    if (this.pointerActive) {
+      const dx = this.pointerPos.x - this.player.x;
+      const dy = this.pointerPos.y - this.player.y;
+      const mag = Math.hypot(dx, dy);
+      if (mag > 10) {
+        xDir = dx / mag;
+        yDir = dy / mag;
+      }
+    }
+
+    const mag = Math.hypot(xDir, yDir) || 1;
+    xDir /= mag; yDir /= mag;
+    const pSpeed = lerp(2.7, 3.8, difficulty);
+    this.player.x = clamp(this.player.x + xDir * pSpeed * dt, 24, this.scale.width - 24);
+    this.player.y = clamp(this.player.y + yDir * pSpeed * dt, 24, this.scale.height - 24);
+    this.player.body.updateFromGameObject();
+
+    this.spawnTimer += delta / 1000;
+    const spawnEvery = 1 / spawnRate;
+    while (this.spawnTimer >= spawnEvery) {
+      this.spawnTimer -= spawnEvery;
+      if (this.hazards.getLength() < maxHazards) {
+        const roll = Math.random();
+        if (roll < 0.5) this.spawnDrone(hazardSpeed * 20);
+        else if (roll < 0.82) this.spawnMuteZone(hazardSpeed * 15);
+        else this.spawnVan(hazardSpeed * 22);
+      }
+    }
+
+    this.vanTimer -= delta / 1000;
+    if (this.vanTimer <= 0) {
+      this.spawnVan((hazardSpeed + 1.1) * 21);
+      this.vanTimer = lerp(5.8, 2.2, difficulty);
+    }
+
+    this.pickupTimer += delta / 1000;
+    if (this.pickupTimer > lerp(4.2, 2.5, difficulty) && this.pickups.getLength() < 4) {
+      this.pickupTimer = 0;
+      this.spawnPickup();
+    }
+
+    this.safehouseTimer += delta / 1000;
+    if (this.safehouseTimer > lerp(13.0, 8.0, difficulty) && this.safehouses.getLength() < 2) {
+      this.safehouseTimer = 0;
+      this.spawnSafehouse();
+    }
+
+    this.hazards.children.iterate((h) => {
+      if (!h || !h.active) return;
+      if (h.type === 'drone') {
+        const dx = this.player.x - h.x;
+        const dy = this.player.y - h.y;
+        const m = Math.hypot(dx, dy) || 1;
+        h.x += (dx / m) * (h.baseSpeed / 60) * dt;
+        h.y += (dy / m) * (h.baseSpeed / 60) * dt;
+        h.body.updateFromGameObject();
+      } else if (h.type === 'mute') {
+        h.x += (h.vx / 60) * dt;
+        h.y += (h.vy / 60) * dt;
+        if (h.x < 20 || h.x > this.scale.width - 20) h.vx *= -1;
+        if (h.y < 20 || h.y > this.scale.height - 20) h.vy *= -1;
+        h.body.updateFromGameObject();
+      } else if (h.type === 'van') {
+        h.x += (h.vx / 60) * dt;
+        h.body.updateFromGameObject();
+        if (h.x < -150 || h.x > this.scale.width + 150) h.destroy();
+      }
+    });
+
+    this.pickups.children.iterate((p) => {
+      if (!p || !p.active) return;
+      if (Phaser.Math.Distance.Between(p.x, p.y, this.player.x, this.player.y) < 11) p.destroy();
+    });
+
+    this.score = Math.floor(this.timeAlive * 10 + this.bonusPoints);
+    this.scoreText.setText(`Score: ${this.score}`);
+    this.heatText.setText(`Heat: ${Math.round(this.heat * 100)}%`);
+    this.heat = clamp(this.heat - delta * 0.00001, 0, 1);
+  }
+}
+
+const config = {
+  type: Phaser.AUTO,
+  width: 800,
+  height: 600,
+  backgroundColor: '#0a1628',
+  physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: false } },
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: [MenuScene, GameScene]
+};
+
+new Phaser.Game(config);
+</script>
+</body>
+</html>

@@ -193,6 +193,14 @@
       "creator": "discord-user",
       "model": "codex",
       "date": "2026-02-21T00:47:04-08:00"
+    },
+    {
+      "slug": "whisper-run-city-of-silence-9f3a",
+      "title": "Whisper Run: City of Silence",
+      "description": "Survive as a living rumor while a city escalates silencing tactics.",
+      "creator": "discord-request",
+      "model": "codex",
+      "date": "2026-02-21T08:47:12Z"
     }
   ]
 }
