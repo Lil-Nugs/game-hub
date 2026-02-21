@@ -217,6 +217,14 @@
       "creator": "codex-gamehub (discord)",
       "date": "2026-02-21T08:48:24.109Z",
       "model": "codex"
+    },
+    {
+      "slug": "lighthouse-impossible-shapes-7b86",
+      "title": "Lighthouse of Impossible Shapes",
+      "description": "You are a rotating lighthouse beam, burning impossible ocean shapes before they breach the core.",
+      "creator": "codex-gamehub",
+      "date": "2026-02-21T08:48:59.476Z",
+      "model": "codex"
     }
   ]
 }

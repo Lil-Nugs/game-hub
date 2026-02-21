@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Lighthouse of Impossible Shapes</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: radial-gradient(circle at 50% 25%, #1e3a5f 0%, #0a1628 55%, #050b14 100%);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+      touch-action: none;
+      color: #dff7ff;
+      font-family: 'Cinzel', serif;
+    }
+    #ui-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(2, 10, 20, 0.82);
+      padding: 16px;
+    }
+    #panel {
+      width: min(94vw, 450px);
+      border: 2px solid #90e0ef;
+      background: rgba(7, 29, 48, 0.92);
+      border-radius: 14px;
+      padding: 18px;
+      box-shadow: 0 0 24px rgba(72, 202, 228, 0.35);
+    }
+    #panel h2 { font-size: 1.35rem; margin-bottom: 8px; color: #caf0f8; }
+    #final-score { font-size: 1.1rem; margin-bottom: 12px; color: #90e0ef; }
+    #name-input {
+      width: 100%;
+      padding: 9px;
+      border: 1px solid #48cae4;
+      border-radius: 7px;
+      margin-bottom: 10px;
+      background: #0b2235;
+      color: #dff7ff;
+      font-size: 1rem;
+    }
+    .btn-row { display: flex; gap: 10px; margin-bottom: 10px; }
+    button {
+      flex: 1;
+      padding: 9px;
+      border: 1px solid #48cae4;
+      border-radius: 7px;
+      background: linear-gradient(180deg, #1e5c80, #134159);
+      color: #e3fbff;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    #leaderboard { list-style: decimal inside; max-height: 180px; overflow: auto; color: #caf0f8; line-height: 1.45; }
+    #status { min-height: 1.2em; color: #90e0ef; margin-bottom: 8px; font-size: 0.94rem; }
+  </style>
+</head>
+<body>
+  <div id="ui-overlay">
+    <div id="panel">
+      <h2>The Ocean Took You</h2>
+      <div id="final-score">Score: 0</div>
+      <input id="name-input" maxlength="24" placeholder="Keeper name" />
+      <div class="btn-row">
+        <button id="submit-btn">Submit Score</button>
+        <button id="replay-btn">Play Again</button>
+      </div>
+      <div id="status"></div>
+      <ol id="leaderboard"></ol>
+    </div>
+  </div>
+
+<script>
+// DESIGN NOTES
+// Genre: Arena survival / directional defense.
+// Core mechanic: You are a rotating lighthouse beam. Rotate to burn impossible shapes before they reach the lighthouse core.
+// Death condition: Any shape touching the core ends the run.
+// Difficulty ramp: smooth 0->1 over 120s; increases spawn rate, shape speed, spin drift, and irregularity.
+// Visual theme: Ocean/Cool palette with ceremonial serif typography and wavy ambiance.
+// Art direction: Circular lighthouse core, triangular/conic beam, impossible polygon enemies with subtle rotation.
+// Asset strategy: Fully procedural textures (no external art required).
+// Score formula: floor(timeAlive*10 + bonusFromDestroyedShapes).
+
+const GAME_ID = 'lighthouse-impossible-shapes-7b86';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch (e) {
+    console.warn('Leaderboard unavailable:', e);
+    return null;
+  }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch (e) {
+    console.warn('Leaderboard unavailable:', e);
+    return [];
+  }
+}
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playSound(type, freq, duration, volume, slide = 1) {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(Math.max(40, freq * slide), audioCtx.currentTime + duration);
+  gain.gain.setValueAtTime(volume || 0.22, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  osc.start();
+  osc.stop(audioCtx.currentTime + duration);
+}
+const sfxStart = () => { playSound('sine', 280, 0.18, 0.2, 1.6); playSound('triangle', 420, 0.14, 0.14, 1.25); };
+const sfxBurn = () => playSound('triangle', 700, 0.08, 0.12, 1.35);
+const sfxHit = () => { playSound('square', 170, 0.18, 0.2, 0.62); };
+const sfxDeath = () => { playSound('sawtooth', 240, 0.55, 0.24, 0.2); playSound('triangle', 120, 0.7, 0.18, 0.12); };
+
+const overlay = document.getElementById('ui-overlay');
+const finalScoreEl = document.getElementById('final-score');
+const statusEl = document.getElementById('status');
+const nameInput = document.getElementById('name-input');
+const submitBtn = document.getElementById('submit-btn');
+const replayBtn = document.getElementById('replay-btn');
+const leaderboardEl = document.getElementById('leaderboard');
+let latestScore = 0;
+let gameSceneRef = null;
+
+function lerp(a,b,t){ return a + (b-a)*t; }
+function easeIn(t){ return t*t; }
+function angleDiff(a, b) { return Phaser.Math.Angle.Wrap(a - b); }
+
+function renderBoard(scores) {
+  leaderboardEl.innerHTML = '';
+  if (!scores.length) {
+    const li = document.createElement('li');
+    li.textContent = 'No scores yet — be first keeper.';
+    leaderboardEl.appendChild(li);
+    return;
+  }
+  scores.forEach((s) => {
+    const li = document.createElement('li');
+    li.textContent = `${s.playerName || 'anon'} — ${s.score}`;
+    leaderboardEl.appendChild(li);
+  });
+}
+
+async function refreshBoard() { renderBoard(await getLeaderboard(10)); }
+
+function showGameOverUI(score) {
+  latestScore = score;
+  finalScoreEl.textContent = `Score: ${score}`;
+  statusEl.textContent = '';
+  overlay.style.display = 'flex';
+  nameInput.focus();
+  refreshBoard();
+}
+
+submitBtn.onclick = async () => {
+  const playerName = (nameInput.value || 'Keeper').trim().slice(0, 24);
+  statusEl.textContent = 'Submitting...';
+  await submitScore(playerName || 'Keeper', latestScore);
+  statusEl.textContent = 'Score posted.';
+  await refreshBoard();
+};
+
+replayBtn.onclick = () => {
+  overlay.style.display = 'none';
+  leaderboardEl.innerHTML = '';
+  nameInput.value = '';
+  if (gameSceneRef) gameSceneRef.scene.restart();
+};
+
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+  create() {
+    const { width, height } = this.scale;
+    const g = this.add.graphics();
+    g.fillGradientStyle(0x0a1628, 0x0a1628, 0x1e3a5f, 0x1e3a5f, 0.6);
+    g.fillRect(0,0,width,height);
+
+    this.add.text(width/2, height*0.27, 'LIGHTHOUSE\nOF IMPOSSIBLE SHAPES', {
+      fontFamily: 'Cinzel', fontSize: '42px', color: '#dff7ff', align: 'center', stroke: '#48cae4', strokeThickness: 2
+    }).setOrigin(0.5);
+
+    this.add.text(width/2, height*0.57,
+      'Rotate the beam and burn shapes\nbefore they touch the lighthouse core.\n\nA / D or ◀ / ▶\nMouse/Touch: point around center', {
+        fontFamily: 'Cinzel', fontSize: '22px', color: '#caf0f8', align: 'center', lineSpacing: 6
+      }).setOrigin(0.5);
+
+    const tap = this.add.text(width/2, height*0.84, 'Tap / Press Any Key to Begin', {
+      fontFamily: 'Cinzel', fontSize: '24px', color: '#90e0ef'
+    }).setOrigin(0.5);
+
+    this.tweens.add({ targets: tap, alpha: 0.25, yoyo: true, duration: 800, repeat: -1 });
+
+    const start = () => {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      sfxStart();
+      this.scene.start('GameScene');
+    };
+    this.input.once('pointerdown', start);
+    this.input.keyboard.once('keydown', start);
+  }
+}
+
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  create() {
+    gameSceneRef = this;
+    overlay.style.display = 'none';
+    this.dead = false;
+    this.timeAlive = 0;
+    this.bonusScore = 0;
+    this.spawnAccumulator = 0;
+    this.beamAngle = -Math.PI / 2;
+
+    const { width, height } = this.scale;
+    this.center = new Phaser.Math.Vector2(width / 2, height / 2);
+    this.maxRadius = Math.hypot(width, height) * 0.62;
+
+    this.waves = this.add.tileSprite(width/2, height/2, width*1.2, height*1.2, null).setAlpha(0.14);
+    const w = this.make.graphics({ x:0, y:0, add:false });
+    w.lineStyle(2, 0x48cae4, 0.35);
+    for (let i=0;i<12;i++) { w.strokeCircle(256, 256, 24 + i*18); }
+    w.generateTexture('waveTex', 512, 512);
+    w.destroy();
+    this.waves.setTexture('waveTex');
+
+    this.core = this.add.circle(this.center.x, this.center.y, 30, 0xdff7ff, 0.95);
+    this.coreRing = this.add.circle(this.center.x, this.center.y, 44, 0x48cae4, 0.18).setStrokeStyle(3, 0x90e0ef, 0.9);
+
+    this.beam = this.add.triangle(this.center.x, this.center.y, -14, 8, -14, -8, 220, 0, 0xcaf0f8, 0.46)
+      .setOrigin(0, 0.5);
+    this.beamGlow = this.add.triangle(this.center.x, this.center.y, -9, 5, -9, -5, 200, 0, 0x90e0ef, 0.26)
+      .setOrigin(0, 0.5);
+
+    this.shapes = this.physics.add.group();
+
+    this.scoreText = this.add.text(16, 12, 'Score: 0', {
+      fontFamily: 'Cinzel', fontSize: '28px', color: '#e3fbff', stroke: '#0a1628', strokeThickness: 4
+    }).setDepth(20);
+
+    this.inputKeys = this.input.keyboard.addKeys({ left: 'LEFT', right: 'RIGHT', a: 'A', d: 'D' });
+    this.pointerActive = false;
+    this.input.on('pointermove', (p) => {
+      if (p.isDown || p.wasTouch) {
+        this.pointerActive = true;
+        this.beamAngle = Phaser.Math.Angle.Between(this.center.x, this.center.y, p.x, p.y);
+      }
+    });
+    this.input.on('pointerdown', (p) => {
+      this.pointerActive = true;
+      this.beamAngle = Phaser.Math.Angle.Between(this.center.x, this.center.y, p.x, p.y);
+    });
+
+    this.sparkles = this.add.particles(0, 0, 'waveTex', {
+      speed: { min: 8, max: 20 },
+      lifespan: 1800,
+      scale: { start: 0.02, end: 0 },
+      alpha: { start: 0.2, end: 0 },
+      quantity: 1,
+      blendMode: 'ADD',
+      emitting: true,
+      frequency: 130
+    });
+
+    this.startTime = this.time.now;
+  }
+
+  spawnShape(difficulty) {
+    const theta = Phaser.Math.FloatBetween(0, Math.PI * 2);
+    const spawnR = this.maxRadius + Phaser.Math.Between(20, 100);
+    const x = this.center.x + Math.cos(theta) * spawnR;
+    const y = this.center.y + Math.sin(theta) * spawnR;
+
+    const points = 5 + Phaser.Math.Between(0, 2);
+    const radius = Phaser.Math.Between(20, 34);
+    const g = this.make.graphics({ x:0, y:0, add:false });
+    g.fillStyle(0x142a4a, 1);
+    g.lineStyle(4, 0x90e0ef, 0.9);
+    const poly = [];
+    for (let i=0;i<points;i++) {
+      const ang = (Math.PI*2/points)*i + Phaser.Math.FloatBetween(-0.22,0.22);
+      const rr = radius * Phaser.Math.FloatBetween(0.72, 1.22);
+      poly.push(new Phaser.Math.Vector2(48 + Math.cos(ang)*rr, 48 + Math.sin(ang)*rr));
+    }
+    g.beginPath(); g.moveTo(poly[0].x, poly[0].y);
+    for (let i=1;i<poly.length;i++) g.lineTo(poly[i].x, poly[i].y);
+    g.closePath(); g.fillPath(); g.strokePath();
+    g.fillStyle(0xffffff, 0.24); g.fillCircle(58, 36, 8);
+    const key = `shape_${Phaser.Math.RND.uuid().slice(0,8)}`;
+    g.generateTexture(key, 96, 96);
+    g.destroy();
+
+    const s = this.physics.add.sprite(x, y, key).setScale(0.8).setDepth(4);
+    s.body.setCircle(30, 18, 18);
+    s.body.setOffset(18, 18);
+    s.body.setSize(s.width*0.72, s.height*0.72);
+    s.spin = Phaser.Math.FloatBetween(-1.2, 1.2) * lerp(0.4, 1.6, difficulty);
+    s.speed = lerp(35, 145, difficulty) * Phaser.Math.FloatBetween(0.85, 1.25);
+    s.wobble = Phaser.Math.FloatBetween(0.5, 1.7);
+    s.baseTheta = theta;
+    s.texKey = key;
+    this.shapes.add(s);
+  }
+
+  update(time, delta) {
+    if (this.dead) return;
+    const dt = delta / 16.667;
+    const elapsed = (time - this.startTime) / 1000;
+    const difficulty = Math.min(elapsed / 120, 1);
+    const eased = easeIn(difficulty);
+
+    this.timeAlive += delta / 1000;
+    const score = Math.floor(this.timeAlive * 10 + this.bonusScore);
+    this.scoreText.setText(`Score: ${score}`);
+
+    const rotSpeed = lerp(0.04, 0.11, eased) * dt;
+    if (!this.pointerActive) {
+      if (this.inputKeys.left.isDown || this.inputKeys.a.isDown) this.beamAngle -= rotSpeed;
+      if (this.inputKeys.right.isDown || this.inputKeys.d.isDown) this.beamAngle += rotSpeed;
+    }
+
+    this.beam.rotation = this.beamAngle;
+    this.beamGlow.rotation = this.beamAngle;
+    this.waves.tilePositionX += 0.3 * dt;
+    this.waves.tilePositionY += 0.22 * dt;
+    this.coreRing.rotation += 0.004 * dt;
+
+    const spawnRate = lerp(0.55, 2.9, eased);
+    this.spawnAccumulator += (delta / 1000) * spawnRate;
+    while (this.spawnAccumulator >= 1) {
+      this.spawnAccumulator -= 1;
+      this.spawnShape(difficulty);
+    }
+
+    this.shapes.getChildren().forEach((s) => {
+      const toCenter = Phaser.Math.Angle.Between(s.x, s.y, this.center.x, this.center.y);
+      const drift = Math.sin((time / 1000) * s.wobble + s.baseTheta) * lerp(0.08, 0.5, eased);
+      const ang = toCenter + drift;
+      s.x += Math.cos(ang) * s.speed * (delta / 1000);
+      s.y += Math.sin(ang) * s.speed * (delta / 1000);
+      s.rotation += s.spin * (delta / 1000);
+
+      const dist = Phaser.Math.Distance.Between(s.x, s.y, this.center.x, this.center.y);
+      if (dist < 31) {
+        this.onDeath();
+        return;
+      }
+
+      const targetAng = Phaser.Math.Angle.Between(this.center.x, this.center.y, s.x, s.y);
+      const diff = Math.abs(angleDiff(targetAng, this.beamAngle));
+      const beamWidth = Phaser.Math.DegToRad(14 + difficulty * 12);
+      if (dist < 255 && diff < beamWidth) {
+        s.speed -= lerp(2.4, 4.3, eased) * dt;
+        s.setTint(0xdff7ff);
+      } else {
+        s.clearTint();
+      }
+
+      if (s.speed <= 10) {
+        this.bonusScore += 18;
+        sfxBurn();
+        this.tweens.add({
+          targets: s,
+          scale: 0,
+          alpha: 0,
+          duration: 170,
+          onComplete: () => {
+            if (this.textures.exists(s.texKey)) this.textures.remove(s.texKey);
+            s.destroy();
+          }
+        });
+      }
+
+      if (dist > this.maxRadius + 180) {
+        if (this.textures.exists(s.texKey)) this.textures.remove(s.texKey);
+        s.destroy();
+      }
+    });
+  }
+
+  onDeath() {
+    if (this.dead) return;
+    this.dead = true;
+    sfxHit();
+    sfxDeath();
+    this.cameras.main.shake(260, 0.012);
+    this.cameras.main.flash(180, 200, 245, 255);
+
+    this.tweens.add({ targets: [this.core, this.coreRing], scale: 1.8, alpha: 0, duration: 380, ease: 'Quad.easeOut' });
+
+    const burst = this.add.particles(this.center.x, this.center.y, 'waveTex', {
+      speed: { min: 50, max: 230 },
+      lifespan: 520,
+      scale: { start: 0.04, end: 0 },
+      alpha: { start: 0.42, end: 0 },
+      quantity: 1,
+      blendMode: 'ADD'
+    });
+    burst.explode(85, this.center.x, this.center.y);
+
+    const finalScore = Math.floor(this.timeAlive * 10 + this.bonusScore);
+    this.time.delayedCall(520, () => {
+      this.scene.pause();
+      showGameOverUI(finalScore);
+    });
+  }
+}
+
+const config = {
+  type: Phaser.AUTO,
+  width: 960,
+  height: 640,
+  physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: false } },
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: [MenuScene, GameScene]
+};
+
+new Phaser.Game(config);
+</script>
+</body>
+</html>
