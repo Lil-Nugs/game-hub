@@ -1,0 +1,1048 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>WHISPER: The Rumor</title>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #040811;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  overflow: hidden;
+  touch-action: none;
+  font-family: 'Rajdhani', sans-serif;
+}
+#ui-overlay {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  display: none; justify-content: center; align-items: center;
+  z-index: 10; background: rgba(4,8,17,0.93);
+  flex-direction: column;
+}
+#game-over-panel {
+  background: rgba(8,14,26,0.97);
+  border: 1px solid #ffd700;
+  border-radius: 8px;
+  padding: 28px 32px;
+  max-width: 420px;
+  width: 90%;
+  text-align: center;
+  color: #e8d5a0;
+  box-shadow: 0 0 50px rgba(255,215,0,0.12), 0 0 120px rgba(255,0,0,0.06);
+  max-height: 92vh;
+  overflow-y: auto;
+}
+#game-over-panel h2 {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 36px; font-weight: 700;
+  color: #ff3333; margin-bottom: 4px;
+  letter-spacing: 4px;
+  text-shadow: 0 0 20px rgba(255,50,50,0.6);
+}
+#go-subtitle { font-size: 13px; color: #664; margin-bottom: 18px; letter-spacing: 1px; }
+#go-score-label { font-size: 12px; color: #888; margin-bottom: 4px; letter-spacing: 2px; }
+#go-score { font-size: 48px; font-weight: 700; color: #ffd700; margin-bottom: 20px;
+  text-shadow: 0 0 20px rgba(255,215,0,0.5); }
+#name-input {
+  background: rgba(255,215,0,0.06);
+  border: 1px solid rgba(255,215,0,0.4);
+  border-radius: 4px;
+  padding: 10px 14px;
+  color: #ffd700;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 18px;
+  width: 100%;
+  margin-bottom: 10px;
+  text-align: center;
+}
+#name-input::placeholder { color: rgba(255,215,0,0.25); }
+#name-input:focus { outline: none; border-color: #ffd700; box-shadow: 0 0 10px rgba(255,215,0,0.2); }
+.go-btn {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 15px; font-weight: 700;
+  padding: 10px 24px;
+  border-radius: 4px; border: none;
+  cursor: pointer; letter-spacing: 1px;
+  transition: all 0.15s;
+  width: 100%; margin-bottom: 8px;
+}
+#submit-btn { background: #ffd700; color: #040811; }
+#submit-btn:hover:not(:disabled) { background: #ffe84d; transform: scale(1.02); }
+#submit-btn:disabled { background: #554400; color: #332200; cursor: not-allowed; }
+#replay-btn { background: transparent; color: #ffd700; border: 1px solid rgba(255,215,0,0.5); }
+#replay-btn:hover { background: rgba(255,215,0,0.08); }
+#leaderboard { margin-top: 14px; text-align: left; font-size: 13px; }
+#leaderboard h3 { color: #ffd700; font-size: 13px; margin-bottom: 8px; text-align: center; letter-spacing: 2px; }
+.lb-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 8px; border-radius: 3px; margin-bottom: 2px;
+}
+.lb-row:nth-child(even) { background: rgba(255,215,0,0.04); }
+.lb-rank { color: #666; width: 28px; font-size: 14px; }
+.lb-name { color: #c8b880; flex: 1; font-size: 13px; }
+.lb-score { color: #ffd700; font-weight: 700; font-size: 14px; }
+.lb-row.top-1 .lb-rank { color: #ffd700; }
+.lb-row.top-2 .lb-rank { color: #bbb; }
+.lb-row.top-3 .lb-rank { color: #cd7f32; }
+</style>
+</head>
+<body>
+<div id="ui-overlay">
+  <div id="game-over-panel">
+    <h2>SILENCED</h2>
+    <div id="go-subtitle">THE CITY HAS BURIED THE TRUTH</div>
+    <div id="go-score-label">YOUR RUMOR REACHED</div>
+    <div id="go-score">0</div>
+    <input id="name-input" type="text" placeholder="Enter your name" maxlength="20" autocomplete="off">
+    <button class="go-btn" id="submit-btn">📣 SUBMIT TO LEADERBOARD</button>
+    <button class="go-btn" id="replay-btn">🗣 SPREAD AGAIN</button>
+    <div id="leaderboard"></div>
+  </div>
+</div>
+
+<script>
+// =====================================================================
+// DESIGN HEADER
+// Game: WHISPER — The Rumor (rumor-city-99c3)
+//
+// Concept: You ARE a rumor — a golden whisper-orb drifting through
+//   a rainy noir city. Touch citizens to spread the rumor (+50 pts each).
+//   Silencer agents hunt you down. Stay alive and spread as far as possible.
+//
+// Controls: WASD / Arrow keys (keyboard) | Tap/drag (touch/mouse)
+//
+// Core Loop:
+//   - Move around the city, infect citizens with the rumor
+//   - Avoid silencers (red chasers) and fact-checkers (orange patrollers)
+//   - 3 HP; each hit = -1 HP + 1.5s invincibility; die at 0 HP
+//
+// Hazards:
+//   1. Silencers — relentless chasers, 1→5 over 120s, speed scales up
+//   2. Fact-Checkers — patrol diamond routes, appear at 30s and 75s
+//   3. Suppression Pulse — red screen-edge effect warning at high difficulty
+//
+// Pickups (spawn every 12s, despawn in 8s):
+//   1. 📡 Broadcast (cyan): instantly infects ALL citizens (+200pts bonus)
+//      RISK: spawns an extra silencer immediately
+//   2. 🎭 Disguise (purple): 4s invincibility, silencers wander aimlessly
+//      RISK: can't infect citizens while disguised, time-score pauses
+//
+// Scoring: score = Math.floor(timeAlive * 10 + bonusPoints)
+//   - bonusPoints: +50 per citizen infected, +200 per broadcast pickup
+//   - Monotonically increasing, never decreases
+//
+// Difficulty (smooth easeIn curve over 120s):
+//   - Silencer count: 1 → 5
+//   - Silencer speed: 80 → 210 px/s
+//   - Fact-checker speed: 65 → 150 px/s
+//
+// Visual theme: City Noir
+//   BG: #040811→#081428, streets dark blue-gray
+//   Player: gold (#ffd700) glowing orb with particle trail
+//   Citizens: blue (#4488ff) pedestrian shapes
+//   Silencers: blood red (#cc2233) angular agents
+//   Fact-checkers: burnt orange (#ff8844) investigator shapes
+//   Rain particle effect for atmosphere
+//
+// Font: Rajdhani (tense, modern sans)
+//
+// Audio: procedural Web Audio
+//   - Whisper (spread): soft rising sine tones
+//   - Broadcast: ascending square chord
+//   - Hit: harsh sawtooth + bass thud
+//   - Death: descending sawtooth chord
+//   - Pickup: bright triangle tones
+// =====================================================================
+
+const GAME_ID = 'rumor-city-99c3';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const GW = 800, GH = 600;
+
+// ─── Audio ────────────────────────────────────────────────────────────
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playTone(type, freq, dur, vol = 0.25, endFreq = null) {
+  if (audioCtx.state === 'suspended') return;
+  try {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    if (endFreq) osc.frequency.linearRampToValueAtTime(endFreq, audioCtx.currentTime + dur);
+    gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+    osc.start();
+    osc.stop(audioCtx.currentTime + dur);
+  } catch(e) {}
+}
+
+function sfxWhisper() {
+  playTone('sine', 700, 0.12, 0.12);
+  setTimeout(() => playTone('sine', 1000, 0.1, 0.08), 60);
+}
+function sfxBroadcast() {
+  playTone('square', 330, 0.12, 0.18);
+  setTimeout(() => playTone('square', 495, 0.10, 0.14), 80);
+  setTimeout(() => playTone('square', 660, 0.12, 0.10), 160);
+}
+function sfxHit() {
+  playTone('sawtooth', 300, 0.18, 0.4, 80);
+  setTimeout(() => playTone('square', 60, 0.25, 0.3), 20);
+}
+function sfxDeath() {
+  playTone('sawtooth', 280, 0.6, 0.35, 60);
+  setTimeout(() => playTone('sine', 160, 0.8, 0.2, 40), 100);
+  setTimeout(() => playTone('triangle', 90, 1.0, 0.15), 300);
+}
+function sfxPickup() {
+  playTone('triangle', 880, 0.1, 0.22);
+  setTimeout(() => playTone('triangle', 1320, 0.12, 0.16), 70);
+}
+function sfxStart() {
+  playTone('sine', 440, 0.18, 0.2);
+  setTimeout(() => playTone('sine', 660, 0.15, 0.15), 100);
+}
+
+// ─── Leaderboard ──────────────────────────────────────────────────────
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch (e) { console.warn('Leaderboard unavailable:', e); return null; }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch (e) { console.warn('Leaderboard unavailable:', e); return []; }
+}
+
+// ─── Game Over UI ─────────────────────────────────────────────────────
+let _finalScore = 0;
+function showGameOverUI(score) {
+  _finalScore = score;
+  document.getElementById('go-score').textContent = score;
+  document.getElementById('ui-overlay').style.display = 'flex';
+  document.getElementById('submit-btn').disabled = false;
+  document.getElementById('submit-btn').textContent = '📣 SUBMIT TO LEADERBOARD';
+  document.getElementById('leaderboard').innerHTML = '';
+  document.getElementById('name-input').value = '';
+  setTimeout(() => document.getElementById('name-input').focus(), 100);
+}
+
+document.getElementById('submit-btn').addEventListener('click', async () => {
+  const name = document.getElementById('name-input').value.trim() || 'Anonymous';
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'SUBMITTING...';
+  await submitScore(name, _finalScore);
+  const scores = await getLeaderboard(10);
+  const lb = document.getElementById('leaderboard');
+  if (scores.length > 0) {
+    const medals = ['🥇','🥈','🥉'];
+    lb.innerHTML = '<h3>📣 TOP WHISPERS</h3>' +
+      scores.map((s,i) => {
+        const cls = i < 3 ? 'top-' + (i+1) : '';
+        const rank = i < 3 ? medals[i] : (i+1)+'.';
+        return `<div class="lb-row ${cls}"><span class="lb-rank">${rank}</span><span class="lb-name">${s.playerName}</span><span class="lb-score">${s.score}</span></div>`;
+      }).join('');
+  } else {
+    lb.innerHTML = '<p style="color:#666;text-align:center;font-size:12px;margin-top:8px">No scores yet — be the first!</p>';
+  }
+  btn.textContent = '✓ SUBMITTED';
+});
+
+document.getElementById('replay-btn').addEventListener('click', () => {
+  document.getElementById('ui-overlay').style.display = 'none';
+  const gs = game.scene.getScene('GameScene');
+  gs.scene.restart();
+});
+
+document.getElementById('name-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('submit-btn').click();
+});
+
+// ─── Helpers ──────────────────────────────────────────────────────────
+function lerp(a, b, t) { return a + (b - a) * t; }
+function easeIn(t) { return t * t; }
+
+// ─── MENU SCENE ───────────────────────────────────────────────────────
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+
+  create() {
+    this._drawCityBg();
+    this._drawRain();
+
+    // Pulsing orb at center
+    const cx = GW / 2, cy = GH / 2 - 50;
+
+    const glowGfx = this.add.graphics();
+    glowGfx.fillStyle(0xffd700, 0.07);
+    glowGfx.fillCircle(cx, cy, 90);
+    glowGfx.fillStyle(0xffd700, 0.12);
+    glowGfx.fillCircle(cx, cy, 55);
+
+    const orbGfx = this.add.graphics();
+    orbGfx.fillStyle(0xffd700, 1);
+    orbGfx.fillCircle(cx, cy, 20);
+    orbGfx.fillStyle(0xfff8cc, 1);
+    orbGfx.fillCircle(cx, cy, 12);
+    orbGfx.fillStyle(0xffffff, 0.9);
+    orbGfx.fillCircle(cx - 5, cy - 5, 5);
+
+    this.tweens.add({
+      targets: [orbGfx, glowGfx],
+      scaleX: { from: 0.88, to: 1.12 },
+      scaleY: { from: 0.88, to: 1.12 },
+      duration: 1300,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut'
+    });
+
+    // Title
+    this.add.text(GW/2, GH/2 - 135, 'WHISPER', {
+      fontFamily: 'Rajdhani', fontSize: '70px', fontStyle: 'bold',
+      color: '#ffd700', stroke: '#000', strokeThickness: 5
+    }).setOrigin(0.5);
+
+    this.add.text(GW/2, GH/2 - 78, 'THE RUMOR', {
+      fontFamily: 'Rajdhani', fontSize: '18px', color: '#aa8800',
+      letterSpacing: 8
+    }).setOrigin(0.5);
+
+    // Instructions
+    const lines = [
+      '🗣  Touch CITIZENS to spread the rumor  (+50 pts each)',
+      '🚫  Dodge SILENCERS chasing you         (3 lives)',
+      '🔍  Avoid FACT-CHECKERS on patrol       (appear at 30s)',
+      '',
+      '📡  BROADCAST pickup — infects all citizens  (summons extra Silencer!)',
+      '🎭  DISGUISE pickup — 4s immunity           (can\'t spread while hidden)',
+      '',
+      'WASD / Arrow keys to move   ·   Tap / drag to move on touch'
+    ];
+
+    this.add.text(GW/2, GH/2 + 15, lines.join('\n'), {
+      fontFamily: 'Rajdhani', fontSize: '13px', color: '#9a9ab8',
+      align: 'center', lineSpacing: 5
+    }).setOrigin(0.5);
+
+    // Blinking start prompt
+    const startTxt = this.add.text(GW/2, GH/2 + 148, '[ TAP OR PRESS ANY KEY TO START ]', {
+      fontFamily: 'Rajdhani', fontSize: '16px', fontStyle: 'bold',
+      color: '#ffd700', letterSpacing: 2
+    }).setOrigin(0.5);
+
+    this.tweens.add({ targets: startTxt, alpha: { from: 1, to: 0.15 }, duration: 750, yoyo: true, repeat: -1 });
+
+    const start = () => {
+      audioCtx.resume();
+      sfxStart();
+      this.scene.start('GameScene');
+    };
+    this.input.once('pointerdown', start);
+    this.input.keyboard.once('keydown', start);
+  }
+
+  _drawCityBg() {
+    const g = this.add.graphics();
+    g.fillGradientStyle(0x040811, 0x040811, 0x071222, 0x071222, 1);
+    g.fillRect(0, 0, GW, GH);
+    // Buildings
+    const CELL = 80;
+    g.fillStyle(0x0c1826, 1);
+    for (let gx = 0; gx < 10; gx++) {
+      for (let gy = 0; gy < 8; gy++) {
+        g.fillRect(gx*CELL+8, gy*CELL+8, 64, 64);
+        // windows
+        for (let wx = 0; wx < 3; wx++) {
+          for (let wy = 0; wy < 3; wy++) {
+            if (Math.random() > 0.4) {
+              const lit = Math.random() > 0.5;
+              g.fillStyle(lit ? 0x1a3a55 : 0x0a1a28, 0.9);
+              g.fillRect(gx*CELL+8+6+wx*18, gy*CELL+8+6+wy*18, 12, 10);
+            }
+          }
+        }
+        g.fillStyle(0x0c1826, 1);
+      }
+    }
+    // Street lines
+    g.lineStyle(1, 0x12202e, 1);
+    for (let x = CELL; x < GW; x += CELL) { g.beginPath(); g.moveTo(x,0); g.lineTo(x,GH); g.strokePath(); }
+    for (let y = CELL; y < GH; y += CELL) { g.beginPath(); g.moveTo(0,y); g.lineTo(GW,y); g.strokePath(); }
+  }
+
+  _drawRain() {
+    for (let i = 0; i < 50; i++) {
+      const g = this.add.graphics();
+      const x = Phaser.Math.Between(0, GW);
+      const y = Phaser.Math.Between(-GH, GH);
+      g.lineStyle(1, 0x2a4a6a, 0.35);
+      g.beginPath(); g.moveTo(0, 0); g.lineTo(-2, 14); g.strokePath();
+      g.setPosition(x, y);
+      const spd = Phaser.Math.Between(280, 480);
+      this.tweens.add({
+        targets: g,
+        y: '+=' + (GH + 100), x: '-=' + (spd * 0.05 * 1.5),
+        duration: Math.round((GH + 100) / spd * 1000),
+        repeat: -1,
+        delay: Phaser.Math.Between(0, 2000)
+      });
+    }
+  }
+}
+
+// ─── GAME SCENE ───────────────────────────────────────────────────────
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  create() {
+    audioCtx.resume();
+
+    // State
+    this.isDead = false;
+    this.hp = 3;
+    this.bonusPoints = 0;
+    this.totalInfected = 0;
+    this.invincible = false;
+    this.disguised = false;
+    this.disguiseMs = 0;
+    this.touchTarget = null;
+    this.gameStartTime = this.time.now;
+    this.lastSilencerSpawn = -9999;
+
+    // Build world
+    this._buildCityBg();
+    this._makeTextures();
+    this._setupGroups();
+    this._createPlayer();
+    this._spawnCitizens(15);
+    this._spawnSilencer(); // initial silencer
+    this._createUI();
+    this._createRain();
+
+    // Pickups every 12s
+    this.time.addEvent({ delay: 12000, callback: this._spawnPickup, callbackScope: this, loop: true, startAt: 9000 });
+
+    // Fact-checkers
+    this.time.delayedCall(30000, () => { if (!this.isDead) this._spawnFactChecker(); });
+    this.time.delayedCall(75000, () => { if (!this.isDead) this._spawnFactChecker(); });
+
+    // Input
+    this.cursors = this.input.keyboard.createCursorKeys();
+    this.wasd = this.input.keyboard.addKeys({
+      up: Phaser.Input.Keyboard.KeyCodes.W,
+      down: Phaser.Input.Keyboard.KeyCodes.S,
+      left: Phaser.Input.Keyboard.KeyCodes.A,
+      right: Phaser.Input.Keyboard.KeyCodes.D
+    });
+    this.input.on('pointerdown', p => { this.touchTarget = { x: p.x, y: p.y }; });
+    this.input.on('pointermove', p => { if (p.isDown) this.touchTarget = { x: p.x, y: p.y }; });
+
+    // Overlaps
+    this.physics.add.overlap(this.player, this.citizenGroup, this._onCitizenHit, null, this);
+    this.physics.add.overlap(this.player, this.silencerGroup, this._onEnemyHit, null, this);
+    this.physics.add.overlap(this.player, this.factCheckerGroup, this._onEnemyHit, null, this);
+    this.physics.add.overlap(this.player, this.pickupGroup, this._onPickupHit, null, this);
+  }
+
+  _buildCityBg() {
+    const g = this.add.graphics();
+    g.fillGradientStyle(0x040811, 0x040811, 0x08111e, 0x08111e, 1);
+    g.fillRect(0, 0, GW, GH);
+
+    this.buildingZones = [];
+    const CELL = 80;
+    for (let gx = 0; gx < 10; gx++) {
+      for (let gy = 0; gy < 8; gy++) {
+        const bx = gx*CELL+8, by = gy*CELL+8;
+        this.buildingZones.push({ x: bx, y: by, w: 64, h: 64 });
+        g.fillStyle(0x0c1826, 1);
+        g.fillRect(bx, by, 64, 64);
+        for (let wx = 0; wx < 3; wx++) {
+          for (let wy = 0; wy < 3; wy++) {
+            if (Math.random() > 0.38) {
+              const lit = Math.random() > 0.45;
+              g.fillStyle(lit ? 0x1a3a55 : 0x0a1a28, 1);
+              g.fillRect(bx+6+wx*18, by+6+wy*18, 12, 10);
+            }
+          }
+        }
+      }
+    }
+    g.lineStyle(1, 0x111e2c, 1);
+    for (let x = CELL; x < GW; x += CELL) { g.beginPath(); g.moveTo(x,0); g.lineTo(x,GH); g.strokePath(); }
+    for (let y = CELL; y < GH; y += CELL) { g.beginPath(); g.moveTo(0,y); g.lineTo(GW,y); g.strokePath(); }
+  }
+
+  _inBuilding(x, y) {
+    for (const b of this.buildingZones) {
+      if (x > b.x+4 && x < b.x+b.w-4 && y > b.y+4 && y < b.y+b.h-4) return true;
+    }
+    return false;
+  }
+
+  _streetPos() {
+    let x, y, tries = 0;
+    do {
+      x = Phaser.Math.Between(24, GW-24);
+      y = Phaser.Math.Between(24, GH-24);
+      tries++;
+    } while (this._inBuilding(x, y) && tries < 30);
+    return { x, y };
+  }
+
+  _makeTextures() {
+    // Player — golden orb with glow layers
+    { const g = this.add.graphics();
+      g.fillStyle(0xffa500, 0.2); g.fillCircle(48, 48, 36);
+      g.fillStyle(0xffd700, 0.5); g.fillCircle(48, 48, 26);
+      g.fillStyle(0xffd700, 1); g.fillCircle(48, 48, 18);
+      g.fillStyle(0xfff4aa, 1); g.fillCircle(48, 48, 11);
+      g.fillStyle(0xffffff, 0.9); g.fillCircle(44, 43, 5);
+      g.generateTexture('player_t', 96, 96); g.destroy(); }
+
+    // Citizen — blue humanoid silhouette
+    { const g = this.add.graphics();
+      g.fillStyle(0x2255cc, 1); g.fillCircle(18, 11, 9);      // head shadow
+      g.fillStyle(0x4488ff, 1); g.fillCircle(18, 10, 8);      // head
+      g.fillStyle(0x3366dd, 1); g.fillRect(11, 18, 14, 16);   // body
+      g.fillRect(9,  34, 6, 11); g.fillRect(21, 34, 6, 11);   // legs
+      g.fillStyle(0x88aaff, 0.5); g.fillCircle(18, 10, 4);    // highlight
+      g.generateTexture('citizen_t', 36, 46); g.destroy(); }
+
+    // Infected citizen — golden
+    { const g = this.add.graphics();
+      g.fillStyle(0xcc8800, 1); g.fillCircle(18, 11, 9);
+      g.fillStyle(0xffd700, 1); g.fillCircle(18, 10, 8);
+      g.fillStyle(0xddaa00, 1); g.fillRect(11, 18, 14, 16);
+      g.fillRect(9, 34, 6, 11); g.fillRect(21, 34, 6, 11);
+      g.fillStyle(0xffffff, 0.5); g.fillCircle(18, 10, 4);
+      g.generateTexture('citizen_inf_t', 36, 46); g.destroy(); }
+
+    // Silencer — red angular agent
+    { const g = this.add.graphics();
+      g.fillStyle(0x880011, 1); g.fillCircle(19, 12, 10);     // head shadow
+      g.fillStyle(0xcc2233, 1); g.fillCircle(19, 11, 9);      // head
+      g.fillStyle(0xaa1122, 1); g.fillRect(12, 20, 14, 18);   // body (coat)
+      g.fillRect(10, 38, 7, 12); g.fillRect(21, 38, 7, 12);   // legs
+      g.fillStyle(0xff4455, 0.6); g.fillCircle(19, 11, 4);    // visor glow
+      g.lineStyle(1, 0xff0000, 0.7); g.strokeCircle(19, 11, 9);
+      g.generateTexture('silencer_t', 38, 52); g.destroy(); }
+
+    // Fact-checker — orange with magnifier shape
+    { const g = this.add.graphics();
+      g.fillStyle(0xbb5500, 1); g.fillCircle(20, 13, 11);
+      g.fillStyle(0xff8844, 1); g.fillCircle(20, 12, 10);
+      g.fillStyle(0xdd6622, 1); g.fillRect(13, 22, 14, 18);
+      g.fillRect(11, 40, 7, 12); g.fillRect(22, 40, 7, 12);
+      g.fillStyle(0xffbb88, 0.5); g.fillCircle(20, 12, 5);
+      // magnifier hint
+      g.lineStyle(2, 0xffd700, 0.7); g.strokeCircle(30, 6, 6);
+      g.beginPath(); g.moveTo(34,10); g.lineTo(38,14); g.strokePath();
+      g.generateTexture('factchecker_t', 40, 54); g.destroy(); }
+
+    // Pickup textures
+    { const g = this.add.graphics();
+      g.fillStyle(0x006688, 0.8); g.fillCircle(22, 22, 20);
+      g.fillStyle(0x00ddff, 1); g.fillCircle(22, 22, 14);
+      g.fillStyle(0xffffff, 0.7); g.fillCircle(22, 22, 7);
+      g.generateTexture('pickup_mega_t', 44, 44); g.destroy(); }
+
+    { const g = this.add.graphics();
+      g.fillStyle(0x550088, 0.8); g.fillCircle(22, 22, 20);
+      g.fillStyle(0xaa44ff, 1); g.fillCircle(22, 22, 14);
+      g.fillStyle(0xffffff, 0.7); g.fillCircle(22, 22, 7);
+      g.generateTexture('pickup_dis_t', 44, 44); g.destroy(); }
+
+    // Raindrop
+    { const g = this.add.graphics();
+      g.lineStyle(1, 0x4a7a9a, 1);
+      g.beginPath(); g.moveTo(0,0); g.lineTo(-1,10); g.strokePath();
+      g.generateTexture('rain_t', 3, 12); g.destroy(); }
+  }
+
+  _setupGroups() {
+    this.citizenGroup = this.physics.add.group();
+    this.silencerGroup = this.physics.add.group();
+    this.factCheckerGroup = this.physics.add.group();
+    this.pickupGroup = this.physics.add.group();
+  }
+
+  _createPlayer() {
+    const p = this._streetPos();
+    this.player = this.physics.add.sprite(p.x, p.y, 'player_t');
+    this.player.setCollideWorldBounds(true);
+    this.player.body.setCircle(16, 32, 32);
+    this.player.setDepth(10);
+
+    // Particle trail
+    this.playerTrail = this.add.particles(0, 0, 'player_t', {
+      scale: { start: 0.18, end: 0 },
+      alpha: { start: 0.45, end: 0 },
+      speed: { min: 5, max: 25 },
+      lifespan: 350,
+      frequency: 60,
+      tint: 0xffd700,
+      blendMode: 'ADD'
+    });
+    this.playerTrail.startFollow(this.player);
+    this.playerTrail.setDepth(9);
+  }
+
+  _spawnCitizens(count) {
+    for (let i = 0; i < count; i++) {
+      const p = this._streetPos();
+      const c = this.citizenGroup.create(p.x, p.y, 'citizen_t');
+      c.setCollideWorldBounds(true);
+      c.body.setSize(22, 34, true);
+      c.setDepth(5);
+      c.infected = false;
+      c.infTimer = 0;
+      c.wanderTimer = Phaser.Math.Between(500, 3000);
+    }
+  }
+
+  _spawnSilencer() {
+    const side = Phaser.Math.Between(0, 3);
+    let x, y;
+    if (side === 0) { x = Phaser.Math.Between(0, GW); y = -40; }
+    else if (side === 1) { x = GW + 40; y = Phaser.Math.Between(0, GH); }
+    else if (side === 2) { x = Phaser.Math.Between(0, GW); y = GH + 40; }
+    else { x = -40; y = Phaser.Math.Between(0, GH); }
+
+    const s = this.silencerGroup.create(x, y, 'silencer_t');
+    s.setCollideWorldBounds(false);
+    s.body.setSize(24, 40, true);
+    s.setDepth(7);
+
+    // Red "eye" overlay for threat emphasis
+    const eye = this.add.graphics();
+    eye.fillStyle(0xff0000, 0.3); eye.fillCircle(0, 0, 6);
+    eye.setDepth(7);
+    s.eyeEffect = eye;
+  }
+
+  _spawnFactChecker() {
+    const side = Phaser.Math.Between(0, 3);
+    let x, y;
+    if (side === 0) { x = Phaser.Math.Between(80, GW-80); y = -40; }
+    else if (side === 1) { x = GW+40; y = Phaser.Math.Between(80, GH-80); }
+    else if (side === 2) { x = Phaser.Math.Between(80, GW-80); y = GH+40; }
+    else { x = -40; y = Phaser.Math.Between(80, GH-80); }
+
+    const f = this.factCheckerGroup.create(x, y, 'factchecker_t');
+    f.setCollideWorldBounds(false);
+    f.body.setSize(28, 44, true);
+    f.setDepth(7);
+
+    const cx = Phaser.Math.Between(120, GW-120);
+    const cy = Phaser.Math.Between(100, GH-100);
+    const r = 130;
+    f.waypoints = [
+      { x: cx, y: cy-r }, { x: cx+r, y: cy },
+      { x: cx, y: cy+r }, { x: cx-r, y: cy }
+    ];
+    f.wpIdx = 0;
+    f.entering = true;
+  }
+
+  _spawnPickup() {
+    const p = this._streetPos();
+    const type = Math.random() < 0.5 ? 'mega' : 'dis';
+    const key = type === 'mega' ? 'pickup_mega_t' : 'pickup_dis_t';
+    const pu = this.pickupGroup.create(p.x, p.y, key);
+    pu.body.setAllowGravity(false);
+    pu.body.setCircle(16, 6, 6);
+    pu.pType = type;
+    pu.setDepth(8);
+
+    const label = this.add.text(p.x, p.y - 28,
+      type === 'mega' ? '📡 BROADCAST' : '🎭 DISGUISE', {
+      fontFamily: 'Rajdhani', fontSize: '11px',
+      color: type === 'mega' ? '#00ddff' : '#cc88ff',
+      stroke: '#000', strokeThickness: 2
+    }).setOrigin(0.5).setDepth(8);
+    pu._label = label;
+
+    // Hover bounce
+    this.tweens.add({
+      targets: pu,
+      y: p.y - 10, duration: 600,
+      yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+    this.tweens.add({
+      targets: label,
+      y: p.y - 38, duration: 600,
+      yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+
+    // Auto-despawn
+    this.time.delayedCall(8000, () => {
+      if (pu && pu.active) {
+        if (pu._label) pu._label.destroy();
+        pu.destroy();
+      }
+    });
+  }
+
+  _createUI() {
+    this.scoreTxt = this.add.text(10, 8, 'SCORE: 0', {
+      fontFamily: 'Rajdhani', fontSize: '20px', fontStyle: 'bold',
+      color: '#ffd700', stroke: '#000', strokeThickness: 3
+    }).setDepth(20);
+
+    this.hpTxt = this.add.text(GW-10, 8, '❤❤❤', {
+      fontFamily: 'Rajdhani', fontSize: '22px', color: '#ff4444'
+    }).setOrigin(1,0).setDepth(20);
+
+    this.spreadTxt = this.add.text(10, 34, 'SPREAD: 0', {
+      fontFamily: 'Rajdhani', fontSize: '14px', color: '#778',
+      stroke: '#000', strokeThickness: 2
+    }).setDepth(20);
+
+    this.statusTxt = this.add.text(GW/2, 8, '', {
+      fontFamily: 'Rajdhani', fontSize: '16px', fontStyle: 'bold',
+      color: '#00ddff', stroke: '#000', strokeThickness: 2
+    }).setOrigin(0.5,0).setDepth(20);
+  }
+
+  _createRain() {
+    // Lightweight rain via particle emitter
+    this.rainEmitter = this.add.particles(0, -20, 'rain_t', {
+      x: { min: 0, max: GW },
+      y: -20,
+      speedX: { min: -15, max: -8 },
+      speedY: { min: 200, max: 380 },
+      alpha: { start: 0.35, end: 0.1 },
+      lifespan: { min: 900, max: 1600 },
+      frequency: 18,
+      quantity: 2,
+      angle: { min: 95, max: 100 }
+    });
+    this.rainEmitter.setDepth(1);
+  }
+
+  update(time, delta) {
+    if (this.isDead) return;
+
+    const dt = delta / 16.667;
+    const elapsed = (time - this.gameStartTime) / 1000;
+    const rawT = Math.min(elapsed / 120, 1);
+    const diff = easeIn(rawT);
+
+    // Score
+    if (!this.disguised) {
+      const currentScore = Math.floor(elapsed * 10 + this.bonusPoints);
+      // Ensure monotonic
+      this._lastScore = Math.max(this._lastScore || 0, currentScore);
+    }
+    this.scoreTxt.setText('SCORE: ' + (this._lastScore || 0));
+    this.spreadTxt.setText('SPREAD: ' + this.totalInfected);
+    this.hpTxt.setText('❤'.repeat(Math.max(0, this.hp)));
+
+    // Player movement
+    this._movePlayer(dt, diff);
+
+    // Enemy updates
+    this._updateSilencers(dt, diff, elapsed);
+    this._updateFactCheckers(dt, diff);
+    this._updateCitizens(dt);
+
+    // Disguise countdown
+    if (this.disguised) {
+      this.disguiseMs -= delta;
+      if (this.disguiseMs <= 0) {
+        this.disguised = false;
+        if (!this.invincible) this.player.clearTint();
+        this.playerTrail.setVisible(true);
+        this.statusTxt.setText('');
+      } else {
+        this.statusTxt.setText('🎭 ' + Math.ceil(this.disguiseMs/1000) + 's');
+        this.player.setTint(0x9933ff);
+      }
+    }
+
+    // Silencer spawning
+    const maxS = Math.min(5, 1 + Math.floor(elapsed / 22));
+    if (this.silencerGroup.countActive() < maxS && time - this.lastSilencerSpawn > 4500) {
+      this._spawnSilencer();
+      this.lastSilencerSpawn = time;
+    }
+
+    // Update silencer eye effects
+    this.silencerGroup.children.each(s => {
+      if (s && s.active && s.eyeEffect) {
+        s.eyeEffect.setPosition(s.x + 12, s.y - 8);
+      }
+    });
+  }
+
+  _movePlayer(dt, diff) {
+    const SPEED = lerp(155, 195, diff);
+    let vx = 0, vy = 0;
+    let usedKey = false;
+    const k = this.cursors, w = this.wasd;
+
+    if (k.left.isDown || w.left.isDown)  { vx -= SPEED; usedKey = true; }
+    if (k.right.isDown || w.right.isDown) { vx += SPEED; usedKey = true; }
+    if (k.up.isDown || w.up.isDown)    { vy -= SPEED; usedKey = true; }
+    if (k.down.isDown || w.down.isDown)  { vy += SPEED; usedKey = true; }
+
+    if (!usedKey && this.touchTarget) {
+      const dx = this.touchTarget.x - this.player.x;
+      const dy = this.touchTarget.y - this.player.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      if (dist > 10) { vx = (dx/dist)*SPEED; vy = (dy/dist)*SPEED; }
+      else this.touchTarget = null;
+    } else if (usedKey) {
+      this.touchTarget = null;
+    }
+
+    if (vx && vy) { vx *= 0.707; vy *= 0.707; }
+    if (this.disguised) { vx *= 0.55; vy *= 0.55; }
+
+    this.player.setVelocity(vx, vy);
+    if (vx < 0) this.player.setFlipX(true);
+    else if (vx > 0) this.player.setFlipX(false);
+  }
+
+  _updateSilencers(dt, diff, elapsed) {
+    const spd = lerp(80, 210, diff);
+    this.silencerGroup.children.each(s => {
+      if (!s || !s.active) return;
+      if (this.disguised) {
+        // Lost sight — wander
+        s._wAngle = (s._wAngle || Math.random()*Math.PI*2) + (Math.random()-0.5)*0.15;
+        s.setVelocity(Math.cos(s._wAngle)*spd*0.4, Math.sin(s._wAngle)*spd*0.4);
+        return;
+      }
+      const dx = this.player.x - s.x, dy = this.player.y - s.y;
+      const d = Math.sqrt(dx*dx+dy*dy);
+      if (d > 1) s.setVelocity((dx/d)*spd, (dy/d)*spd);
+      // nudge back in bounds
+      if (s.x < -60 || s.x > GW+60 || s.y < -60 || s.y > GH+60) {
+        const cdx = GW/2-s.x, cdy = GH/2-s.y;
+        const cd = Math.sqrt(cdx*cdx+cdy*cdy);
+        s.setVelocity((cdx/cd)*spd, (cdy/cd)*spd);
+      }
+    });
+  }
+
+  _updateFactCheckers(dt, diff) {
+    const spd = lerp(65, 150, diff);
+    this.factCheckerGroup.children.each(f => {
+      if (!f || !f.active) return;
+      const target = f.entering ? f.waypoints[0] : f.waypoints[f.wpIdx];
+      const dx = target.x - f.x, dy = target.y - f.y;
+      const d = Math.sqrt(dx*dx+dy*dy);
+      if (d < 22) {
+        if (f.entering) { f.entering = false; f.wpIdx = 0; }
+        else f.wpIdx = (f.wpIdx + 1) % f.waypoints.length;
+      } else {
+        f.setVelocity((dx/d)*spd, (dy/d)*spd);
+      }
+    });
+  }
+
+  _updateCitizens(dt) {
+    this.citizenGroup.children.each(c => {
+      if (!c || !c.active) return;
+      c.wanderTimer -= delta;
+      if (c.wanderTimer <= 0) {
+        const a = Math.random() * Math.PI * 2;
+        const spd = 20 + Math.random() * 22;
+        c.setVelocity(Math.cos(a)*spd, Math.sin(a)*spd);
+        c.wanderTimer = Phaser.Math.Between(1200, 3500);
+      }
+      if (c.infected) {
+        c.infTimer -= delta;
+        if (c.infTimer <= 0) {
+          c.infected = false;
+          c.setTexture('citizen_t');
+        }
+      }
+    });
+  }
+
+  _onCitizenHit(player, citizen) {
+    if (citizen.infected || this.isDead || this.disguised) return;
+
+    citizen.infected = true;
+    citizen.setTexture('citizen_inf_t');
+    citizen.infTimer = Phaser.Math.Between(7000, 12000);
+    this.bonusPoints += 50;
+    this.totalInfected++;
+    sfxWhisper();
+
+    // Score popup
+    const popup = this.add.text(citizen.x, citizen.y - 18, '+50', {
+      fontFamily: 'Rajdhani', fontSize: '15px', fontStyle: 'bold',
+      color: '#ffd700', stroke: '#000', strokeThickness: 2
+    }).setDepth(15);
+    this.tweens.add({ targets: popup, y: citizen.y-55, alpha: 0, duration: 700, onComplete: () => popup.destroy() });
+
+    // Ripple
+    const ripple = this.add.graphics();
+    ripple.lineStyle(2, 0xffd700, 0.9);
+    ripple.strokeCircle(citizen.x, citizen.y + 10, 12);
+    ripple.setDepth(12);
+    this.tweens.add({ targets: ripple, scaleX: 3, scaleY: 3, alpha: 0, duration: 500, onComplete: () => ripple.destroy() });
+  }
+
+  _onEnemyHit(player, enemy) {
+    if (this.invincible || this.disguised || this.isDead) return;
+
+    this.hp--;
+    sfxHit();
+    this.cameras.main.flash(180, 200, 0, 0);
+    this.cameras.main.shake(130, 0.007);
+    player.setTint(0xff2222);
+
+    if (this.hp <= 0) { this._die(); return; }
+
+    this.invincible = true;
+    this.time.delayedCall(1600, () => {
+      this.invincible = false;
+      if (!this.disguised) player.clearTint();
+    });
+
+    // Blink effect
+    this.tweens.add({
+      targets: player, alpha: 0.25,
+      duration: 120, yoyo: true, repeat: 5,
+      onComplete: () => player.setAlpha(1)
+    });
+  }
+
+  _onPickupHit(player, pickup) {
+    if (!pickup || !pickup.active || this.isDead) return;
+    const type = pickup.pType;
+    if (pickup._label) pickup._label.destroy();
+    pickup.destroy();
+    sfxPickup();
+
+    if (type === 'mega') {
+      // Broadcast: infect all citizens
+      this.bonusPoints += 200;
+      sfxBroadcast();
+      this.cameras.main.flash(250, 0, 180, 255);
+
+      let count = 0;
+      this.citizenGroup.children.each(c => {
+        if (!c || !c.active || c.infected) return;
+        c.infected = true;
+        c.setTexture('citizen_inf_t');
+        c.infTimer = Phaser.Math.Between(5000, 8000);
+        this.bonusPoints += 50;
+        this.totalInfected++;
+        count++;
+        const popup = this.add.text(c.x, c.y-16, '+50', {
+          fontFamily: 'Rajdhani', fontSize: '13px', color: '#00ddff',
+          stroke: '#000', strokeThickness: 2
+        }).setDepth(15);
+        this.tweens.add({ targets: popup, y: c.y-44, alpha: 0, duration: 600, onComplete: () => popup.destroy() });
+      });
+
+      // Spawn extra silencer as cost
+      this._spawnSilencer();
+      this.lastSilencerSpawn = this.time.now;
+
+      const warn = this.add.text(GW/2, GH/2 - 70,
+        `⚠ SILENCER DISPATCHED!`, {
+        fontFamily: 'Rajdhani', fontSize: '20px', fontStyle: 'bold',
+        color: '#ff3333', stroke: '#000', strokeThickness: 3
+      }).setOrigin(0.5).setDepth(20);
+      this.tweens.add({ targets: warn, y: warn.y-40, alpha: 0, duration: 1800, onComplete: () => warn.destroy() });
+
+      const big = this.add.text(GW/2, GH/2 + 30, `+${200 + count*50}`, {
+        fontFamily: 'Rajdhani', fontSize: '32px', fontStyle: 'bold',
+        color: '#00ddff', stroke: '#000', strokeThickness: 4
+      }).setOrigin(0.5).setDepth(20);
+      this.tweens.add({ targets: big, y: big.y-60, alpha: 0, duration: 1200, onComplete: () => big.destroy() });
+
+      this.statusTxt.setText('📡 BROADCAST!');
+      this.time.delayedCall(1500, () => { if (!this.disguised) this.statusTxt.setText(''); });
+
+    } else if (type === 'dis') {
+      // Disguise
+      this.disguised = true;
+      this.disguiseMs = 4000;
+      this.player.setTint(0x9933ff);
+      this.playerTrail.setVisible(false);
+
+      const flash = this.add.graphics();
+      flash.fillStyle(0xaa44ff, 0.35);
+      flash.fillCircle(this.player.x, this.player.y, 60);
+      flash.setDepth(9);
+      this.tweens.add({ targets: flash, alpha: 0, scaleX: 2, scaleY: 2, duration: 500, onComplete: () => flash.destroy() });
+    }
+  }
+
+  _die() {
+    this.isDead = true;
+    sfxDeath();
+    this.cameras.main.shake(500, 0.022);
+    this.cameras.main.flash(400, 200, 0, 0);
+
+    // Explosion burst
+    const burst = this.add.particles(this.player.x, this.player.y, 'player_t', {
+      speed: { min: 60, max: 200 },
+      scale: { start: 0.3, end: 0 },
+      alpha: { start: 1, end: 0 },
+      tint: [0xffd700, 0xffffff, 0xff8800],
+      lifespan: 700,
+      blendMode: 'ADD',
+      emitting: false
+    });
+    burst.explode(24, this.player.x, this.player.y);
+    this.time.delayedCall(800, () => burst.destroy());
+
+    this.player.setVisible(false);
+    this.playerTrail.stop();
+
+    const finalScore = this._lastScore || 0;
+    this.time.delayedCall(800, () => {
+      this.scene.pause();
+      showGameOverUI(finalScore);
+    });
+  }
+}
+
+// ─── Game Config ──────────────────────────────────────────────────────
+const config = {
+  type: Phaser.AUTO,
+  width: GW,
+  height: GH,
+  backgroundColor: '#040811',
+  physics: {
+    default: 'arcade',
+    arcade: { gravity: { y: 0 }, debug: false }
+  },
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH
+  },
+  scene: [MenuScene, GameScene]
+};
+
+const game = new Phaser.Game(config);
+</script>
+</body>
+</html>
