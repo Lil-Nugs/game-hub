@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Haunt-Mart: Grocery of the Dead</title>
+<link href="https://fonts.googleapis.com/css2?family=Creepster&family=VT323&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background:#0a0a0a;
+  display:flex; justify-content:center; align-items:center;
+  height:100vh; overflow:hidden; touch-action:none;
+}
+/* Game over overlay */
+#ui-overlay {
+  position:fixed; top:0; left:0; width:100%; height:100%;
+  display:none; flex-direction:column; justify-content:center; align-items:center;
+  z-index:100; background:rgba(0,0,0,0.88);
+  font-family:'Creepster',cursive; color:#fff; gap:14px;
+  overflow-y:auto; padding:20px 0;
+}
+#ui-overlay h2 { font-size:52px; color:#7fff00; text-shadow:0 0 20px #00ff00; margin-bottom:4px; }
+.score-disp { font-size:28px; color:#eee; }
+#ui-overlay input {
+  padding:10px 20px; font-size:22px; border-radius:8px;
+  border:2px solid #7fff00; background:#111; color:#fff;
+  font-family:'VT323',monospace; width:260px; text-align:center;
+}
+#ui-overlay button {
+  padding:12px 36px; font-size:24px; border-radius:10px;
+  border:none; cursor:pointer; font-family:'Creepster',cursive; transition:transform 0.1s;
+}
+#ui-overlay button:hover { transform:scale(1.07); }
+#submit-btn { background:#7fff00; color:#000; }
+#replay-btn { background:#cc2222; color:#fff; display:none; }
+#leaderboard {
+  background:rgba(0,40,0,0.85); padding:14px 22px; border-radius:10px;
+  border:1px solid #7fff00; min-width:260px; display:none;
+}
+#leaderboard h3 { font-size:26px; color:#7fff00; margin-bottom:8px; }
+#lb-list { font-family:'VT323',monospace; font-size:20px; line-height:1.7; }
+/* Level up overlay */
+#lvlup-overlay {
+  position:fixed; top:0; left:0; width:100%; height:100%;
+  display:none; flex-direction:column; justify-content:center; align-items:center;
+  z-index:200; background:rgba(0,0,0,0.82);
+  font-family:'Creepster',cursive; color:#fff; gap:18px;
+}
+#lvlup-overlay h2 { font-size:48px; color:#7fff00; }
+#lvlup-overlay p  { font-family:'VT323',monospace; font-size:22px; color:#aaffaa; }
+.upg-cards { display:flex; gap:16px; flex-wrap:wrap; justify-content:center; }
+.upg-card {
+  background:rgba(5,35,5,0.9); border:2px solid #7fff00; border-radius:12px;
+  padding:18px 16px; width:170px; cursor:pointer; text-align:center;
+  transition:all 0.15s;
+}
+.upg-card:hover { background:rgba(10,70,10,0.95); transform:scale(1.06); border-color:#fff; }
+.upg-icon { font-size:38px; display:block; margin-bottom:6px; }
+.upg-name { font-size:20px; color:#7fff00; display:block; margin-bottom:4px; }
+.upg-desc { font-size:15px; color:#ccffcc; font-family:'VT323',monospace; }
+</style>
+</head>
+<body>
+
+<!-- Game Over UI -->
+<div id="ui-overlay">
+  <h2>YOU HAVE EXPIRED</h2>
+  <div class="score-disp">Score: <span id="final-score">0</span></div>
+  <div class="score-disp" style="font-size:20px">
+    Survived: <span id="final-time">0</span>s &nbsp;|&nbsp; Kills: <span id="final-kills">0</span>
+  </div>
+  <input type="text" id="player-name" placeholder="Enter your name…" maxlength="16">
+  <button id="submit-btn">🏆 Submit Score</button>
+  <div id="leaderboard">
+    <h3>🏆 TOP SURVIVORS</h3>
+    <div id="lb-list"></div>
+  </div>
+  <button id="replay-btn">🛒 Shop Again</button>
+</div>
+
+<!-- Level Up UI -->
+<div id="lvlup-overlay">
+  <h2>⬆️ LEVEL UP! ⬆️</h2>
+  <p>Choose an upgrade:</p>
+  <div class="upg-cards" id="upg-cards"></div>
+</div>
+
+<script>
+// ================================================================
+// DESIGN HEADER — Haunt-Mart: Grocery of the Dead
+// Vampire Survivors structural adaptation → haunted grocery store
+// Controls: WASD / Arrow Keys to move | Touch: drag thumb from origin
+// Death: HP reaches 0 from enemy contact
+// Auto-attack: Price Gun fires at nearest enemy every fireRate ms
+// Enemies:
+//   1. Ghost Shopper  — slow float, swarm in numbers, low HP
+//   2. Rotten Slime   — medium speed, random wander + player seek
+//   3. Possessed Cart — fast charge bursts, medium HP
+//   4. Night Manager  — rare boss, teleport-dash, very high HP
+// Pickups: XP orbs (from kills) | Health Cans (timed + rare drops)
+// Upgrades at level-up: 8-item pool, show 3 random choices
+// Risk/Reward: Orbit onions deal melee — must stay close to enemies
+// Scoring: Math.floor(timeAlive * 10 + bonusScore) — monotonic
+// Difficulty: spawn rate lerps 0.5→4.0 via easeIn over 120s
+//             enemy speeds scale linearly with elapsed / 120
+// Visual: sickly fluorescent green grocery store, flickering lights
+//   Palette: floor #111811/#0e160e, accent #7fff00, ghost #aabbff
+//   Font: Creepster (titles) + VT323 (HUD)
+// Audio: procedural Web Audio API — no external files
+// ================================================================
+
+const GAME_ID       = 'haunted-grocery-b7d3';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+// ---- Audio -------------------------------------------------------
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playTone(type, freq, dur, vol, freqEnd) {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const osc  = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  if (freqEnd) osc.frequency.exponentialRampToValueAtTime(freqEnd, audioCtx.currentTime + dur);
+  gain.gain.setValueAtTime(vol || 0.15, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+  osc.start(); osc.stop(audioCtx.currentTime + dur);
+}
+
+function sfxShoot()   { playTone('square',  550, 0.07, 0.12, 350); }
+function sfxHit()     { playTone('sawtooth',180, 0.10, 0.18,  70); }
+function sfxCollect() {
+  playTone('sine', 700, 0.07, 0.20);
+  setTimeout(() => playTone('sine', 1000, 0.09, 0.15), 60);
+}
+function sfxLevelUp() {
+  [280,350,440,560,700].forEach((f,i) => setTimeout(() => playTone('sine',f,0.18,0.22), i*70));
+}
+function sfxDeath() {
+  playTone('sawtooth', 280, 0.60, 0.28, 40);
+  setTimeout(() => playTone('square', 120, 0.80, 0.20, 30), 120);
+}
+function sfxGhost()  { playTone('sine', 280, 0.50, 0.07, 120); }
+function sfxCart()   { playTone('sawtooth', 70, 0.18, 0.18, 50); }
+function sfxDamage() { playTone('sawtooth', 220, 0.12, 0.25, 80); }
+
+// ---- Leaderboard -------------------------------------------------
+async function submitScore(name, score) {
+  try {
+    const r = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName: name, score })
+    });
+    return await r.json();
+  } catch(e) { console.warn('Leaderboard submit error:', e); return null; }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const r = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const d = await r.json();
+    return d.scores || [];
+  } catch(e) { console.warn('Leaderboard fetch error:', e); return []; }
+}
+
+// ---- Upgrade Pool ------------------------------------------------
+const UPGRADES = [
+  { id:'rapidfire', icon:'🔫', name:'Speed Tagger',  desc:'Fire 30% faster',           max:5 },
+  { id:'bigshot',   icon:'💥', name:'Price Hike',     desc:'+1 bullet damage',          max:4 },
+  { id:'hpup',      icon:'❤️',  name:'Self-Checkout', desc:'+1 Max HP & restore 1 HP',  max:4 },
+  { id:'speed',     icon:'🛒', name:'Cart Sprint',    desc:'+20% move speed',            max:4 },
+  { id:'orbit',     icon:'🧅', name:'Onion Shield',   desc:'Add orbiting onion weapon', max:4 },
+  { id:'pierce',    icon:'🏷️', name:'Clearance Tag',  desc:'Bullets pierce +1 enemy',   max:3 },
+  { id:'magnet',    icon:'🧲', name:'Loyalty Card',   desc:'Attract XP from farther',   max:3 },
+  { id:'aoe',       icon:'💣', name:'Can Blast',      desc:'Random area explosions',     max:3 },
+];
+
+// ==================================================================
+// Boot Scene — generates all textures before gameplay
+// ==================================================================
+class BootScene extends Phaser.Scene {
+  constructor() { super('BootScene'); }
+
+  create() {
+    const g = this.make.graphics({ x:0, y:0, add:false });
+
+    // ---- pixel (2×2) — for particles
+    g.clear();
+    g.fillStyle(0xffffff, 1); g.fillRect(0, 0, 2, 2);
+    g.generateTexture('pixel', 2, 2);
+
+    // ---- Player: employee + shopping cart
+    g.clear();
+    // Cart basket (silver metal)
+    g.fillStyle(0x909090, 1); g.fillRoundedRect(10,30,52,26,4);
+    g.lineStyle(3, 0x555555, 1); g.strokeRoundedRect(10,30,52,26,4);
+    // Basket vertical bars
+    g.lineStyle(2, 0x707070, 0.9);
+    g.lineBetween(24,30,24,56); g.lineBetween(36,30,36,56); g.lineBetween(48,30,48,56);
+    // Cart wheels
+    g.fillStyle(0x333333, 1);
+    g.fillCircle(18,62,7); g.fillCircle(54,62,7);
+    g.lineStyle(2, 0x555555, 1);
+    g.strokeCircle(18,62,7); g.strokeCircle(54,62,7);
+    // Handle
+    g.lineStyle(5, 0x228822, 1);
+    g.lineBetween(10,30,10,20); g.lineBetween(62,30,62,20); g.lineBetween(10,20,62,20);
+    // Employee body (green apron)
+    g.fillStyle(0x2a7a2a, 1); g.fillRoundedRect(24,4,24,28,4);
+    g.lineStyle(2, 0x1a5a1a, 1); g.strokeRoundedRect(24,4,24,28,4);
+    // Apron strings
+    g.lineStyle(2, 0x1a5a1a, 0.8); g.lineBetween(24,10,16,20); g.lineBetween(48,10,56,20);
+    // Head
+    g.fillStyle(0xf0c080, 1); g.fillCircle(36,-4,12);
+    g.lineStyle(2, 0xc09060, 1); g.strokeCircle(36,-4,12);
+    // Eyes
+    g.fillStyle(0x000000, 1); g.fillCircle(31,-6,2.5); g.fillCircle(41,-6,2.5);
+    // Name tag
+    g.fillStyle(0xffffff, 1); g.fillRoundedRect(28,12,16,10,2);
+    g.fillStyle(0x2a7a2a, 1); g.fillRect(30,15,12,2); g.fillRect(30,18,8,2);
+    g.generateTexture('player', 72, 72);
+
+    // ---- Ghost Shopper: pale-blue oval with glowing red eyes
+    g.clear();
+    g.fillStyle(0xbbccff, 0.87); g.fillEllipse(32,30,44,50);
+    // Wavy tail
+    g.fillStyle(0x99aaee, 0.75);
+    g.fillTriangle(10,46,22,58,34,46);
+    g.fillTriangle(30,46,42,58,54,46);
+    // Glow eyes
+    g.fillStyle(0xff1111, 1); g.fillCircle(23,26,6); g.fillCircle(41,26,6);
+    g.fillStyle(0xff9999, 0.7); g.fillCircle(23,26,3); g.fillCircle(41,26,3);
+    // Outline
+    g.lineStyle(2, 0x7788ee, 0.6); g.strokeEllipse(32,30,44,50);
+    g.generateTexture('ghost', 64, 64);
+
+    // ---- Rotten Slime: layered green blob
+    g.clear();
+    g.fillStyle(0x1a5a1a, 1); g.fillCircle(28,30,24);
+    g.fillStyle(0x33aa33, 1); g.fillCircle(28,28,20);
+    // Bumps
+    g.fillStyle(0x1a4a1a, 1);
+    g.fillCircle(18,22,7); g.fillCircle(38,20,6); g.fillCircle(20,36,5);
+    // Drip
+    g.fillStyle(0x33aa33, 1); g.fillEllipse(32,50,10,8);
+    // Eyes
+    g.fillStyle(0xffff00, 1); g.fillCircle(22,26,5); g.fillCircle(34,24,5);
+    g.fillStyle(0x000000, 1); g.fillCircle(23,26,2.5); g.fillCircle(35,24,2.5);
+    g.generateTexture('slime', 56, 58);
+
+    // ---- Possessed Cart: dark cart with purple aura
+    g.clear();
+    // Aura glow
+    g.fillStyle(0x9b59b6, 0.22); g.fillCircle(36,36,38);
+    // Cart body
+    g.fillStyle(0x333344, 1); g.fillRoundedRect(4,14,64,38,5);
+    g.lineStyle(3, 0xaa66ff, 1); g.strokeRoundedRect(4,14,64,38,5);
+    // Bars
+    g.lineStyle(2, 0x6655aa, 0.8);
+    for(let x=16; x<=60; x+=12) g.lineBetween(x,14,x,52);
+    // Wheels
+    g.fillStyle(0x221133, 1); g.fillCircle(16,60,9); g.fillCircle(56,60,9);
+    g.lineStyle(2, 0xaa66ff, 1); g.strokeCircle(16,60,9); g.strokeCircle(56,60,9);
+    // Handle
+    g.lineStyle(5, 0xcc88ff, 1);
+    g.lineBetween(4,14,4,4); g.lineBetween(68,14,68,4); g.lineBetween(4,4,68,4);
+    // Ghost eyes inside
+    g.fillStyle(0xff44ff, 1); g.fillCircle(26,30,5); g.fillCircle(46,30,5);
+    g.fillStyle(0xffaaff, 0.8); g.fillCircle(26,30,2.5); g.fillCircle(46,30,2.5);
+    g.generateTexture('cart', 72, 70);
+
+    // ---- Night Manager: suited ghost boss
+    g.clear();
+    // Outer aura
+    g.fillStyle(0x330066, 0.28); g.fillCircle(36,52,40);
+    // Suit body
+    g.fillStyle(0x111122, 1); g.fillRoundedRect(16,34,40,48,4);
+    g.lineStyle(2, 0x6600cc, 1); g.strokeRoundedRect(16,34,40,48,4);
+    // Lapels
+    g.fillStyle(0x1a1a33, 1);
+    g.fillTriangle(36,36,24,52,36,50);
+    g.fillTriangle(36,36,48,52,36,50);
+    // Tie
+    g.fillStyle(0xff0000, 1); g.fillTriangle(33,38,39,38,36,60);
+    // Name tag
+    g.fillStyle(0xffffff, 0.9); g.fillRoundedRect(26,48,20,10,2);
+    g.fillStyle(0x111122, 1); g.fillRect(28,51,16,2); g.fillRect(28,54,10,2);
+    // Head
+    g.fillStyle(0x1a0033, 1); g.fillCircle(36,18,18);
+    g.lineStyle(2, 0x9900ff, 1); g.strokeCircle(36,18,18);
+    // Glowing eyes
+    g.fillStyle(0xff00ff, 1); g.fillCircle(28,16,7); g.fillCircle(44,16,7);
+    g.fillStyle(0xffffff, 0.85); g.fillCircle(28,16,3.5); g.fillCircle(44,16,3.5);
+    g.generateTexture('manager', 72, 94);
+
+    // ---- XP Orb: glowing green gem
+    g.clear();
+    g.fillStyle(0x00dd44, 0.9); g.fillCircle(10,10,9);
+    g.fillStyle(0x7fff00, 0.7); g.fillCircle(10,10,6);
+    g.fillStyle(0xffffff, 0.8); g.fillCircle(8,8,3);
+    g.generateTexture('xporb', 20, 20);
+
+    // ---- Health Can: red cross
+    g.clear();
+    g.fillStyle(0xcc2222, 1); g.fillRoundedRect(2,4,28,24,4);
+    g.lineStyle(2, 0xff6666, 1); g.strokeRoundedRect(2,4,28,24,4);
+    g.fillStyle(0xffffff, 1); g.fillRect(13,8,6,16); g.fillRect(8,13,16,6);
+    g.generateTexture('healthcan', 32, 32);
+
+    // ---- Price Tag Bullet
+    g.clear();
+    g.fillStyle(0xffff00, 1); g.fillRect(0,5,16,10);
+    g.fillStyle(0xffcc00, 1); g.fillTriangle(16,5,16,15,24,10);
+    g.fillStyle(0x000000, 1); g.fillCircle(4,10,2.5); g.fillRect(7,8,7,2);
+    g.generateTexture('bullet', 26, 20);
+
+    // ---- Orbiting Onion
+    g.clear();
+    g.fillStyle(0x9b59b6, 1); g.fillCircle(14,14,12);
+    g.fillStyle(0xcc88ff, 0.7); g.fillCircle(12,12,8);
+    g.fillStyle(0x6a0dad, 1); g.fillCircle(14,14,5);
+    g.fillStyle(0x5b2d7a, 1); g.fillTriangle(11,2,17,2,14,-2);
+    g.generateTexture('onion', 28, 28);
+
+    // ---- AOE Explosion burst
+    g.clear();
+    g.fillStyle(0xff4400, 0.8); g.fillCircle(22,22,22);
+    g.fillStyle(0xff8800, 0.75); g.fillCircle(22,22,15);
+    g.fillStyle(0xffcc00, 0.9); g.fillCircle(22,22,8);
+    g.generateTexture('explosion', 44, 44);
+
+    g.destroy();
+    this.scene.start('MenuScene');
+  }
+}
+
+// ==================================================================
+// Menu Scene
+// ==================================================================
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+
+    // Tiled grocery floor
+    const bg = this.add.graphics();
+    for (let x=0; x<W; x+=64) {
+      for (let y=0; y<H; y+=64) {
+        const shade = ((Math.floor(x/64)+Math.floor(y/64))%2===0) ? 0x111811 : 0x0e160e;
+        bg.fillStyle(shade, 1); bg.fillRect(x, y, 64, 64);
+      }
+    }
+    bg.lineStyle(1, 0x1a2a1a, 0.6);
+    for(let x=0; x<=W; x+=64) bg.lineBetween(x,0,x,H);
+    for(let y=0; y<=H; y+=64) bg.lineBetween(0,y,W,y);
+
+    // Floating spirit particles
+    this.add.particles(0, 0, 'pixel', {
+      x:{min:0,max:W}, y:{min:H,max:H+5},
+      lifespan:4500, alpha:{start:0.7,end:0},
+      scale:{min:2,max:5}, tint:[0x9b59b6,0x00ff88,0xaabbff,0x7fff00],
+      speedY:{min:-65,max:-25}, speedX:{min:-30,max:30}, frequency:55
+    });
+
+    // Title
+    this.add.text(W/2, H*0.17, 'HAUNT-MART', {
+      fontFamily:'Creepster', fontSize:'78px', color:'#7fff00',
+      stroke:'#003300', strokeThickness:8,
+      shadow:{blur:40,color:'#00aa00',fill:true}
+    }).setOrigin(0.5);
+
+    this.add.text(W/2, H*0.30, 'GROCERY OF THE DEAD', {
+      fontFamily:'VT323', fontSize:'30px', color:'#aaffaa'
+    }).setOrigin(0.5);
+
+    // Instructions panel
+    const instLines = [
+      '🛒  WASD / Arrow Keys to move',
+      '🔫  Price Gun auto-fires at nearest ghost',
+      '⭐  Collect XP orbs to level up & upgrade',
+      '❤️   You have 5 lives — don\'t get touched!',
+      '⬆️   Get stronger. Survive longer.',
+    ].join('\n');
+
+    this.add.text(W/2, H*0.54, instLines, {
+      fontFamily:'VT323', fontSize:'24px', color:'#ccffcc',
+      align:'center', lineSpacing:6
+    }).setOrigin(0.5);
+
+    // Enemy preview icons
+    const enemies = ['👻','🟢','🛒','👔'];
+    enemies.forEach((e,i) => {
+      this.add.text(W/2 - 60 + i*40, H*0.75, e, {
+        fontFamily:'VT323', fontSize:'28px'
+      }).setOrigin(0.5);
+    });
+    this.add.text(W/2, H*0.80, 'Ghost  Slime  Cart  Manager', {
+      fontFamily:'VT323', fontSize:'16px', color:'#556655'
+    }).setOrigin(0.5);
+
+    // Tap to start
+    const startTxt = this.add.text(W/2, H*0.88, '[ TAP OR PRESS ANY KEY TO START ]', {
+      fontFamily:'Creepster', fontSize:'30px', color:'#7fff00'
+    }).setOrigin(0.5);
+    this.tweens.add({
+      targets:startTxt, alpha:0.1, duration:700, yoyo:true, repeat:-1, ease:'Sine.easeInOut'
+    });
+
+    const start = () => { audioCtx.resume(); this.scene.start('GameScene'); };
+    this.input.once('pointerdown', start);
+    this.input.keyboard.once('keydown', start);
+  }
+}
+
+// ==================================================================
+// Game Scene
+// ==================================================================
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+    this.W = W; this.H = H;
+
+    // ---- Game state
+    this.gameStartTime = this.time.now;
+    this.alive    = true;
+    this.score    = 0;
+    this.bonus    = 0;    // bonus score from kills/XP (never decreases)
+    this.kills    = 0;
+    this.level    = 1;
+    this.xp       = 0;
+    this.xpToNext = 60;
+
+    // ---- Player stats
+    this.maxHP    = 5;
+    this.hp       = 5;
+    this.moveSpd  = 155;
+    this.fireRate = 850;  // ms between shots
+    this.bDmg     = 1;   // bullet damage
+    this.bPierce  = 1;   // pierce count
+    this.magnetR  = 80;  // XP attract radius
+    this.aoeRate  = 0;   // AOE blasts per second
+
+    // ---- Upgrade counts
+    this.upgs = {};
+
+    // ---- Timers
+    this.spawnTimer = 0;
+    this.shootTimer = 0;
+    this.canTimer   = 0;
+    this.aoeTimer   = 0;
+    this.orbitAngle = 0;
+
+    // ---- World
+    this._buildBackground();
+
+    // ---- Physics groups
+    this.enemies    = this.physics.add.group();
+    this.bullets    = this.physics.add.group();
+    this.xpOrbs     = this.physics.add.group();
+    this.healthCans = this.physics.add.group();
+    this.orbitGroup = this.physics.add.group();
+
+    // ---- Player
+    this.player = this.physics.add.sprite(W/2, H/2, 'player');
+    this.player.setDepth(10);
+    this.player.body.setSize(46, 42);
+    this.player.body.setOffset(13, 26);
+    this.player.setCollideWorldBounds(true);
+    this.tweens.add({
+      targets:this.player, y:this.player.y - 5,
+      duration:550, yoyo:true, repeat:-1, ease:'Sine.easeInOut'
+    });
+
+    // ---- Flicker overlay
+    this.flickerGfx = this.add.graphics().setDepth(80);
+
+    // ---- HUD
+    this._buildHUD();
+
+    // ---- Input
+    this.cursors = this.input.keyboard.createCursorKeys();
+    this.wasd    = this.input.keyboard.addKeys({
+      up:    Phaser.Input.Keyboard.KeyCodes.W,
+      down:  Phaser.Input.Keyboard.KeyCodes.S,
+      left:  Phaser.Input.Keyboard.KeyCodes.A,
+      right: Phaser.Input.Keyboard.KeyCodes.D,
+    });
+    this.touchOrigin = null; this.touchDir = null;
+    this.input.on('pointerdown', p => { this.touchOrigin = {x:p.x, y:p.y}; });
+    this.input.on('pointermove', p => {
+      if (!this.touchOrigin) return;
+      const dx = p.x - this.touchOrigin.x, dy = p.y - this.touchOrigin.y;
+      const len = Math.sqrt(dx*dx+dy*dy);
+      this.touchDir = len > 12 ? {x:dx/len, y:dy/len} : {x:0,y:0};
+    });
+    this.input.on('pointerup', () => { this.touchOrigin=null; this.touchDir=null; });
+
+    // ---- Collisions
+    this.physics.add.overlap(this.player,     this.enemies,    this._onEnemyHit,  null, this);
+    this.physics.add.overlap(this.bullets,    this.enemies,    this._onBulletHit, null, this);
+    this.physics.add.overlap(this.player,     this.xpOrbs,     this._collectXP,   null, this);
+    this.physics.add.overlap(this.player,     this.healthCans, this._collectHP,   null, this);
+    this.physics.add.overlap(this.orbitGroup, this.enemies,    this._onOrbitHit,  null, this);
+
+    // ---- Periodic ghost wail ambience
+    this.time.addEvent({ delay:8500, callback: sfxGhost, loop:true });
+
+    // ---- Wire overlay buttons
+    document.getElementById('submit-btn').onclick = () => this._submitScore();
+    document.getElementById('replay-btn').onclick = () => this._replay();
+  }
+
+  // ----------------------------------------------------------------
+  _buildBackground() {
+    const W=this.W, H=this.H;
+    const g = this.add.graphics().setDepth(0);
+    for(let x=0; x<W; x+=64) {
+      for(let y=0; y<H; y+=64) {
+        const shade = ((Math.floor(x/64)+Math.floor(y/64))%2===0) ? 0x111811 : 0x0e160e;
+        g.fillStyle(shade, 1); g.fillRect(x, y, 64, 64);
+      }
+    }
+    // Grid lines
+    g.lineStyle(1, 0x182818, 0.7);
+    for(let x=0; x<=W; x+=64) g.lineBetween(x,0,x,H);
+    for(let y=0; y<=H; y+=64) g.lineBetween(0,y,W,y);
+    // Decorative aisle labels
+    const labels = ['PRODUCE','DAIRY','FROZEN','BAKERY','MEATS','DRINKS','HAUNTED'];
+    for(let i=0; i<labels.length; i++) {
+      this.add.text(
+        80 + (i*107) % (W-160),
+        60 + (i*83)  % (H-120),
+        labels[i],
+        { fontFamily:'VT323', fontSize:'13px', color:'#243824', alpha:0.55 }
+      ).setDepth(1).setOrigin(0.5);
+    }
+  }
+
+  // ----------------------------------------------------------------
+  _buildHUD() {
+    const W=this.W;
+    this.scoreTxt = this.add.text(10, 10, 'SCORE: 0',  {fontFamily:'VT323',fontSize:'30px',color:'#7fff00'}).setDepth(90);
+    this.levelTxt = this.add.text(10, 44, 'LVL: 1',    {fontFamily:'VT323',fontSize:'22px',color:'#aaffaa'}).setDepth(90);
+    this.killTxt  = this.add.text(W-10,10,'KILLS: 0',  {fontFamily:'VT323',fontSize:'22px',color:'#ffaa00',align:'right'}).setDepth(90).setOrigin(1,0);
+    this.timerTxt = this.add.text(W/2, 10, '0s',       {fontFamily:'VT323',fontSize:'28px',color:'#ccffcc'}).setDepth(90).setOrigin(0.5,0);
+    this.hpTxt    = this.add.text(W-10, 38, '',        {fontFamily:'VT323',fontSize:'22px',color:'#ff4444',align:'right'}).setDepth(90).setOrigin(1,0);
+    this._updateHP();
+    // XP bar
+    this.xpBg = this.add.graphics().setDepth(90);
+    this.xpFg = this.add.graphics().setDepth(90);
+    this._drawXP();
+  }
+
+  _drawXP() {
+    const W=this.W, pct=Math.min(this.xp/this.xpToNext, 1);
+    this.xpBg.clear(); this.xpBg.fillStyle(0x222222,0.85); this.xpBg.fillRoundedRect(10,72,W-20,10,4);
+    this.xpFg.clear();
+    if(pct>0){ this.xpFg.fillStyle(0x7fff00,1); this.xpFg.fillRoundedRect(10,72,(W-20)*pct,10,4); }
+  }
+
+  _updateHP() {
+    let s = '';
+    for(let i=0; i<this.maxHP; i++) s += i < this.hp ? '❤️' : '🖤';
+    this.hpTxt.setText(s);
+  }
+
+  // ----------------------------------------------------------------
+  _lerp(a,b,t) { return a+(b-a)*t; }
+  _easeIn(t)   { return t*t; }
+  _diff(elapsed) { return Math.min(elapsed/120, 1); }
+
+  // ================================================================
+  // Update loop
+  // ================================================================
+  update(time, delta) {
+    if (!this.alive) return;
+    const dt      = delta / 16.667;
+    const elapsed = (time - this.gameStartTime) / 1000;
+    const diff    = this._diff(elapsed);
+
+    // Score — always increasing
+    this.score = Math.floor(elapsed * 10 + this.bonus);
+    this.scoreTxt.setText('SCORE: ' + this.score);
+    this.timerTxt.setText(Math.floor(elapsed) + 's');
+
+    // Move player
+    this._movePlayer(dt);
+
+    // Spawn enemies
+    this.spawnTimer += delta;
+    const spawnRate = this._lerp(0.5, 4.0, this._easeIn(diff));
+    const spawnInterval = 1000 / spawnRate;
+    while(this.spawnTimer >= spawnInterval) {
+      this.spawnTimer -= spawnInterval;
+      this._spawnEnemy(elapsed, diff);
+    }
+
+    // Auto-shoot
+    this.shootTimer += delta;
+    if(this.shootTimer >= this.fireRate) {
+      this.shootTimer = 0;
+      this._autoShoot();
+    }
+
+    // XP magnet
+    this.xpOrbs.getChildren().forEach(orb => {
+      const d = Phaser.Math.Distance.Between(orb.x,orb.y,this.player.x,this.player.y);
+      if(d < this.magnetR) this.physics.moveToObject(orb, this.player, 230);
+    });
+
+    // Orbit weapons
+    if(this.orbitGroup.getLength() > 0) this._updateOrbits();
+
+    // Enemy AI
+    this._updateEnemies(diff);
+
+    // AOE
+    if(this.aoeRate > 0) {
+      this.aoeTimer += delta;
+      if(this.aoeTimer > 1000 / this.aoeRate) {
+        this.aoeTimer = 0;
+        this._triggerAOE();
+      }
+    }
+
+    // Health can timed spawn (every 25s if HP below max)
+    this.canTimer += delta;
+    if(this.canTimer > 25000) {
+      this.canTimer = 0;
+      if(this.hp < this.maxHP) this._spawnHealthCan();
+    }
+
+    // Bullet cleanup
+    this.bullets.getChildren().forEach(b => {
+      if(b.x<-70||b.x>this.W+70||b.y<-70||b.y>this.H+70) b.destroy();
+    });
+
+    // Rare light flicker
+    if(Math.random() < 0.002) {
+      this.flickerGfx.clear();
+      this.flickerGfx.fillStyle(0x000000, 0.38); this.flickerGfx.fillRect(0,0,this.W,this.H);
+      this.time.delayedCall(65, () => this.flickerGfx.clear());
+    }
+  }
+
+  // ----------------------------------------------------------------
+  _movePlayer(dt) {
+    let vx=0, vy=0;
+    if(this.cursors.left.isDown  || this.wasd.left.isDown)  vx = -1;
+    else if(this.cursors.right.isDown || this.wasd.right.isDown) vx = 1;
+    if(this.cursors.up.isDown    || this.wasd.up.isDown)    vy = -1;
+    else if(this.cursors.down.isDown  || this.wasd.down.isDown)  vy = 1;
+    if(this.touchDir) { vx = this.touchDir.x; vy = this.touchDir.y; }
+    if(vx!==0 && vy!==0) { vx*=0.707; vy*=0.707; }
+    this.player.setVelocity(vx * this.moveSpd, vy * this.moveSpd);
+    if(vx < 0) this.player.setFlipX(true);
+    else if(vx > 0) this.player.setFlipX(false);
+  }
+
+  // ----------------------------------------------------------------
+  _spawnEnemy(elapsed, diff) {
+    const W=this.W, H=this.H;
+    const side = Phaser.Math.Between(0,3);
+    let sx, sy;
+    switch(side){
+      case 0: sx=Math.random()*W; sy=-55; break;
+      case 1: sx=Math.random()*W; sy=H+55; break;
+      case 2: sx=-55; sy=Math.random()*H; break;
+      case 3: sx=W+55; sy=Math.random()*H; break;
+    }
+
+    const roll = Math.random();
+    let type, key, hp, spd, xpv;
+
+    if(elapsed < 15) {
+      // Easy start: only ghosts, slow
+      type='ghost'; key='ghost'; hp=1; spd=this._lerp(36,65,diff); xpv=10;
+    } else if(elapsed < 35) {
+      if(roll < 0.65){ type='ghost'; key='ghost'; hp=1; spd=this._lerp(42,78,diff); xpv=10; }
+      else           { type='slime'; key='slime'; hp=2; spd=this._lerp(28,58,diff); xpv=18; }
+    } else if(elapsed < 65) {
+      if(roll < 0.40)      { type='ghost'; key='ghost'; hp=2;  spd=this._lerp(50, 95,diff); xpv=10; }
+      else if(roll < 0.76) { type='slime'; key='slime'; hp=3;  spd=this._lerp(33, 72,diff); xpv=18; }
+      else                 { type='cart';  key='cart';  hp=5;  spd=this._lerp(70,128,diff); xpv=35; }
+    } else {
+      if(roll < 0.36)      { type='ghost';   key='ghost';   hp=3;  spd=this._lerp(62,115,diff); xpv=10; }
+      else if(roll < 0.62) { type='slime';   key='slime';   hp=4;  spd=this._lerp(42, 88,diff); xpv=18; }
+      else if(roll < 0.88) { type='cart';    key='cart';    hp=7;  spd=this._lerp(86,148,diff); xpv=35; }
+      else                 { type='manager'; key='manager'; hp=22; spd=this._lerp(105,165,diff); xpv=90; }
+    }
+
+    const e = this.physics.add.sprite(sx, sy, key);
+    e.setDepth(8);
+    e.enemyType = type; e.hp = hp; e.maxHp = hp; e.spd = spd; e.xpv = xpv;
+    e.lastSpecial = 0; e.nextMove = 0;
+
+    // Forgiving hitboxes (≈80% of visual)
+    if(type==='ghost')   { e.body.setSize(38,42); e.body.setOffset(13,11); e.setAlpha(0.88); }
+    if(type==='slime')   { e.body.setSize(38,38); e.body.setOffset(9, 10); }
+    if(type==='cart')    { e.body.setSize(54,44); e.body.setOffset(9, 12); }
+    if(type==='manager') { e.body.setSize(44,58); e.body.setOffset(14,20); e.setTint(0xff88ff); }
+
+    // Idle float
+    this.tweens.add({
+      targets:e, y:e.y-7, duration:340+Math.random()*240, yoyo:true, repeat:-1, ease:'Sine.easeInOut'
+    });
+
+    this.enemies.add(e);
+  }
+
+  // ----------------------------------------------------------------
+  _updateEnemies(diff) {
+    const now = this.time.now;
+    this.enemies.getChildren().forEach(e => {
+      if(!e.active) return;
+      if(e.enemyType === 'cart') {
+        if(now - e.lastSpecial > 2400) {
+          e.lastSpecial = now;
+          const ang = Phaser.Math.Angle.Between(e.x,e.y,this.player.x,this.player.y);
+          e.body.setVelocity(Math.cos(ang)*e.spd*2.4, Math.sin(ang)*e.spd*2.4);
+          sfxCart();
+          this.time.delayedCall(700, () => { if(e.active) this.physics.moveToObject(e,this.player,e.spd); });
+        } else {
+          this.physics.moveToObject(e, this.player, e.spd);
+        }
+      } else if(e.enemyType === 'manager') {
+        if(now - e.lastSpecial > 2800) {
+          e.lastSpecial = now;
+          e.setTint(0xff00ff);
+          const ang = Phaser.Math.Angle.Between(e.x,e.y,this.player.x,this.player.y);
+          e.body.setVelocity(Math.cos(ang)*e.spd*3.2, Math.sin(ang)*e.spd*3.2);
+          this.time.delayedCall(380, () => {
+            if(e.active){ e.setTint(0xff88ff); this.physics.moveToObject(e,this.player,e.spd); }
+          });
+        } else {
+          this.physics.moveToObject(e, this.player, e.spd);
+        }
+      } else if(e.enemyType === 'slime') {
+        if(now > e.nextMove) {
+          e.nextMove = now + 850 + Math.random()*800;
+          if(Math.random() < 0.45) this.physics.moveToObject(e, this.player, e.spd);
+          else {
+            const ang = Math.random()*Math.PI*2;
+            e.body.setVelocity(Math.cos(ang)*e.spd, Math.sin(ang)*e.spd);
+          }
+        }
+      } else {
+        // Ghost: constant slow drift toward player
+        this.physics.moveToObject(e, this.player, e.spd);
+      }
+    });
+  }
+
+  // ----------------------------------------------------------------
+  _autoShoot() {
+    let nearest=null, nearDist=Infinity;
+    this.enemies.getChildren().forEach(e => {
+      const d = Phaser.Math.Distance.Between(this.player.x,this.player.y,e.x,e.y);
+      if(d < nearDist){ nearDist=d; nearest=e; }
+    });
+    if(!nearest) return;
+    sfxShoot();
+    const ang = Phaser.Math.Angle.Between(this.player.x,this.player.y,nearest.x,nearest.y);
+    this._fireBullet(ang);
+    // Double-shot upgrade (if unlocked somehow — not in pool currently, reserved)
+  }
+
+  _fireBullet(ang) {
+    const b = this.physics.add.sprite(this.player.x, this.player.y, 'bullet');
+    b.setDepth(9); b.setRotation(ang);
+    b.pierce = this.bPierce; b.dmg = this.bDmg;
+    b.body.setVelocity(Math.cos(ang)*425, Math.sin(ang)*425);
+    b.body.setSize(18, 10);
+    this.bullets.add(b);
+    // Yellow trail
+    this.add.particles(b.x, b.y, 'pixel', {
+      follow:b, lifespan:110, alpha:{start:0.8,end:0},
+      scale:{start:2,end:0.4}, tint:0xffff00, frequency:18
+    });
+  }
+
+  // ----------------------------------------------------------------
+  _updateOrbits() {
+    this.orbitAngle += 0.048;
+    const orbs = this.orbitGroup.getChildren();
+    const r = 55 + orbs.length * 6;
+    orbs.forEach((orb,i) => {
+      const ang = this.orbitAngle + (i/orbs.length)*Math.PI*2;
+      const ox = this.player.x + Math.cos(ang)*r;
+      const oy = this.player.y + Math.sin(ang)*r;
+      orb.setPosition(ox, oy);
+      if(orb.body) orb.body.reset(ox, oy);
+    });
+  }
+
+  // ----------------------------------------------------------------
+  // Collision handlers
+  // ----------------------------------------------------------------
+  _onEnemyHit(player, enemy) {
+    if(!this.alive) return;
+    this._takeDamage(1);
+    const ang = Phaser.Math.Angle.Between(player.x,player.y,enemy.x,enemy.y);
+    enemy.body.setVelocity(Math.cos(ang)*190, Math.sin(ang)*190);
+    this.time.delayedCall(300, () => { if(enemy.active) this.physics.moveToObject(enemy,this.player,enemy.spd); });
+  }
+
+  _onBulletHit(bullet, enemy) {
+    if(!bullet.active||!enemy.active) return;
+    enemy.setTint(0xffffff);
+    this.time.delayedCall(70, () => { if(enemy.active) enemy.clearTint(); });
+    sfxHit();
+    enemy.hp -= bullet.dmg;
+    bullet.pierce--;
+    if(bullet.pierce <= 0){ this._hitFX(bullet.x,bullet.y); bullet.destroy(); }
+    if(enemy.hp <= 0) this._killEnemy(enemy);
+  }
+
+  _onOrbitHit(orb, enemy) {
+    if(!orb.active||!enemy.active) return;
+    const now = this.time.now;
+    if(orb.lastHit && now - orb.lastHit < 420) return;
+    orb.lastHit = now;
+    sfxHit();
+    enemy.setTint(0xffffff);
+    this.time.delayedCall(70, () => { if(enemy.active) enemy.clearTint(); });
+    enemy.hp--;
+    if(enemy.hp <= 0) this._killEnemy(enemy);
+  }
+
+  _hitFX(x, y) {
+    const em = this.add.particles(x, y, 'pixel', {
+      speed:{min:50,max:170}, lifespan:260, quantity:6,
+      scale:{start:2,end:0}, tint:[0xffff00,0xff8800,0xffffff], emitting:false
+    });
+    em.explode(6);
+    this.time.delayedCall(350, () => em.destroy());
+  }
+
+  _killEnemy(enemy) {
+    const col = enemy.enemyType==='ghost' ? 0x8899ff :
+                enemy.enemyType==='slime' ? 0x44ff88 :
+                enemy.enemyType==='cart'  ? 0xcc88ff : 0xff44ff;
+    const qty = enemy.enemyType==='manager' ? 22 : 10;
+    const em = this.add.particles(enemy.x, enemy.y, 'pixel', {
+      speed:{min:80,max:230}, lifespan:{min:320,max:680}, quantity:qty,
+      scale:{start:3.5,end:0}, tint:col, emitting:false
+    });
+    em.explode(qty);
+    this.time.delayedCall(800, () => em.destroy());
+
+    this._dropXP(enemy.x, enemy.y, enemy.xpv);
+    // 4% chance health can drop
+    if(Math.random() < 0.04 && this.hp < this.maxHP) this._spawnHealthCanAt(enemy.x, enemy.y);
+
+    this.kills++;
+    this.bonus += Math.ceil(enemy.xpv * 2.5);
+    this.killTxt.setText('KILLS: ' + this.kills);
+    enemy.destroy();
+  }
+
+  // ----------------------------------------------------------------
+  _dropXP(x, y, val) {
+    const orb = this.physics.add.sprite(x, y, 'xporb');
+    orb.setDepth(5); orb.xpVal = val;
+    orb.body.setVelocity((Math.random()-0.5)*95, (Math.random()-0.5)*95);
+    orb.body.setDrag(185);
+    this.xpOrbs.add(orb);
+    this.tweens.add({ targets:orb, scale:1.35, duration:380, yoyo:true, repeat:-1 });
+  }
+
+  _collectXP(player, orb) {
+    sfxCollect();
+    this.xp    += orb.xpVal;
+    this.bonus += orb.xpVal;
+    const pop = this.add.text(orb.x, orb.y-8, '+'+orb.xpVal+' XP', {
+      fontFamily:'VT323', fontSize:'18px', color:'#7fff00'
+    }).setDepth(20);
+    this.tweens.add({ targets:pop, y:pop.y-34, alpha:0, duration:560, onComplete:()=>pop.destroy() });
+    orb.destroy();
+    if(this.xp >= this.xpToNext) {
+      this.xp -= this.xpToNext;
+      this.xpToNext = Math.floor(this.xpToNext * 1.55);
+      this._levelUp();
+    }
+    this._drawXP();
+  }
+
+  // ----------------------------------------------------------------
+  _levelUp() {
+    sfxLevelUp();
+    this.level++;
+    this.levelTxt.setText('LVL: ' + this.level);
+    this.scene.pause();
+
+    const pool    = UPGRADES.filter(u => (this.upgs[u.id]||0) < u.max);
+    const choices = Phaser.Utils.Array.Shuffle(pool).slice(0, 3);
+
+    if(choices.length === 0) { this.scene.resume(); return; }
+
+    const overlay  = document.getElementById('lvlup-overlay');
+    const cardsDiv = document.getElementById('upg-cards');
+    cardsDiv.innerHTML = '';
+    choices.forEach(upg => {
+      const card = document.createElement('div');
+      card.className = 'upg-card';
+      card.innerHTML = `
+        <span class="upg-icon">${upg.icon}</span>
+        <span class="upg-name">${upg.name}</span>
+        <span class="upg-desc">${upg.desc}</span>
+      `;
+      card.onclick = () => {
+        this._applyUpgrade(upg.id);
+        overlay.style.display = 'none';
+        this.scene.resume();
+      };
+      cardsDiv.appendChild(card);
+    });
+    overlay.style.display = 'flex';
+  }
+
+  _applyUpgrade(id) {
+    this.upgs[id] = (this.upgs[id]||0) + 1;
+    switch(id){
+      case 'rapidfire': this.fireRate  = Math.max(180, this.fireRate * 0.70); break;
+      case 'bigshot':   this.bDmg++;  break;
+      case 'hpup':
+        this.maxHP++;
+        this.hp = Math.min(this.hp+1, this.maxHP);
+        this._updateHP();
+        break;
+      case 'speed':   this.moveSpd  += 28; break;
+      case 'pierce':  this.bPierce++; break;
+      case 'magnet':  this.magnetR  += 55; break;
+      case 'aoe':     this.aoeRate  += 0.4; break;
+      case 'orbit': {
+        const onion = this.physics.add.sprite(this.player.x, this.player.y, 'onion');
+        onion.setDepth(9); onion.lastHit = 0;
+        this.orbitGroup.add(onion);
+        this.tweens.add({ targets:onion, angle:360, duration:600, repeat:-1 });
+        break;
+      }
+    }
+  }
+
+  // ----------------------------------------------------------------
+  _takeDamage(n) {
+    if(!this.alive) return;
+    this.hp -= n;
+    this._updateHP();
+    this.player.setTint(0xff3333);
+    this.cameras.main.shake(110, 0.009);
+    this.cameras.main.flash(90, 255, 0, 0, false);
+    sfxDamage();
+    this.time.delayedCall(200, () => { if(this.player.active) this.player.clearTint(); });
+    if(this.hp <= 0){ this.hp=0; this._updateHP(); this._die(); }
+  }
+
+  _die() {
+    this.alive = false;
+    sfxDeath();
+    const em = this.add.particles(this.player.x, this.player.y, 'pixel', {
+      speed:{min:100,max:340}, lifespan:900, quantity:38,
+      scale:{start:4.5,end:0}, tint:[0xff4444,0xff8800,0xffff00,0xffffff], emitting:false
+    });
+    em.explode(38);
+    this.cameras.main.shake(550, 0.024);
+    this.cameras.main.flash(300, 255, 0, 0, false);
+    this.player.setVisible(false);
+    document.getElementById('lvlup-overlay').style.display = 'none';
+    this.time.delayedCall(950, () => { this.scene.pause(); this._showGameOver(); });
+  }
+
+  _showGameOver() {
+    const elapsed = (this.time.now - this.gameStartTime) / 1000;
+    document.getElementById('final-score').textContent = this.score;
+    document.getElementById('final-time').textContent  = Math.floor(elapsed);
+    document.getElementById('final-kills').textContent = this.kills;
+    document.getElementById('leaderboard').style.display = 'none';
+    document.getElementById('replay-btn').style.display  = 'none';
+    document.getElementById('submit-btn').disabled       = false;
+    document.getElementById('player-name').value         = '';
+    document.getElementById('ui-overlay').style.display  = 'flex';
+  }
+
+  async _submitScore() {
+    const name = document.getElementById('player-name').value.trim() || 'GrocerySurvivor';
+    document.getElementById('submit-btn').disabled = true;
+    await submitScore(name, this.score);
+    const scores = await getLeaderboard(10);
+    const lbEl   = document.getElementById('leaderboard');
+    const listEl = document.getElementById('lb-list');
+    lbEl.style.display = 'block';
+    listEl.innerHTML = scores.length
+      ? scores.map((s,i) => `<div>${i+1}. ${s.playerName} — ${s.score}</div>`).join('')
+      : '<div>No scores yet. You\'re the first survivor!</div>';
+    document.getElementById('replay-btn').style.display = 'block';
+  }
+
+  _replay() {
+    document.getElementById('ui-overlay').style.display    = 'none';
+    document.getElementById('lvlup-overlay').style.display = 'none';
+    this.scene.restart();
+  }
+
+  _spawnHealthCan() {
+    this._spawnHealthCanAt(
+      Phaser.Math.Between(50, this.W-50),
+      Phaser.Math.Between(100, this.H-50)
+    );
+  }
+
+  _spawnHealthCanAt(x, y) {
+    if(this.hp >= this.maxHP) return;
+    const can = this.physics.add.sprite(x, y, 'healthcan').setDepth(6);
+    this.healthCans.add(can);
+    this.tweens.add({ targets:can, y:can.y-8, duration:560, yoyo:true, repeat:-1 });
+    this.time.delayedCall(9500, () => { if(can.active) can.destroy(); });
+  }
+
+  _collectHP(player, can) {
+    sfxCollect();
+    this.hp = Math.min(this.hp+1, this.maxHP);
+    this._updateHP();
+    const pop = this.add.text(can.x, can.y-8, '+1 HP ❤️', {
+      fontFamily:'VT323', fontSize:'22px', color:'#ff5555'
+    }).setDepth(20);
+    this.tweens.add({ targets:pop, y:pop.y-32, alpha:0, duration:600, onComplete:()=>pop.destroy() });
+    can.destroy();
+  }
+
+  _triggerAOE() {
+    const x = Phaser.Math.Between(50, this.W-50);
+    const y = Phaser.Math.Between(95, this.H-50);
+    const exp = this.add.sprite(x, y, 'explosion').setDepth(15).setAlpha(0.85);
+    this.tweens.add({ targets:exp, scale:2.4, alpha:0, duration:380, onComplete:()=>exp.destroy() });
+    this.enemies.getChildren().forEach(e => {
+      if(Phaser.Math.Distance.Between(x,y,e.x,e.y) < 72) {
+        e.hp -= this.bDmg;
+        if(e.hp <= 0) this._killEnemy(e);
+      }
+    });
+    sfxHit();
+  }
+}
+
+// ---- Phaser Config -----------------------------------------------
+const config = {
+  type: Phaser.AUTO,
+  width: 800, height: 600,
+  backgroundColor: '#111811',
+  physics: { default:'arcade', arcade:{ gravity:{y:0}, debug:false } },
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: [BootScene, MenuScene, GameScene]
+};
+
+const game = new Phaser.Game(config);
+</script>
+</body>
+</html>
