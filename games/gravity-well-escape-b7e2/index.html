@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Gravity Warden</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: radial-gradient(circle at 30% 20%, #0f1b3f, #050510 70%);
+      display: flex; justify-content: center; align-items: center;
+      height: 100vh; overflow: hidden; touch-action: none;
+      font-family: 'Orbitron', sans-serif;
+    }
+    #ui-overlay {
+      position: fixed; inset: 0; display: none;
+      justify-content: center; align-items: center;
+      background: rgba(3, 5, 15, 0.84); z-index: 20;
+      padding: 16px;
+    }
+    .panel {
+      width: min(92vw, 460px);
+      background: linear-gradient(180deg, #111a3a, #0b1129);
+      border: 2px solid #6f8cff;
+      border-radius: 18px;
+      color: #dce6ff;
+      box-shadow: 0 0 24px rgba(88, 132, 255, 0.35);
+      padding: 18px;
+    }
+    h2 { font-size: 28px; margin-bottom: 8px; color: #9db4ff; }
+    p { margin-bottom: 10px; color: #bfd0ff; }
+    #final-score { font-size: 26px; font-weight: 900; margin-bottom: 12px; color: #ffe082; }
+    input, button {
+      width: 100%; border-radius: 10px; border: 1px solid #6f8cff;
+      padding: 10px 12px; font-family: inherit; font-size: 14px;
+      margin-bottom: 10px;
+    }
+    input { background: #050b1f; color: #e6eeff; }
+    button { background: #1b2f70; color: #eaf0ff; font-weight: 700; cursor: pointer; }
+    button:hover { background: #27439e; }
+    #leaderboard { margin-top: 8px; font-size: 13px; max-height: 180px; overflow: auto; }
+    .lb-row { display: flex; justify-content: space-between; gap: 10px; padding: 4px 2px; border-bottom: 1px solid rgba(140,170,255,0.2); }
+  </style>
+</head>
+<body>
+  <div id="ui-overlay">
+    <div class="panel">
+      <h2>Orbit Collapse</h2>
+      <p>The swarm escaped your pull.</p>
+      <div id="final-score">Score: 0</div>
+      <input id="name-input" maxlength="20" placeholder="Your name" value="Pilot" />
+      <button id="submit-btn">Submit Score</button>
+      <button id="replay-btn">Play Again</button>
+      <div id="leaderboard"></div>
+    </div>
+  </div>
+
+<script>
+// Design notes:
+// - Genre: arena survival/control game.
+// - Core mechanic: move a gravity well to keep escape pods from crossing the boundary.
+// - Death: too many pods escape (integrity reaches 0).
+// - Difficulty: pod spawn rate + outward thrust + escape speed scale smoothly with elapsed time.
+// - Visual theme: cosmic/space, cool blues and starlight, circular silhouettes with glow motion.
+// - Score: timeAlive*10 + rescue bonuses.
+
+const GAME_ID = 'gravity-well-escape-b7e2';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch (e) { console.warn('Leaderboard unavailable:', e); return null; }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch (e) { console.warn('Leaderboard unavailable:', e); return []; }
+}
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playSound(type, freq, duration, volume=0.2, glide=1) {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(Math.max(20, freq * glide), audioCtx.currentTime + duration);
+  gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+  osc.start(); osc.stop(audioCtx.currentTime + duration);
+}
+const sfxStart = () => { playSound('triangle', 280, 0.16, 0.22, 1.35); playSound('sine', 420, 0.13, 0.16, 1.18); };
+const sfxRescue = () => { playSound('sine', 700, 0.09, 0.15, 1.22); playSound('triangle', 980, 0.08, 0.12, 1.1); };
+const sfxEscape = () => { playSound('square', 210, 0.18, 0.2, 0.7); };
+const sfxDeath = () => { playSound('sawtooth', 320, 0.6, 0.26, 0.22); playSound('square', 110, 0.8, 0.18, 0.3); };
+
+function lerp(a,b,t){ return a+(b-a)*t; }
+function easeOut(t){ return 1 - Math.pow(1 - t, 2); }
+
+class MenuScene extends Phaser.Scene {
+  constructor(){ super('MenuScene'); }
+  create(){
+    const { width, height } = this.scale;
+    this.add.rectangle(width/2, height/2, width, height, 0x050510, 0.001);
+    this.add.text(width/2, height*0.24, 'GRAVITY WARDEN', { fontFamily:'Orbitron', fontSize:'48px', color:'#a6bbff', fontStyle:'700' }).setOrigin(0.5);
+    this.add.text(width/2, height*0.43,
+      'You are the gravity well.\nDrag or use WASD/Arrows to move.\nKeep pods inside the ring.\nEach escape costs integrity.',
+      { fontFamily:'Orbitron', fontSize:'22px', color:'#d7e2ff', align:'center', lineSpacing:10 }).setOrigin(0.5);
+
+    const pulse = this.add.text(width/2, height*0.8, 'TAP / CLICK / PRESS ANY KEY TO START',
+      { fontFamily:'Orbitron', fontSize:'18px', color:'#ffe28c' }).setOrigin(0.5);
+    this.tweens.add({ targets:pulse, alpha:0.35, yoyo:true, repeat:-1, duration:800 });
+
+    const start = () => {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      sfxStart();
+      this.scene.start('GameScene');
+    };
+    this.input.once('pointerdown', start);
+    this.input.keyboard.once('keydown', start);
+  }
+}
+
+class GameScene extends Phaser.Scene {
+  constructor(){ super('GameScene'); }
+  create(){
+    this.score = 0;
+    this.bonus = 0;
+    this.gameStartTime = this.time.now;
+    this.gameEnded = false;
+    this.integrity = 5;
+
+    const { width, height } = this.scale;
+    this.center = new Phaser.Math.Vector2(width/2, height/2);
+    this.boundaryR = Math.min(width, height) * 0.44;
+
+    this.stars = this.add.group();
+    for(let i=0;i<120;i++){
+      const star = this.add.circle(Phaser.Math.Between(0,width), Phaser.Math.Between(0,height), Phaser.Math.Between(1,2), 0xffffff, Phaser.Math.FloatBetween(0.15,0.75));
+      this.stars.add(star);
+      this.tweens.add({ targets: star, alpha: Phaser.Math.FloatBetween(0.15,0.85), duration: Phaser.Math.Between(1200,2600), repeat:-1, yoyo:true });
+    }
+
+    this.ring = this.add.circle(this.center.x, this.center.y, this.boundaryR, 0x567dff, 0.05).setStrokeStyle(4, 0x8ba7ff, 0.45);
+
+    this.gravity = this.physics.add.image(this.center.x, this.center.y, this.makeGravityTex());
+    this.gravity.setCircle(30);
+    this.gravity.body.setCircle(23, 7, 7);
+    this.gravity.setDamping(true).setDrag(0.9).setMaxVelocity(460,460);
+
+    this.pods = this.physics.add.group();
+
+    this.keys = this.input.keyboard.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT');
+    this.pointerActive = false;
+    this.input.on('pointerdown', () => this.pointerActive = true);
+    this.input.on('pointerup', () => this.pointerActive = false);
+
+    this.scoreText = this.add.text(16, 14, 'Score: 0', { fontFamily:'Orbitron', fontSize:'24px', color:'#ffe28c' });
+    this.integrityText = this.add.text(16, 44, 'Integrity: 5', { fontFamily:'Orbitron', fontSize:'20px', color:'#b9cbff' });
+
+    this.podSpawnTimer = 0;
+    this.physics.add.overlap(this.gravity, this.pods, (_, pod) => {
+      if (!pod.getData('rescued') && pod.getData('wasEdge')) {
+        pod.setData('rescued', true);
+        pod.setData('wasEdge', false);
+        this.bonus += 20;
+        sfxRescue();
+        this.popText('+20', pod.x, pod.y, '#8cffd4');
+      }
+    });
+  }
+
+  makeGravityTex(){
+    if(this.textures.exists('gravity-core')) return 'gravity-core';
+    const g = this.add.graphics();
+    g.fillStyle(0x2b3f9e,1); g.fillCircle(32,32,30);
+    g.lineStyle(5,0xa9bfff,0.95); g.strokeCircle(32,32,29);
+    g.fillStyle(0xffffff,0.33); g.fillCircle(24,22,10);
+    g.fillStyle(0x88a8ff,0.5); g.fillCircle(40,40,8);
+    g.generateTexture('gravity-core', 64, 64); g.destroy();
+    return 'gravity-core';
+  }
+
+  makePodTex(){
+    if(this.textures.exists('escape-pod')) return 'escape-pod';
+    const g = this.add.graphics();
+    g.fillStyle(0xe16a7c,1); g.fillCircle(24,24,18);
+    g.lineStyle(4,0xffc8d0,0.8); g.strokeCircle(24,24,17);
+    g.fillStyle(0xfff7d6,0.8); g.fillCircle(20,18,5);
+    g.fillStyle(0x4d1c30,0.9); g.fillTriangle(15,30,33,30,24,20);
+    g.generateTexture('escape-pod', 48, 48); g.destroy();
+    return 'escape-pod';
+  }
+
+  spawnPod(difficulty){
+    const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+    const dist = Phaser.Math.FloatBetween(60, 160);
+    const x = this.center.x + Math.cos(angle)*dist;
+    const y = this.center.y + Math.sin(angle)*dist;
+    const pod = this.pods.create(x, y, this.makePodTex());
+    pod.setCircle(18); pod.body.setCircle(14, 10, 10); // forgiving hit area
+    pod.setData('wasEdge', false);
+    pod.setData('rescued', false);
+
+    const escapeAngle = Phaser.Math.Angle.Between(this.center.x, this.center.y, x, y) + Phaser.Math.FloatBetween(-0.2,0.2);
+    const initialV = lerp(18, 54, difficulty);
+    pod.setVelocity(Math.cos(escapeAngle)*initialV, Math.sin(escapeAngle)*initialV);
+    pod.setData('baseEscape', lerp(8, 58, difficulty));
+    pod.setScale(Phaser.Math.FloatBetween(0.85,1.1));
+  }
+
+  popText(text, x, y, color='#fff'){
+    const t = this.add.text(x, y, text, { fontFamily:'Orbitron', fontSize:'18px', color }).setOrigin(0.5);
+    this.tweens.add({ targets:t, y:y-36, alpha:0, duration:650, onComplete:()=>t.destroy() });
+  }
+
+  endGame(){
+    if(this.gameEnded) return;
+    this.gameEnded = true;
+    this.cameras.main.shake(260,0.012);
+    this.cameras.main.flash(220,255,120,120);
+    sfxDeath();
+
+    this.pods.getChildren().forEach(p=>{
+      this.tweens.add({ targets:p, alpha:0, scale:0.2, duration:420, ease:'Cubic.easeIn' });
+    });
+    this.tweens.add({ targets:this.gravity, scale:0.1, alpha:0.3, duration:450, ease:'Cubic.easeIn' });
+
+    this.time.delayedCall(500, ()=>{
+      this.scene.pause();
+      showGameOverUI(Math.floor(this.score));
+    });
+  }
+
+  update(time, delta){
+    if(this.gameEnded) return;
+    const dt = delta / 16.667;
+    const elapsed = (time - this.gameStartTime) / 1000;
+    const t = Math.min(elapsed / 130, 1);
+    const difficulty = easeOut(t);
+
+    let ax = 0, ay = 0;
+    if (this.keys.A.isDown || this.keys.LEFT.isDown) ax = -1;
+    if (this.keys.D.isDown || this.keys.RIGHT.isDown) ax = 1;
+    if (this.keys.W.isDown || this.keys.UP.isDown) ay = -1;
+    if (this.keys.S.isDown || this.keys.DOWN.isDown) ay = 1;
+
+    if (this.pointerActive && this.input.activePointer.isDown) {
+      const p = this.input.activePointer;
+      const targetX = p.worldX;
+      const targetY = p.worldY;
+      const dir = new Phaser.Math.Vector2(targetX - this.gravity.x, targetY - this.gravity.y).normalize();
+      ax = dir.x;
+      ay = dir.y;
+    }
+
+    this.gravity.setAcceleration(ax * 550, ay * 550);
+
+    // Keep gravity core within play area.
+    const toCore = new Phaser.Math.Vector2(this.gravity.x - this.center.x, this.gravity.y - this.center.y);
+    const coreDist = toCore.length();
+    const coreLimit = this.boundaryR - 40;
+    if(coreDist > coreLimit){
+      toCore.normalize().scale(coreDist - coreLimit);
+      this.gravity.x -= toCore.x;
+      this.gravity.y -= toCore.y;
+      this.gravity.body.velocity.scale(0.5);
+    }
+
+    const spawnRate = lerp(0.45, 2.35, difficulty);
+    this.podSpawnTimer += delta / 1000;
+    while (this.podSpawnTimer > 1 / spawnRate) {
+      this.podSpawnTimer -= 1 / spawnRate;
+      this.spawnPod(difficulty);
+    }
+
+    const pullBase = lerp(10, 35, difficulty);
+    const pullRadius = lerp(320, 460, difficulty);
+
+    this.pods.getChildren().forEach(pod => {
+      if (!pod.active) return;
+
+      const dx = this.gravity.x - pod.x;
+      const dy = this.gravity.y - pod.y;
+      const distSq = dx*dx + dy*dy;
+      const dist = Math.sqrt(distSq) + 0.001;
+
+      if (dist < pullRadius) {
+        const pull = (pullBase * (1 - dist / pullRadius) + 4) * dt;
+        pod.body.velocity.x += (dx / dist) * pull;
+        pod.body.velocity.y += (dy / dist) * pull;
+      }
+
+      const outward = new Phaser.Math.Vector2(pod.x - this.center.x, pod.y - this.center.y).normalize();
+      const thrust = (pod.getData('baseEscape') + lerp(0, 74, difficulty)) * 0.018 * dt;
+      pod.body.velocity.x += outward.x * thrust;
+      pod.body.velocity.y += outward.y * thrust;
+
+      const fromCenter = Phaser.Math.Distance.Between(this.center.x, this.center.y, pod.x, pod.y);
+      if (fromCenter > this.boundaryR * 0.8) {
+        pod.setData('wasEdge', true);
+      }
+      if (fromCenter > this.boundaryR) {
+        sfxEscape();
+        this.integrity -= 1;
+        this.integrityText.setText(`Integrity: ${Math.max(0,this.integrity)}`);
+        this.cameras.main.shake(120,0.004);
+        this.popText('-1 integrity', pod.x, pod.y, '#ff9ca6');
+        pod.destroy();
+        if (this.integrity <= 0) this.endGame();
+      }
+    });
+
+    this.score = elapsed * 10 + this.bonus;
+    this.scoreText.setText(`Score: ${Math.floor(this.score)}`);
+
+    this.gravity.rotation += 0.01 * dt;
+    this.gravity.setScale(1 + Math.sin(time * 0.01) * 0.04);
+  }
+}
+
+const config = {
+  type: Phaser.AUTO,
+  width: 900,
+  height: 600,
+  backgroundColor: '#050510',
+  physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: false } },
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: [MenuScene, GameScene]
+};
+const game = new Phaser.Game(config);
+
+const overlay = document.getElementById('ui-overlay');
+const finalScoreEl = document.getElementById('final-score');
+const nameInput = document.getElementById('name-input');
+const submitBtn = document.getElementById('submit-btn');
+const replayBtn = document.getElementById('replay-btn');
+const leaderboardEl = document.getElementById('leaderboard');
+let latestScore = 0;
+
+async function renderLeaderboard(){
+  const scores = await getLeaderboard(10);
+  if(!scores.length){ leaderboardEl.innerHTML = '<p>Leaderboard unavailable.</p>'; return; }
+  leaderboardEl.innerHTML = '<p style="margin-bottom:6px;color:#9db4ff">Top Gravitons</p>' +
+    scores.map((s,i)=>`<div class="lb-row"><span>#${i+1} ${String(s.playerName||'Pilot').slice(0,20)}</span><strong>${s.score}</strong></div>`).join('');
+}
+
+function showGameOverUI(finalScore){
+  latestScore = finalScore;
+  finalScoreEl.textContent = `Score: ${finalScore}`;
+  overlay.style.display = 'flex';
+  leaderboardEl.innerHTML = '';
+  renderLeaderboard();
+}
+
+submitBtn.onclick = async () => {
+  const playerName = (nameInput.value || 'Pilot').trim().slice(0,20) || 'Pilot';
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Submitting...';
+  await submitScore(playerName, latestScore);
+  await renderLeaderboard();
+  submitBtn.disabled = false;
+  submitBtn.textContent = 'Submit Score';
+};
+
+replayBtn.onclick = () => {
+  overlay.style.display = 'none';
+  game.scene.stop('GameScene');
+  game.scene.start('GameScene');
+};
+</script>
+</body>
+</html>
