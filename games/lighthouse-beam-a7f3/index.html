@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Impossible Tide</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #020d1a;
+    display: flex; justify-content: center; align-items: center;
+    height: 100vh; overflow: hidden; touch-action: none;
+  }
+  #ui-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    display: none; flex-direction: column; justify-content: center; align-items: center;
+    z-index: 10; background: rgba(2, 10, 25, 0.93);
+    font-family: 'Cinzel', serif;
+  }
+  #ui-overlay h2 {
+    font-size: 2.4rem; color: #ffd700; margin-bottom: 0.4rem;
+    text-shadow: 0 0 30px #ffd700, 0 0 60px #ff8c00;
+    letter-spacing: 3px;
+  }
+  #ui-subtitle { font-size: 0.95rem; color: #48cae4; margin-bottom: 1.2rem; opacity: 0.8; }
+  #final-score { font-size: 2rem; color: #fff; margin-bottom: 1.4rem; letter-spacing: 2px; }
+  #name-input {
+    font-family: 'Cinzel', serif; font-size: 1rem;
+    padding: 10px 18px; border: 2px solid #00b4d8; background: #051525;
+    color: #90e0ef; border-radius: 6px; outline: none; width: 250px;
+    text-align: center; margin-bottom: 14px; letter-spacing: 1px;
+  }
+  #name-input:focus { border-color: #ffd700; box-shadow: 0 0 12px rgba(255,215,0,0.3); }
+  .ui-btn {
+    font-family: 'Cinzel', serif; font-size: 0.9rem; padding: 10px 26px;
+    border: 2px solid #ffd700; background: transparent; color: #ffd700;
+    cursor: pointer; border-radius: 6px; margin: 5px; letter-spacing: 2px;
+    transition: all 0.2s; text-transform: uppercase;
+  }
+  .ui-btn:hover { background: #ffd700; color: #020d1a; box-shadow: 0 0 20px rgba(255,215,0,0.5); }
+  #leaderboard-section { margin-top: 1.4rem; width: 320px; }
+  #leaderboard-section h3 {
+    text-align: center; color: #ffd700; margin-bottom: 0.6rem;
+    font-size: 0.9rem; letter-spacing: 3px; opacity: 0.9;
+  }
+  #lb-rows { list-style: none; padding: 0; }
+  #lb-rows li {
+    display: flex; justify-content: space-between; padding: 5px 10px;
+    border-bottom: 1px solid rgba(0,180,216,0.15); font-size: 0.8rem; color: #90e0ef;
+  }
+  #lb-rows li:first-child { color: #ffd700; }
+  #lb-rows li span.lb-score { color: #ffd700; }
+</style>
+</head>
+<body>
+
+<div id="ui-overlay">
+  <h2>THE TIDE WINS</h2>
+  <p id="ui-subtitle">The impossible shapes have consumed the light...</p>
+  <div id="final-score">SCORE: 0</div>
+  <input id="name-input" type="text" placeholder="Enter your name" maxlength="20">
+  <div>
+    <button class="ui-btn" id="submit-btn">Submit Score</button>
+    <button class="ui-btn" id="replay-btn">Try Again</button>
+  </div>
+  <div id="leaderboard-section" style="display:none">
+    <h3>⚓ KEEPERS OF THE LIGHT ⚓</h3>
+    <ol id="lb-rows"></ol>
+  </div>
+</div>
+
+<script>
+/*
+ * DESIGN HEADER — Impossible Tide
+ * ================================
+ * Prompt: "You're a lighthouse beam and the ocean is filling with impossible shapes."
+ *
+ * CONTROLS: Mouse/touch to aim the beam. The beam continuously emanates from the lighthouse.
+ *           Keyboard: no separate control needed — aim with cursor.
+ *
+ * CORE LOOP:
+ *   A lighthouse sits at the bottom-center. The player controls a cone of light (the beam)
+ *   by moving the mouse/touch. Impossible geometric shapes drift in from the sea edges,
+ *   homing toward the lighthouse. Holding the beam on a shape damages and eventually destroys it.
+ *   If a shape reaches the lighthouse, one of 3 charges is lost. Lose all 3 = death.
+ *   Survival time + bonus points from destroying shapes = score.
+ *
+ * HAZARDS (3 types):
+ *   1. DRIFTERS (impossible triangles) — large, slow, straight-line approach, 150-350 HP
+ *   2. PHASE WALKERS (impossible hexagons) — medium speed, blink in/out (immune while phased), 250-600 HP
+ *   3. GLIDERS (jagged stars) — small and fast, zigzag approach, 80-200 HP
+ *
+ * PICKUPS / RISK-REWARD:
+ *   - LENS FRAGMENT (gold): Widens beam for 5s (great offense) but risk of leaving flanks exposed
+ *   - TIDAL WARD (cyan): Destroys all shapes within 350px radius (emergency clear)
+ *   Both pickups are destroyed by the beam, so player must aim at them to collect.
+ *
+ * SCORING: score = Math.floor(elapsed * 10 + bonusPoints), monotonic.
+ *   Destroying shapes: +25 (triangle), +40 (hex), +15 (star).
+ *
+ * DIFFICULTY RAMP: 0→120s smooth lerp via easeIn.
+ *   spawnInterval: 3000→500ms. shapeSpeed: 40→150 px/s. HP multiplier: 1.0→2.5.
+ *
+ * VISUAL THEME: Ocean/Night — deep navy gradient sky, dark ocean surface, gold beam, alien-hued shapes.
+ *   Font: Cinzel (elegant/mystical).
+ *   Background: star field, animated wave tile, horizon shimmer.
+ *
+ * AUDIO: Procedural Web Audio API.
+ *   beam hum, crystal shatter, damage thud, death drone, pickup chime, wave burst.
+ */
+
+const GAME_ID = 'lighthouse-beam-a7f3';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+// ─── Audio ────────────────────────────────────────────────────────────────────
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playTone(type, freq, dur, vol, freqEnd) {
+  try {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    if (freqEnd !== undefined) {
+      osc.frequency.linearRampToValueAtTime(freqEnd, audioCtx.currentTime + dur);
+    }
+    gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+    osc.start(); osc.stop(audioCtx.currentTime + dur);
+  } catch(e) {}
+}
+
+function sfxBeamTick()  { playTone('sine', 330, 0.04, 0.03); }
+function sfxShatter()   { playTone('sine', 900, 0.18, 0.2, 180); playTone('triangle', 1400, 0.12, 0.15, 300); }
+function sfxHit()       { playTone('sawtooth', 90, 0.35, 0.28); playTone('square', 55, 0.25, 0.22); }
+function sfxDeath()     { playTone('sawtooth', 280, 0.9, 0.3, 25); playTone('sine', 120, 1.1, 0.22, 20); }
+function sfxPickup()    { playTone('sine', 700, 0.12, 0.25); playTone('sine', 1050, 0.1, 0.2); }
+function sfxWave()      { playTone('triangle', 440, 0.45, 0.28, 880); playTone('sine', 220, 0.45, 0.2, 440); }
+function sfxPhaseIn()   { playTone('triangle', 200, 0.15, 0.1, 600); }
+
+// ─── Leaderboard ──────────────────────────────────────────────────────────────
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch(e) { console.warn('Leaderboard unavailable:', e); return null; }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch(e) { console.warn('Leaderboard unavailable:', e); return []; }
+}
+
+// ─── Game Over UI ─────────────────────────────────────────────────────────────
+function showGameOverUI(finalScore) {
+  const overlay = document.getElementById('ui-overlay');
+  document.getElementById('final-score').textContent = `SCORE: ${finalScore}`;
+  overlay.style.display = 'flex';
+
+  document.getElementById('submit-btn').onclick = async () => {
+    const rawName = document.getElementById('name-input').value.trim();
+    const name = rawName || 'Keeper';
+    await submitScore(name, finalScore);
+    const scores = await getLeaderboard(10);
+    const section = document.getElementById('leaderboard-section');
+    const rows = document.getElementById('lb-rows');
+    rows.innerHTML = '';
+    if (scores.length > 0) {
+      scores.forEach((s, i) => {
+        const li = document.createElement('li');
+        li.innerHTML = `<span>${i + 1}. ${s.playerName}</span><span class="lb-score">${s.score}</span>`;
+        rows.appendChild(li);
+      });
+    } else {
+      rows.innerHTML = '<li style="justify-content:center;opacity:0.5">No scores yet</li>';
+    }
+    section.style.display = 'block';
+  };
+
+  document.getElementById('replay-btn').onclick = () => {
+    overlay.style.display = 'none';
+    document.getElementById('leaderboard-section').style.display = 'none';
+    game.scene.getScene('GameScene').scene.restart();
+  };
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function lerp(a, b, t) { return a + (b - a) * t; }
+function easeIn(t)     { return t * t; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// ─── MenuScene ────────────────────────────────────────────────────────────────
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+
+    // Sky-to-ocean background
+    const bg = this.add.graphics();
+    bg.fillGradientStyle(0x020810, 0x020810, 0x081428, 0x081428, 1);
+    bg.fillRect(0, 0, W, H * 0.68);
+    bg.fillGradientStyle(0x081428, 0x081428, 0x030c1e, 0x030c1e, 1);
+    bg.fillRect(0, H * 0.68, W, H * 0.32);
+
+    // Stars
+    for (let i = 0; i < 150; i++) {
+      const s = this.add.graphics();
+      const sx = Phaser.Math.Between(0, W);
+      const sy = Phaser.Math.Between(0, H * 0.65);
+      const sr = Phaser.Math.FloatBetween(0.4, 1.8);
+      s.fillStyle(0xffffff, Phaser.Math.FloatBetween(0.2, 0.9));
+      s.fillCircle(sx, sy, sr);
+      this.tweens.add({
+        targets: s, alpha: { from: 0.15, to: 1 },
+        duration: Phaser.Math.Between(900, 2500),
+        yoyo: true, repeat: -1,
+        delay: Phaser.Math.Between(0, 1500)
+      });
+    }
+
+    // Horizon line
+    const horiz = this.add.graphics();
+    horiz.lineStyle(1, 0x00b4d8, 0.25);
+    horiz.beginPath(); horiz.moveTo(0, H * 0.68); horiz.lineTo(W, H * 0.68); horiz.strokePath();
+
+    // Moon
+    const moon = this.add.graphics();
+    moon.fillStyle(0xfff8e7, 0.85);
+    moon.fillCircle(W * 0.82, H * 0.12, 28);
+    moon.fillStyle(0x081428, 0.7);
+    moon.fillCircle(W * 0.82 - 8, H * 0.12 - 6, 22);
+
+    // Beam sweep (decorative)
+    const beamDecor = this.add.graphics();
+    beamDecor.setDepth(2);
+    let beamRot = -Math.PI * 0.6;
+    this.tweens.add({
+      targets: { v: 0 }, v: 1, duration: 3000, repeat: -1,
+      onUpdate: (tw) => {
+        beamRot = lerp(-Math.PI * 0.55, -Math.PI * 0.45, Math.sin(tw.progress * Math.PI));
+        beamDecor.clear();
+        const bx = W / 2, by = H - 40;
+        const range = H * 0.9;
+        const hw = Math.PI / 10;
+        const pts = [{ x: bx, y: by }];
+        for (let s = 0; s <= 10; s++) {
+          const a = (beamRot - hw) + (s / 10) * hw * 2;
+          pts.push({ x: bx + Math.cos(a) * range, y: by + Math.sin(a) * range });
+        }
+        beamDecor.fillStyle(0xffd700, 0.06);
+        beamDecor.fillPoints(pts, true);
+        beamDecor.lineStyle(2, 0xffd700, 0.25);
+        beamDecor.beginPath();
+        beamDecor.moveTo(bx, by);
+        beamDecor.lineTo(bx + Math.cos(beamRot) * range, by + Math.sin(beamRot) * range);
+        beamDecor.strokePath();
+      }
+    });
+
+    // Lighthouse (decorative)
+    this.drawMenuLighthouse(W / 2, H - 10);
+
+    // Floating impossible shapes (decorative)
+    const shapeColors = [0xc44dff, 0xff3366, 0x00ffcc, 0xff6b9d];
+    for (let i = 0; i < 5; i++) {
+      const sg = this.add.graphics();
+      const sx = Phaser.Math.Between(50, W - 50);
+      const sy = Phaser.Math.Between(H * 0.15, H * 0.55);
+      const col = shapeColors[i % shapeColors.length];
+      sg.lineStyle(2, col, 0.5);
+      sg.strokeTriangle(sx, sy - 18, sx + 16, sy + 9, sx - 16, sy + 9);
+      sg.lineStyle(1, col, 0.3);
+      sg.strokeTriangle(sx, sy - 9, sx + 8, sy + 4, sx - 8, sy + 4);
+      sg.setDepth(1);
+      this.tweens.add({
+        targets: sg,
+        y: `+=${Phaser.Math.Between(-25, 25)}`,
+        angle: Phaser.Math.Between(-180, 180),
+        alpha: { from: 0.3, to: 0.7 },
+        duration: Phaser.Math.Between(2000, 4000),
+        yoyo: true, repeat: -1,
+        delay: Phaser.Math.Between(0, 1000)
+      });
+    }
+
+    // Title
+    this.add.text(W / 2, 80, 'IMPOSSIBLE TIDE', {
+      fontFamily: 'Cinzel', fontSize: '38px', fontStyle: 'bold',
+      color: '#ffd700',
+      stroke: '#0a1628', strokeThickness: 6,
+      shadow: { blur: 25, color: '#ffd700', fill: true }
+    }).setOrigin(0.5).setDepth(5);
+
+    this.add.text(W / 2, 130, 'YOU ARE THE LIGHTHOUSE BEAM', {
+      fontFamily: 'Cinzel', fontSize: '13px', color: '#90e0ef', letterSpacing: 4
+    }).setOrigin(0.5).setDepth(5);
+
+    // Instructions panel
+    const panelX = W / 2, panelY = 310;
+    const panG = this.add.graphics().setDepth(4);
+    panG.fillStyle(0x00b4d8, 0.06);
+    panG.fillRoundedRect(panelX - 230, panelY - 75, 460, 150, 8);
+    panG.lineStyle(1, 0x00b4d8, 0.2);
+    panG.strokeRoundedRect(panelX - 230, panelY - 75, 460, 150, 8);
+
+    const instrLines = [
+      '🖱  Move mouse / drag finger to AIM the beam',
+      '💡  Hold beam on shapes to vaporize them',
+      '✨  Beam collects LENS & WARD pickups from the sea',
+      '⚡  3 hits from impossible shapes and the light dies'
+    ];
+    instrLines.forEach((line, i) => {
+      this.add.text(W / 2, panelY - 52 + i * 36, line, {
+        fontFamily: 'Cinzel', fontSize: '12px', color: '#cce8f4'
+      }).setOrigin(0.5).setDepth(5);
+    });
+
+    // Start prompt
+    const startTxt = this.add.text(W / 2, H - 60, '— CLICK OR TAP TO BEGIN —', {
+      fontFamily: 'Cinzel', fontSize: '15px', color: '#ffd700', letterSpacing: 3
+    }).setOrigin(0.5).setDepth(5);
+    this.tweens.add({ targets: startTxt, alpha: { from: 0.2, to: 1 }, duration: 700, yoyo: true, repeat: -1 });
+
+    // Input
+    const startGame = () => {
+      audioCtx.resume();
+      this.scene.start('GameScene');
+    };
+    this.input.once('pointerdown', startGame);
+    this.input.keyboard.once('keydown', startGame);
+  }
+
+  drawMenuLighthouse(x, y) {
+    const g = this.add.graphics().setDepth(3);
+    // Base
+    g.fillStyle(0x0d1f36, 1);
+    g.fillRect(x - 22, y - 30, 44, 30);
+    // Tower
+    g.fillStyle(0x0a1628, 1);
+    g.fillRect(x - 11, y - 95, 22, 65);
+    // Stripes
+    g.fillStyle(0xffffff, 0.12);
+    g.fillRect(x - 11, y - 82, 22, 11);
+    g.fillRect(x - 11, y - 60, 22, 11);
+    // Lantern room
+    g.fillStyle(0xffd700, 0.95);
+    g.fillRect(x - 15, y - 112, 30, 20);
+    g.lineStyle(2, 0x90e0ef, 0.8);
+    g.strokeRect(x - 15, y - 112, 30, 20);
+    // Glow
+    g.fillStyle(0xffd700, 0.06);
+    g.fillCircle(x, y - 102, 55);
+    g.fillStyle(0xffd700, 0.03);
+    g.fillCircle(x, y - 102, 90);
+  }
+}
+
+// ─── GameScene ────────────────────────────────────────────────────────────────
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  preload() {
+    // All textures generated procedurally in create()
+  }
+
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+    this.W = W; this.H = H;
+
+    // ── State ──
+    this.lives        = 3;
+    this.bonusPoints  = 0;
+    this.gameStartTime = this.time.now;
+    this.alive        = true;
+    this.beamAngle    = -Math.PI / 2;   // radians, initially pointing up
+    this.beamHalfWidth = Math.PI / 8;   // ~22.5° half-width
+    this.beamRange    = Math.sqrt(W * W + H * H);
+    this.lensActive   = false;
+    this.lhX = W / 2;
+    this.lhY = H - 44;
+    this.nextSpawnTime  = this.time.now + 2000;
+    this.nextPickupTime = this.time.now + 10000;
+    this.beamSoundGate  = 0;
+    this.invincible     = false;       // brief invincibility after hit
+    this.damageFlash    = false;
+
+    // ── Generate Textures ──
+    this._buildTextures();
+
+    // ── Background ──
+    this.add.graphics().fillGradientStyle(0x020810, 0x020810, 0x081428, 0x081428, 1)
+      .fillRect(0, 0, W, H * 0.67);
+    this.add.graphics().fillGradientStyle(0x081428, 0x081428, 0x030c1e, 0x030c1e, 1)
+      .fillRect(0, H * 0.67, W, H * 0.33);
+
+    // Stars (static for now; twinkle handled by alpha tweens)
+    const starG = this.add.graphics();
+    for (let i = 0; i < 120; i++) {
+      const alpha = Phaser.Math.FloatBetween(0.15, 0.85);
+      starG.fillStyle(0xffffff, alpha);
+      starG.fillCircle(
+        Phaser.Math.Between(0, W),
+        Phaser.Math.Between(0, H * 0.64),
+        Phaser.Math.FloatBetween(0.4, 1.6)
+      );
+    }
+
+    // Horizon
+    const horizG = this.add.graphics();
+    horizG.lineStyle(1, 0x00b4d8, 0.2);
+    horizG.beginPath(); horizG.moveTo(0, H * 0.67); horizG.lineTo(W, H * 0.67); horizG.strokePath();
+
+    // Animated ocean surface
+    this.waveTile = this.add.tileSprite(W / 2, H - 18, W, 36, 'waveTex').setAlpha(0.45).setDepth(1);
+
+    // ── Particles ──
+    this.shatterEmit = this.add.particles(0, 0, 'pDot', {
+      speed: { min: 60, max: 220 }, lifespan: { min: 300, max: 700 },
+      scale: { start: 1.6, end: 0 }, alpha: { start: 1, end: 0 },
+      angle: { min: 0, max: 360 }, quantity: 14, emitting: false
+    }).setDepth(7);
+
+    this.sparkEmit = this.add.particles(0, 0, 'pSpark', {
+      speed: { min: 40, max: 120 }, lifespan: { min: 350, max: 700 },
+      scale: { start: 1.2, end: 0 }, alpha: { start: 1, end: 0 },
+      angle: { min: 0, max: 360 }, quantity: 7, emitting: false
+    }).setDepth(7);
+
+    // Continuous beam ambient particles
+    this.beamDust = this.add.particles(0, 0, 'pBeam', {
+      alpha: { start: 0.18, end: 0 }, scale: { start: 0.8, end: 0 },
+      lifespan: 500, speed: { min: 8, max: 30 }, quantity: 1, frequency: 90,
+      emitting: true
+    }).setDepth(3);
+
+    // ── Groups ──
+    this.shapes  = this.physics.add.group();
+    this.pickups = this.physics.add.group();
+
+    // ── Beam graphics (drawn each frame) ──
+    this.beamGfx = this.add.graphics().setDepth(2);
+
+    // ── Lighthouse ──
+    this.lhGfx = this.add.graphics().setDepth(8);
+    this._drawLighthouse();
+
+    // ── UI ──
+    this.scoreText = this.add.text(16, 14, 'SCORE: 0', {
+      fontFamily: 'Cinzel', fontSize: '17px', color: '#ffd700',
+      shadow: { blur: 8, color: '#ffd700', fill: true }
+    }).setDepth(10);
+
+    this.livesRow = this.add.container(W - 16, 18).setDepth(10);
+    this._updateLivesUI();
+
+    // Tip text (fades out)
+    const tip = this.add.text(W / 2, H - 14, 'Aim the beam · Destroy the impossible', {
+      fontFamily: 'Cinzel', fontSize: '11px', color: '#48cae4', alpha: 0.55
+    }).setOrigin(0.5).setDepth(10);
+    this.tweens.add({ targets: tip, alpha: 0, delay: 4000, duration: 2000 });
+
+    // ── Input ──
+    this.input.on('pointermove', ptr => this._aimBeam(ptr));
+    this.input.on('pointerdown',  ptr => this._aimBeam(ptr));
+  }
+
+  // ── Texture generation ────────────────────────────────────────────────────
+  _buildTextures() {
+    // Particle: blue dot
+    const pd = this.make.graphics({ add: false });
+    pd.fillStyle(0x00b4d8, 1); pd.fillCircle(4, 4, 4);
+    pd.generateTexture('pDot', 8, 8); pd.destroy();
+
+    // Particle: gold spark
+    const ps = this.make.graphics({ add: false });
+    ps.fillStyle(0xffd700, 1); ps.fillCircle(4, 4, 4);
+    ps.generateTexture('pSpark', 8, 8); ps.destroy();
+
+    // Particle: beam glow
+    const pb = this.make.graphics({ add: false });
+    pb.fillStyle(0xfffde7, 1); pb.fillCircle(3, 3, 3);
+    pb.generateTexture('pBeam', 6, 6); pb.destroy();
+
+    // Ocean wave tile
+    const wt = this.make.graphics({ add: false });
+    wt.fillStyle(0x003d5c, 0.5);
+    for (let x = 0; x < 200; x += 22) { wt.fillRect(x, 0, 11, 8); }
+    wt.fillStyle(0x00b4d8, 0.2);
+    for (let x = 7; x < 200; x += 22) { wt.fillRect(x, 4, 8, 4); }
+    wt.generateTexture('waveTex', 200, 14); wt.destroy();
+
+    // Impossible Triangle (Drifter)
+    const sz1 = 84;
+    const t1 = this.make.graphics({ add: false });
+    const c1 = sz1 / 2;
+    t1.lineStyle(5, 0xc44dff, 1);
+    t1.strokeTriangle(c1, 6, sz1 - 6, sz1 - 8, 6, sz1 - 8);
+    t1.lineStyle(3, 0xff6b9d, 0.85);
+    t1.strokeTriangle(c1, 20, sz1 - 20, sz1 - 20, 20, sz1 - 20);
+    t1.lineStyle(2, 0xffd700, 0.5);
+    // Impossible inner cross-bar
+    t1.beginPath(); t1.moveTo(20, sz1 - 8); t1.lineTo(sz1 - 6, sz1 - 8);
+    t1.strokePath();
+    t1.beginPath(); t1.moveTo(c1, 6); t1.lineTo(20, sz1 - 20);
+    t1.strokePath();
+    t1.fillStyle(0xc44dff, 0.1);
+    t1.fillTriangle(c1, 6, sz1 - 6, sz1 - 8, 6, sz1 - 8);
+    t1.generateTexture('shpTriangle', sz1, sz1); t1.destroy();
+
+    // Impossible Hexagon (Phase Walker)
+    const sz2 = 96;
+    const t2 = this.make.graphics({ add: false });
+    const c2 = sz2 / 2, r2 = sz2 / 2 - 6;
+    const hexPts = [];
+    for (let i = 0; i < 6; i++) {
+      const a = (i * Math.PI / 3) - Math.PI / 6;
+      hexPts.push({ x: c2 + r2 * Math.cos(a), y: c2 + r2 * Math.sin(a) });
+    }
+    t2.lineStyle(5, 0xff3366, 1);
+    t2.beginPath();
+    hexPts.forEach((p, i) => { i === 0 ? t2.moveTo(p.x, p.y) : t2.lineTo(p.x, p.y); });
+    t2.closePath(); t2.strokePath();
+    // Interior "impossible" diagonals
+    t2.lineStyle(2, 0xffd700, 0.75);
+    [[0,3],[1,4],[2,5]].forEach(([a,b]) => {
+      t2.beginPath(); t2.moveTo(hexPts[a].x, hexPts[a].y);
+      t2.lineTo(hexPts[b].x, hexPts[b].y); t2.strokePath();
+    });
+    t2.lineStyle(2, 0xff3366, 0.4);
+    t2.strokeCircle(c2, c2, r2 * 0.4);
+    t2.fillStyle(0xff3366, 0.08);
+    t2.fillPoints(hexPts, true);
+    t2.generateTexture('shpHex', sz2, sz2); t2.destroy();
+
+    // Jagged Star (Glider)
+    const sz3 = 72;
+    const t3 = this.make.graphics({ add: false });
+    const c3 = sz3 / 2, or3 = sz3 / 2 - 4, ir3 = sz3 * 0.22;
+    const starPts = [];
+    for (let i = 0; i < 10; i++) {
+      const ang = (i * Math.PI / 5) - Math.PI / 2;
+      const rad = i % 2 === 0 ? or3 : ir3;
+      starPts.push({ x: c3 + rad * Math.cos(ang), y: c3 + rad * Math.sin(ang) });
+    }
+    t3.lineStyle(4, 0x00ffcc, 1);
+    t3.beginPath();
+    starPts.forEach((p, i) => { i === 0 ? t3.moveTo(p.x, p.y) : t3.lineTo(p.x, p.y); });
+    t3.closePath(); t3.strokePath();
+    t3.lineStyle(2, 0x9b59b6, 0.7);
+    t3.strokeCircle(c3, c3, ir3 * 0.9);
+    t3.fillStyle(0x00ffcc, 0.12);
+    t3.fillPoints(starPts, true);
+    t3.generateTexture('shpStar', sz3, sz3); t3.destroy();
+
+    // Pickup: Lens Fragment (gold)
+    const lp = this.make.graphics({ add: false });
+    lp.lineStyle(3, 0xffd700, 1); lp.strokeCircle(24, 24, 20);
+    lp.lineStyle(2, 0xffd700, 0.5); lp.strokeCircle(24, 24, 12);
+    lp.fillStyle(0xffd700, 0.3); lp.fillCircle(24, 24, 7);
+    lp.fillStyle(0xffffff, 0.6); lp.fillCircle(20, 20, 3);
+    lp.generateTexture('pkLens', 48, 48); lp.destroy();
+
+    // Pickup: Tidal Ward (cyan ring)
+    const wp = this.make.graphics({ add: false });
+    wp.lineStyle(3, 0x00ffcc, 1); wp.strokeCircle(24, 24, 20);
+    wp.lineStyle(2, 0x00ffcc, 0.55); wp.strokeCircle(24, 24, 13);
+    wp.lineStyle(1, 0x00ffcc, 0.3); wp.strokeCircle(24, 24, 6);
+    wp.fillStyle(0x00ffcc, 0.2); wp.fillCircle(24, 24, 5);
+    wp.generateTexture('pkWard', 48, 48); wp.destroy();
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  _aimBeam(ptr) {
+    const cam = this.cameras.main;
+    const wx = (ptr.x - cam.x) / cam.zoom;
+    const wy = (ptr.y - cam.y) / cam.zoom;
+    this.beamAngle = Math.atan2(wy - (this.lhY - 92), wx - this.lhX);
+  }
+
+  _drawLighthouse() {
+    const g = this.lhGfx;
+    g.clear();
+    const x = this.lhX, y = this.lhY;
+
+    // Glow (dims when damaged)
+    const glowAlpha = this.lives > 0 ? (this.lives / 3) * 0.12 : 0;
+    g.fillStyle(0xffd700, glowAlpha);
+    g.fillCircle(x, y - 88, 70);
+
+    // Base
+    g.fillStyle(0x1a2e4a, 1);
+    g.fillRect(x - 24, y - 28, 48, 28);
+    g.lineStyle(1, 0x2a4a6a, 0.5);
+    g.strokeRect(x - 24, y - 28, 48, 28);
+
+    // Tower
+    g.fillStyle(0x0d1f33, 1);
+    g.fillRect(x - 12, y - 92, 24, 64);
+
+    // Stripes
+    g.fillStyle(0xffffff, 0.13);
+    g.fillRect(x - 12, y - 78, 24, 12);
+    g.fillRect(x - 12, y - 56, 24, 12);
+
+    // Damage cracks
+    if (this.lives < 3) {
+      g.lineStyle(2, 0xff4444, 0.75);
+      g.beginPath(); g.moveTo(x + 4, y - 72); g.lineTo(x + 12, y - 48); g.strokePath();
+    }
+    if (this.lives < 2) {
+      g.lineStyle(2, 0xff4444, 0.75);
+      g.beginPath(); g.moveTo(x - 6, y - 85); g.lineTo(x - 12, y - 58); g.strokePath();
+      g.beginPath(); g.moveTo(x - 6, y - 58); g.lineTo(x + 4, y - 44); g.strokePath();
+    }
+
+    // Lantern room
+    const lanternColor = this.lives > 0 ? 0xffd700 : 0x222222;
+    const lanternAlpha = this.lives > 0 ? 1.0 : 1.0;
+    g.fillStyle(lanternColor, lanternAlpha);
+    g.fillRect(x - 16, y - 108, 32, 20);
+    g.lineStyle(2, 0x90e0ef, 0.85);
+    g.strokeRect(x - 16, y - 108, 32, 20);
+
+    // Cap
+    g.fillStyle(0x0a1628, 1);
+    g.fillTriangle(x - 18, y - 108, x + 18, y - 108, x, y - 124);
+  }
+
+  _updateLivesUI() {
+    this.livesRow.removeAll(true);
+    for (let i = 0; i < 3; i++) {
+      const lit = i < this.lives;
+      const icon = this.add.text(-(i * 30), 0, '💡', {
+        fontSize: '20px', alpha: lit ? 1.0 : 0.18
+      });
+      this.livesRow.add(icon);
+    }
+  }
+
+  // ── Beam drawing ──────────────────────────────────────────────────────────
+  _drawBeam() {
+    const g = this.beamGfx;
+    g.clear();
+    if (!this.alive) return;
+
+    const ox = this.lhX, oy = this.lhY - 98;
+    const hw = this.lensActive ? this.beamHalfWidth * 2.8 : this.beamHalfWidth;
+    const range = this.beamRange;
+
+    // Outer soft glow
+    g.fillStyle(0xffd700, 0.03);
+    g.fillPoints(this._conePts(ox, oy, range * 1.15, hw * 1.8), true);
+
+    // Mid glow
+    g.fillStyle(0xfffbe7, 0.07);
+    g.fillPoints(this._conePts(ox, oy, range * 1.05, hw * 1.2), true);
+
+    // Core
+    g.fillStyle(0xfffde7, 0.16);
+    g.fillPoints(this._conePts(ox, oy, range, hw), true);
+
+    // Bright center ray
+    g.lineStyle(2, 0xffffff, 0.55);
+    g.beginPath();
+    g.moveTo(ox, oy);
+    g.lineTo(ox + Math.cos(this.beamAngle) * range, oy + Math.sin(this.beamAngle) * range);
+    g.strokePath();
+
+    // Move beam dust
+    const midD = range * 0.38;
+    this.beamDust.setPosition(
+      ox + Math.cos(this.beamAngle) * midD,
+      oy + Math.sin(this.beamAngle) * midD
+    );
+  }
+
+  _conePts(ox, oy, range, hw) {
+    const pts = [{ x: ox, y: oy }];
+    const steps = 14;
+    for (let i = 0; i <= steps; i++) {
+      const a = (this.beamAngle - hw) + (i / steps) * hw * 2;
+      pts.push({ x: ox + Math.cos(a) * range, y: oy + Math.sin(a) * range });
+    }
+    return pts;
+  }
+
+  _inBeam(sx, sy) {
+    const ox = this.lhX, oy = this.lhY - 98;
+    const hw = this.lensActive ? this.beamHalfWidth * 2.8 : this.beamHalfWidth;
+    const dx = sx - ox, dy = sy - oy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > this.beamRange) return false;
+    let diff = Math.atan2(dy, dx) - this.beamAngle;
+    while (diff >  Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    return Math.abs(diff) <= hw;
+  }
+
+  // ── Spawning ──────────────────────────────────────────────────────────────
+  _spawnShape(elapsed) {
+    const W = this.W, H = this.H;
+    const diff = Math.min(elapsed / 120, 1);
+
+    // Spawn off-screen edge
+    let x, y;
+    const edge = Phaser.Math.Between(0, 2);
+    if (edge === 0) { x = -70; y = Phaser.Math.Between(30, H - 80); }
+    else if (edge === 1) { x = W + 70; y = Phaser.Math.Between(30, H - 80); }
+    else { x = Phaser.Math.Between(60, W - 60); y = -70; }
+
+    // Safe zone: don't spawn right on the lighthouse
+    const toCenter = Math.sqrt((x - this.lhX) ** 2 + (y - this.lhY) ** 2);
+    if (toCenter < 120) return;
+
+    const speed   = lerp(40, 150, easeIn(diff));
+    const hpScale = lerp(1.0, 2.5, diff);
+    const roll    = Math.random();
+
+    let textureKey, baseHp, worth, isPhase;
+    if (roll < 0.45) {
+      // Drifter (triangle) — slow, tanky
+      textureKey = 'shpTriangle'; baseHp = 150 * hpScale; worth = 25; isPhase = false;
+    } else if (roll < 0.78) {
+      // Phase Walker (hex) — phases in/out
+      textureKey = 'shpHex'; baseHp = 280 * hpScale; worth = 40;
+      isPhase = diff > 0.2 && Math.random() < 0.6;
+    } else {
+      // Glider (star) — fast, fragile, zigzag
+      textureKey = 'shpStar'; baseHp = 90 * hpScale; worth = 15; isPhase = false;
+    }
+
+    const shp = this.physics.add.image(x, y, textureKey).setDepth(5);
+    shp.setData({ hp: baseHp, maxHp: baseHp, worth, isPhase, beamTimer: 0, phased: false });
+    shp.body.setSize(shp.width * 0.72, shp.height * 0.72);
+    shp.setRotation(Phaser.Math.FloatBetween(0, Math.PI * 2));
+
+    const ang = Math.atan2(this.lhY - y, this.lhX - x);
+    const zigzag = textureKey === 'shpStar' ? Phaser.Math.FloatBetween(-30, 30) : Phaser.Math.FloatBetween(-12, 12);
+    shp.setVelocity(
+      Math.cos(ang) * speed + zigzag,
+      Math.sin(ang) * speed + zigzag
+    );
+    shp.setAngularVelocity(Phaser.Math.FloatBetween(-45, 45));
+
+    // Phase walker: alpha tween
+    if (isPhase) {
+      shp.setData('phased', false);
+      this.tweens.add({
+        targets: shp,
+        alpha: { from: 1, to: 0.06 },
+        duration: Phaser.Math.Between(650, 1100),
+        yoyo: true, repeat: -1,
+        ease: 'Sine.easeInOut',
+        onYoyo: () => {
+          shp.setData('phased', !shp.getData('phased'));
+          if (!shp.getData('phased')) sfxPhaseIn();
+        }
+      });
+    }
+
+    this.shapes.add(shp);
+  }
+
+  _spawnPickup() {
+    const W = this.W, H = this.H;
+    const isWard = Math.random() < 0.35;
+    const pk = this.physics.add.image(
+      Phaser.Math.Between(80, W - 80),
+      Phaser.Math.Between(80, H * 0.58),
+      isWard ? 'pkWard' : 'pkLens'
+    ).setDepth(6);
+    pk.setData('type', isWard ? 'ward' : 'lens');
+    pk.body.setCircle(20);
+    this.tweens.add({ targets: pk, y: `+=-18`, duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    this.tweens.add({ targets: pk, angle: 360, duration: 2800, repeat: -1 });
+    this.pickups.add(pk);
+    // Auto-expire pickup
+    this.time.delayedCall(9000, () => {
+      if (pk && pk.active) {
+        this.tweens.add({ targets: pk, alpha: 0, duration: 600, onComplete: () => { if (pk.active) pk.destroy(); } });
+      }
+    });
+  }
+
+  // ── Damage & death ────────────────────────────────────────────────────────
+  _takeDamage() {
+    if (!this.alive || this.invincible) return;
+    this.lives = Math.max(0, this.lives - 1);
+    sfxHit();
+    this.cameras.main.shake(350, 0.016);
+    this.cameras.main.flash(250, 255, 40, 40, true);
+    this._drawLighthouse();
+    this._updateLivesUI();
+    // Brief invincibility window
+    this.invincible = true;
+    this.time.delayedCall(1200, () => { this.invincible = false; });
+
+    if (this.lives <= 0) this._die();
+  }
+
+  _die() {
+    this.alive = false;
+    sfxDeath();
+    this.cameras.main.shake(700, 0.032);
+    this.cameras.main.flash(600, 255, 100, 0, true);
+    this.shatterEmit.setPosition(this.lhX, this.lhY - 60);
+    this.shatterEmit.explode(35);
+    this.sparkEmit.setPosition(this.lhX, this.lhY - 60);
+    this.sparkEmit.explode(20);
+    this._drawLighthouse();
+
+    const elapsed = (this.time.now - this.gameStartTime) / 1000;
+    const finalScore = Math.floor(elapsed * 10 + this.bonusPoints);
+
+    this.time.delayedCall(900, () => {
+      this.scene.pause();
+      showGameOverUI(finalScore);
+    });
+  }
+
+  // ── Pickup effect ─────────────────────────────────────────────────────────
+  _collectPickup(pk) {
+    const type = pk.getData('type');
+    sfxPickup();
+    this.sparkEmit.setPosition(pk.x, pk.y);
+    this.sparkEmit.explode(10);
+    pk.destroy();
+
+    if (type === 'lens') {
+      this.lensActive = true;
+      const msg = this.add.text(this.W / 2, 56, '✨ WIDE BEAM  (5s)', {
+        fontFamily: 'Cinzel', fontSize: '15px', color: '#ffd700'
+      }).setOrigin(0.5).setDepth(11);
+      this.tweens.add({ targets: msg, alpha: 0, delay: 3500, duration: 1200, onComplete: () => msg.destroy() });
+      this.time.delayedCall(5000, () => { this.lensActive = false; });
+    } else {
+      // Ward: destroy all shapes within radius
+      sfxWave();
+      this.cameras.main.flash(350, 0, 255, 200, true);
+      const circle = this.add.graphics().setDepth(9);
+      circle.lineStyle(4, 0x00ffcc, 0.9);
+      circle.strokeCircle(this.lhX, this.lhY - 50, 10);
+      this.tweens.add({
+        targets: { v: 10 }, v: 360, duration: 500, ease: 'Quad.easeOut',
+        onUpdate: (tw, target) => {
+          circle.clear();
+          circle.lineStyle(4 * (1 - tw.progress), 0x00ffcc, 0.8 * (1 - tw.progress));
+          circle.strokeCircle(this.lhX, this.lhY - 50, target.v);
+        },
+        onComplete: () => circle.destroy()
+      });
+      let cleared = 0;
+      this.shapes.getChildren().slice().forEach(s => {
+        if (!s.active) return;
+        const d = Phaser.Math.Distance.Between(s.x, s.y, this.lhX, this.lhY);
+        if (d < 380) {
+          this.bonusPoints += s.getData('worth');
+          this.shatterEmit.setPosition(s.x, s.y);
+          this.shatterEmit.explode(8);
+          s.destroy();
+          cleared++;
+        }
+      });
+      const msg = this.add.text(this.W / 2, 56,
+        cleared > 0 ? `🌊 TIDAL WARD! +${cleared * 10}` : '🌊 TIDAL WARD!', {
+        fontFamily: 'Cinzel', fontSize: '15px', color: '#00ffcc'
+      }).setOrigin(0.5).setDepth(11);
+      if (cleared > 0) this.bonusPoints += cleared * 10;
+      this.tweens.add({ targets: msg, alpha: 0, delay: 2200, duration: 1000, onComplete: () => msg.destroy() });
+    }
+  }
+
+  // ── Update ────────────────────────────────────────────────────────────────
+  update(time, delta) {
+    if (!this.alive) return;
+
+    const dt      = delta / 16.667;
+    const elapsed = (time - this.gameStartTime) / 1000;
+    const diff    = Math.min(elapsed / 120, 1);
+
+    // Score display
+    const currentScore = Math.floor(elapsed * 10 + this.bonusPoints);
+    this.scoreText.setText(`SCORE: ${currentScore}`);
+
+    // Wave animation
+    if (this.waveTile) this.waveTile.tilePositionX += 0.55 * dt;
+
+    // Draw beam every frame
+    this._drawBeam();
+
+    // ── Spawn shapes ──
+    const spawnMs = lerp(3200, 480, easeIn(diff));
+    if (time >= this.nextSpawnTime) {
+      this.nextSpawnTime = time + spawnMs;
+      this._spawnShape(elapsed);
+      if (diff > 0.45 && Math.random() < (diff - 0.45) * 1.8) this._spawnShape(elapsed);
+      if (diff > 0.75 && Math.random() < (diff - 0.75) * 1.5) this._spawnShape(elapsed);
+    }
+
+    // ── Spawn pickups ──
+    const pickupMs = lerp(13000, 7000, diff);
+    if (time >= this.nextPickupTime) {
+      this.nextPickupTime = time + pickupMs;
+      this._spawnPickup();
+    }
+
+    // ── Update shapes ──
+    const dps = lerp(120, 380, diff); // damage per second at full beam exposure
+
+    this.shapes.getChildren().forEach(shp => {
+      if (!shp || !shp.active) return;
+
+      // Out-of-bounds cleanup
+      if (shp.x < -160 || shp.x > this.W + 160 || shp.y < -160 || shp.y > this.H + 160) {
+        shp.destroy(); return;
+      }
+
+      // Reached lighthouse?
+      const dist = Phaser.Math.Distance.Between(shp.x, shp.y, this.lhX, this.lhY - 50);
+      if (dist < 48) {
+        this.shatterEmit.setPosition(shp.x, shp.y);
+        this.shatterEmit.explode(10);
+        shp.destroy();
+        this._takeDamage();
+        return;
+      }
+
+      // Phase walkers are immune while phased (alpha < 0.15)
+      const phased = shp.getData('isPhase') && shp.alpha < 0.15;
+
+      // Beam hit detection
+      if (!phased && this._inBeam(shp.x, shp.y)) {
+        // Accumulate beam damage
+        const damage = dps * (delta / 1000);
+        const newHp = shp.getData('hp') - damage;
+        shp.setData('hp', newHp);
+
+        // Hit flash (throttled)
+        const bt = shp.getData('beamTimer') + delta;
+        shp.setData('beamTimer', bt);
+        if (bt > 100) {
+          shp.setData('beamTimer', 0);
+          shp.setTint(0xffffff);
+          this.time.delayedCall(70, () => { if (shp && shp.active) shp.clearTint(); });
+          // Beam sound
+          if (time > this.beamSoundGate) {
+            this.beamSoundGate = time + 180;
+            sfxBeamTick();
+          }
+        }
+
+        // Destroyed?
+        if (newHp <= 0) {
+          const worth = shp.getData('worth');
+          this.bonusPoints += worth;
+          sfxShatter();
+          this.shatterEmit.setPosition(shp.x, shp.y);
+          this.shatterEmit.explode(14);
+          // Score popup
+          const pop = this.add.text(shp.x, shp.y - 18, `+${worth}`, {
+            fontFamily: 'Cinzel', fontSize: '13px', color: '#ffd700',
+            shadow: { blur: 6, color: '#ffd700', fill: true }
+          }).setDepth(9);
+          this.tweens.add({ targets: pop, y: shp.y - 55, alpha: 0, duration: 750, onComplete: () => pop.destroy() });
+          shp.destroy();
+        }
+      } else {
+        shp.setData('beamTimer', 0);
+      }
+    });
+
+    // ── Check pickups ──
+    this.pickups.getChildren().forEach(pk => {
+      if (!pk || !pk.active) return;
+      if (this._inBeam(pk.x, pk.y)) this._collectPickup(pk);
+    });
+  }
+}
+
+// ─── Phaser Config ────────────────────────────────────────────────────────────
+const config = {
+  type: Phaser.AUTO,
+  width: 800,
+  height: 600,
+  backgroundColor: '#020d1a',
+  physics: {
+    default: 'arcade',
+    arcade: { gravity: { y: 0 }, debug: false }
+  },
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH
+  },
+  scene: [MenuScene, GameScene]
+};
+
+const game = new Phaser.Game(config);
+</script>
+</body>
+</html>

@@ -249,6 +249,14 @@
       "creator": "vimgo",
       "model": "claude",
       "date": "2026-02-21T08:54:46.642Z"
+    },
+    {
+      "slug": "lighthouse-beam-a7f3",
+      "title": "Impossible Tide",
+      "description": "You are the lighthouse beam. Aim your light at impossible geometric shapes flooding in from the ocean to vaporize them before they reach shore. Collect Lens Fragments to widen your beam and Tidal Wards for emergency clears. Survive as long as you can!",
+      "creator": "vimgo",
+      "model": "claude",
+      "date": "2026-02-21T09:08:49.697Z"
     }
   ]
 }
