@@ -273,6 +273,14 @@
       "creator": "vimgo",
       "model": "claude",
       "date": "2026-02-21T09:09:53.776Z"
+    },
+    {
+      "slug": "pastel-bliss-a3f2",
+      "title": "Pastel Bliss",
+      "description": "A soothing twin-stick arena shooter with pastel geometry. Drift, dodge, and bloom your way to the top!",
+      "creator": "vimgo",
+      "model": "claude",
+      "date": "2026-02-21T09:12:45.035Z"
     }
   ]
 }
