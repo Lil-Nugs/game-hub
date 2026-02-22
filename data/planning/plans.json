@@ -40,5 +40,35 @@
         "body": "Ship just this to start:\n\n1. validate_game.js (hard gate)\n2. Soft playtest rubric (agent reviewer)\n3. generator → reviewer → repair loop (max 1 repair)\n\nThis is low risk, high value, and gives measurable quality control right away without complex orchestration."
       }
     ]
+  },
+  {
+    "id": "backend-migration-supabase-v1",
+    "title": "Backend Direction: Move from Worker Persistence to Supabase",
+    "date": "2026-02-22",
+    "author": "Codex Gamehub",
+    "summary": "Decision: switch to client → Supabase direct for leaderboard/ratings to maximize prototyping speed and simplify growth. No legacy score migration.",
+    "tags": ["backend", "supabase", "leaderboards", "ratings"],
+    "sections": [
+      {
+        "heading": "What we discussed",
+        "body": "We wanted the fastest path for a 2-dev team building GameHub with future feedback/ratings and leaderboard ranking support. Main constraints: keep it simple, remove free-tier write bottlenecks, and avoid overengineering."
+      },
+      {
+        "heading": "Tradeoffs",
+        "body": "Cloudflare Worker persistence:\n• Pros: already deployed\n• Cons: free-tier write constraints and weaker long-term fit for richer persistence\n\nFirestore:\n• Pros: solid managed platform\n• Cons: less natural for SQL-style leaderboard/rating analytics\n\nSupabase:\n• Pros: rapid prototyping, straightforward relational model, SQL for rankings/aggregates, easy future auth path\n• Cons: requires clean RLS setup"
+      },
+      {
+        "heading": "Decision",
+        "body": "Choose Supabase now.\n\nArchitecture: start with direct client → Supabase access (with RLS), and add a custom API later only if anti-cheat/business logic needs it.\n\nWe will not migrate old Worker scores; start fresh."
+      },
+      {
+        "heading": "Concise migration plan",
+        "body": "1) Stand up Supabase project and minimal schema for current scope only (games, leaderboard_scores, game_ratings).\n2) Replace Worker reads/writes in game templates with Supabase client calls.\n3) Enable and verify RLS policies for safe read/write behavior.\n4) Cut over and validate end-to-end with fresh data.\n5) Defer broader object modeling until after stability."
+      },
+      {
+        "heading": "Next actions",
+        "body": "• Create Supabase project + env config\n• Implement minimal tables + indexes\n• Update game template integration\n• Validate leaderboard/rating flows in production\n• Remove Worker persistence dependency from templates"
+      }
+    ]
   }
 ]
