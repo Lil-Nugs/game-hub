@@ -26,9 +26,9 @@ input{width:100%;padding:8px;font-size:18px;margin:8px 0;background:#0e1124;colo
 <a href="../../index.html" style="position:fixed;top:8px;left:8px;z-index:30;color:#9cf;text-decoration:none;background:#12152a;padding:3px 8px;border:1px solid #88e;font-family:VT323;font-size:18px">← Hub</a>
 <div id="ui-overlay"><div class="panel" id="panel"></div></div>
 <div id="atk" class="hudBtn">⚔️</div><div id="roll" class="hudBtn">↯</div>
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 const GAME_ID='isla-ng-anino-e73e';
-const LEADERBOARD_API='https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API=window.GAME_HUB_API_BASE;
 async function submitScore(playerName, score){try{const r=await fetch(`${LEADERBOARD_API}/api/scores`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gameId:GAME_ID,playerName,score})});return await r.json()}catch{return null}}
 async function getLeaderboard(limit=10){try{const r=await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);const d=await r.json();return d.scores||[]}catch{return[]}}
 const audioCtx = new (window.AudioContext||window.webkitAudioContext)();

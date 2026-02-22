@@ -61,7 +61,7 @@
     </div>
   </div>
 
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 // Design notes:
 // Genre: Endless lane-runner survival.
 // Core mechanic: Switch between 3 lanes and jump over low hazards while dodging blockers.
@@ -71,7 +71,7 @@
 // Score: timeAlive*10 + bonus dream shards.
 
 const GAME_ID = 'dream-collapse-runner-b62f';
-const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API = window.GAME_HUB_API_BASE;
 
 async function submitScore(playerName, score) {
   try {

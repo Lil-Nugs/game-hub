@@ -79,7 +79,7 @@
   <button class="ui-btn replay" id="replay-btn">Enter the Dream Again</button>
 </div>
 
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 /*
 =============================================================
   DESIGN HEADER — Dream Escape
@@ -125,7 +125,7 @@
 */
 
 const GAME_ID   = 'dream-escape-7f3a';
-const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API = window.GAME_HUB_API_BASE;
 const GAME_W    = 800;
 const GAME_H    = 600;
 const LANES     = [175, 305, 435];  // Y centers for lanes 0 (top), 1 (mid), 2 (bot)

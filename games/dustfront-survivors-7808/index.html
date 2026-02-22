@@ -24,9 +24,9 @@ input{width:100%;padding:8px;background:#120b07;color:#fff;border:1px solid #6d4
 <a href="../../index.html" style="position:fixed;top:8px;left:8px;z-index:30;color:#ffdca7;text-decoration:none;border:1px solid #d9a45c;padding:2px 8px;background:#1f130b;font-family:Rye;font-size:16px">← Hub</a>
 <div id="stick"></div>
 <div id="overlay"><div class="panel" id="panel"></div></div>
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 const GAME_ID='dustfront-survivors-7808';
-const LEADERBOARD_API='https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API=window.GAME_HUB_API_BASE;
 async function submitScore(playerName,score){try{const r=await fetch(`${LEADERBOARD_API}/api/scores`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gameId:GAME_ID,playerName,score})});return await r.json()}catch{return null}}
 async function getLeaderboard(limit=10){try{const r=await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);const d=await r.json();return d.scores||[]}catch{return[]}}
 const audioCtx=new (window.AudioContext||window.webkitAudioContext)();

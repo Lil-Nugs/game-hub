@@ -56,9 +56,9 @@ input[type="text"]{font-family:'Nunito',sans-serif;font-size:16px;font-weight:70
   <div id="ui-overlay"><div id="ui-content"></div></div>
   <div id="battle-screen" style="display:none"></div>
 </div>
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 const GAME_ID='jjk-battle-d12b';
-const LEADERBOARD_API='https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API=window.GAME_HUB_API_BASE;
 async function submitScore(n,s){try{const r=await fetch(`${LEADERBOARD_API}/api/scores`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gameId:GAME_ID,playerName:n,score:s})});return await r.json()}catch(e){return null}}
 async function getLeaderboard(l=10){try{const r=await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${l}`);const d=await r.json();return d.scores||[]}catch(e){return[]}}
 

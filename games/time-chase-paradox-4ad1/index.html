@@ -50,9 +50,9 @@
       <div id="leaderboard"></div>
     </div>
   </div>
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 const GAME_ID = 'time-chase-paradox-4ad1';
-const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API = window.GAME_HUB_API_BASE;
 
 /* DESIGN HEADER
 Controls: WASD/Arrow keys to move, hold/touch to dash toward pointer (high risk), mobile drag supported.

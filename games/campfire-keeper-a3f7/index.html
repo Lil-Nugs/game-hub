@@ -57,7 +57,7 @@
   <button id="replay-btn">🔥 Play Again</button>
 </div>
 
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 /*
  * =====================================================
  * DESIGN HEADER — Campfire Keeper
@@ -88,7 +88,7 @@
  */
 
 const GAME_ID = 'campfire-keeper-a3f7';
-const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API = window.GAME_HUB_API_BASE;
 
 // ---- Audio ----
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();

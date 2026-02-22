@@ -68,7 +68,7 @@
   </div>
 </div>
 
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 /*
  * ═══════════════════════════════════════════════════════════════
  * DESIGN HEADER – Pastel Bliss
@@ -98,7 +98,7 @@
  */
 
 const GAME_ID       = 'pastel-bliss-a3f2';
-const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API = window.GAME_HUB_API_BASE;
 
 // ─── AUDIO ────────────────────────────────────────────────────
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();

@@ -96,7 +96,7 @@
     </div>
   </div>
 
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 // Design decisions:
 // Genre: Flappy-style endless dodger.
 // Core mechanic: Tap/Space/Click to flap upward while gravity pulls down.
@@ -108,7 +108,7 @@
 // Score formula: floor(timeAlive * 10 + dodgeBonus).
 
 const GAME_ID = 'tax-flap-panic-c4d2';
-const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API = window.GAME_HUB_API_BASE;
 
 async function submitScore(playerName, score) {
   try {

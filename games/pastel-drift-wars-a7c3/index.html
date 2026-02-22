@@ -48,7 +48,7 @@
     </div>
   </div>
 
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 // Design:
 // - Genre: soothing arena survivor (Geometry Wars inspired)
 // - Core mechanic: drift through a calm pastel field, auto-pulse projectiles, dodge incoming shapes
@@ -58,7 +58,7 @@
 // - Score: time alive * 10 + enemy pops * 12 + calm-orb pickups * 25
 
 const GAME_ID = 'pastel-drift-wars-a7c3';
-const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API = window.GAME_HUB_API_BASE;
 
 async function submitScore(playerName, score) {
   try {

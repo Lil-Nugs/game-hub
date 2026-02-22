@@ -47,9 +47,9 @@ input[type="text"]{font-family:'Press Start 2P',monospace;font-size:10px;padding
   <div class="tb" data-t="sell"><span class="te">💰</span>Sell<br><span class="tc">50%</span></div>
 </div>
 
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 const GAME_ID='tower-siege-236e';
-const LEADERBOARD_API='https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API=window.GAME_HUB_API_BASE;
 async function submitScore(n,s){try{const r=await fetch(`${LEADERBOARD_API}/api/scores`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gameId:GAME_ID,playerName:n,score:s})});return await r.json()}catch(e){return null}}
 async function getLeaderboard(l=10){try{const r=await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${l}`);const d=await r.json();return d.scores||[]}catch(e){return[]}}
 

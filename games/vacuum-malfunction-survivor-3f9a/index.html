@@ -77,7 +77,7 @@
     </div>
   </div>
 
-  <script>
+  <script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
   // DESIGN HEADER
   // Controls: WASD/Arrow keys for thrust movement, mouse/touch hold to steer toward pointer.
   // Core loop/death: Survive in endless arena as a glitched robot vacuum; die on 3rd hit from hazards.
@@ -88,7 +88,7 @@
   // Visual/audio: Ocean-tech palette with Rajdhani font, moving tile floor + dust motes; synth beeps for collect/boost/hit/death.
 
   const GAME_ID = 'vacuum-malfunction-survivor-3f9a';
-  const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+  const LEADERBOARD_API = window.GAME_HUB_API_BASE;
 
   const overlay = document.getElementById('ui-overlay');
   const finalScoreEl = document.getElementById('final-score');

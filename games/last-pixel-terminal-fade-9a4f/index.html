@@ -78,7 +78,7 @@
     </div>
   </div>
 
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 /*
 DESIGN HEADER
 - Controls: Arrow/WASD move the last pixel; touch/drag anywhere to steer toward pointer.
@@ -91,7 +91,7 @@ DESIGN HEADER
 - Audio: soft triangle pickups, buzzing sawtooth hits, descending death tones.
 */
 const GAME_ID = 'last-pixel-terminal-fade-9a4f';
-const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API = window.GAME_HUB_API_BASE;
 
 async function submitScore(playerName, score) {
   try {

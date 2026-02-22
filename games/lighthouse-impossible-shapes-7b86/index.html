@@ -79,7 +79,7 @@
     </div>
   </div>
 
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 // DESIGN NOTES
 // Genre: Arena survival / directional defense.
 // Core mechanic: You are a rotating lighthouse beam. Rotate to burn impossible shapes before they reach the lighthouse core.
@@ -91,7 +91,7 @@
 // Score formula: floor(timeAlive*10 + bonusFromDestroyedShapes).
 
 const GAME_ID = 'lighthouse-impossible-shapes-7b86';
-const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API = window.GAME_HUB_API_BASE;
 
 async function submitScore(playerName, score) {
   try {

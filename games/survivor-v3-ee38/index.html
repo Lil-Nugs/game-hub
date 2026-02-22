@@ -18,9 +18,9 @@ input{width:100%;padding:10px;background:#0e1418;border:1px solid #456;color:#ff
 <a href='../../index.html' style='position:fixed;top:8px;left:8px;z-index:30;color:#cffff6;text-decoration:none;padding:2px 8px;border:1px solid #5ee6c8;background:#121a21;font:16px Oxanium'>← Hub</a>
 <div id='stick'></div>
 <div id='overlay'><div id='panel' class='panel'></div></div>
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 const GAME_ID='survivor-v3-ee38';
-const LEADERBOARD_API='https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API=window.GAME_HUB_API_BASE;
 async function submitScore(playerName,score){try{const r=await fetch(`${LEADERBOARD_API}/api/scores`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gameId:GAME_ID,playerName,score})});return await r.json()}catch{return null}}
 async function getLeaderboard(limit=10){try{const r=await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);const d=await r.json();return d.scores||[]}catch{return[]}}
 const audioCtx=new (window.AudioContext||window.webkitAudioContext)();

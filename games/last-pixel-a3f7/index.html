@@ -82,7 +82,7 @@
   </div>
 </div>
 
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 // ============================================================
 // DESIGN HEADER
 // Game: Last Pixel
@@ -112,7 +112,7 @@
 // ============================================================
 
 const GAME_ID = 'last-pixel-a3f7';
-const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API = window.GAME_HUB_API_BASE;
 
 // --- Web Audio ---
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();

@@ -95,7 +95,7 @@
   </div>
 </div>
 
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 /*
  * DESIGN HEADER
  * Title: LOADING: The Game
@@ -144,7 +144,7 @@
  */
 
 const GAME_ID = 'loading-bar-rage-c7d3';
-const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API = window.GAME_HUB_API_BASE;
 
 // ─── Audio ───────────────────────────────────────────────────────────────────
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();

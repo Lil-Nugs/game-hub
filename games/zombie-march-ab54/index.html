@@ -26,11 +26,11 @@ input[type="text"]{font-family:'Nunito',sans-serif;font-size:16px;font-weight:70
 <a href="../../index.html" style="position:fixed;top:10px;left:10px;z-index:100;font-size:12px;color:#fff;text-decoration:none;background:rgba(255,105,180,0.6);padding:4px 12px;border-radius:20px;font-family:sans-serif;">← Hub</a>
 <canvas id="c"></canvas>
 <div id="ui-overlay"><div id="ui-content"></div></div>
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 // roundRect polyfill
 if(!CanvasRenderingContext2D.prototype.roundRect){CanvasRenderingContext2D.prototype.roundRect=function(x,y,w,h,r){r=typeof r==="number"?r:0;this.moveTo(x+r,y);this.lineTo(x+w-r,y);this.quadraticCurveTo(x+w,y,x+w,y+r);this.lineTo(x+w,y+h-r);this.quadraticCurveTo(x+w,y+h,x+w-r,y+h);this.lineTo(x+r,y+h);this.quadraticCurveTo(x,y+h,x,y+h-r);this.lineTo(x,y+r);this.quadraticCurveTo(x,y,x+r,y);return this}}
 const GAME_ID='zombie-march-ab54';
-const LEADERBOARD_API='https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API=window.GAME_HUB_API_BASE;
 async function submitScore(n,s){try{const r=await fetch(`${LEADERBOARD_API}/api/scores`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gameId:GAME_ID,playerName:n,score:s})});return await r.json()}catch(e){return null}}
 async function getLeaderboard(l=10){try{const r=await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${l}`);const d=await r.json();return d.scores||[]}catch(e){return[]}}
 

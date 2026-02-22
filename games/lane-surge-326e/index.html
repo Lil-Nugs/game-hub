@@ -14,9 +14,9 @@ input{width:100%;padding:8px;background:#0c1022;color:#fff;border:1px solid #445
 </style></head><body>
 <div id='ui'><div class='panel' id='panel'></div></div>
 <a href='../../index.html' style='position:fixed;top:8px;left:8px;z-index:10;color:#9df;text-decoration:none;border:1px solid #6bf;padding:2px 6px;background:#11142a;font:20px VT323'>← Hub</a>
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 const GAME_ID='lane-surge-326e';
-const LEADERBOARD_API='https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API=window.GAME_HUB_API_BASE;
 async function submitScore(playerName, score){try{const r=await fetch(`${LEADERBOARD_API}/api/scores`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gameId:GAME_ID,playerName,score})});return await r.json()}catch{return null}}
 async function getLeaderboard(limit=10){try{const r=await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);const d=await r.json();return d.scores||[]}catch{return[]}}
 

@@ -46,7 +46,7 @@
     </div>
   </div>
 
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 // Design: Vampire Survivors-like auto-shooter in haunted grocery aisles.
 // Genre: Arena survivor. Core loop: kite ghosts, auto-fire produce shots, collect coupons.
 // Death: HP reaches 0 from ghost collisions. Difficulty ramps over 120s by spawn rate/speed/elite chance.
@@ -54,7 +54,7 @@
 // Score: floor(timeAlive*10 + couponBonus + killBonus).
 
 const GAME_ID = 'haunted-grocery-survivor-e9f5';
-const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API = window.GAME_HUB_API_BASE;
 
 async function submitScore(playerName, score) {
   try {

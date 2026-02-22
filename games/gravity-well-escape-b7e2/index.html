@@ -57,7 +57,7 @@
     </div>
   </div>
 
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 // Design notes:
 // - Genre: arena survival/control game.
 // - Core mechanic: move a gravity well to keep escape pods from crossing the boundary.
@@ -67,7 +67,7 @@
 // - Score: timeAlive*10 + rescue bonuses.
 
 const GAME_ID = 'gravity-well-escape-b7e2';
-const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API = window.GAME_HUB_API_BASE;
 
 async function submitScore(playerName, score) {
   try {

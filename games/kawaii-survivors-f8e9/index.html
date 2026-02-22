@@ -35,9 +35,9 @@ input[type="text"]{font-family:'Silkscreen',monospace;font-size:12px;padding:10p
 <canvas id="c"></canvas>
 <div id="ui-overlay"><div id="ui-content"></div></div>
 <div id="mobile-stick"></div>
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 const GAME_ID='kawaii-survivors-f8e9';
-const LB_API='https://game-leaderboard.mattgames.workers.dev';
+const LB_API=window.GAME_HUB_API_BASE;
 async function submitScore(n,s){try{return(await(await fetch(`${LB_API}/api/scores`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gameId:GAME_ID,playerName:n,score:s})})).json())}catch(e){return null}}
 async function getLeaderboard(l=10){try{return(await(await fetch(`${LB_API}/api/scores?gameId=${GAME_ID}&limit=${l}`)).json()).scores||[]}catch(e){return[]}}
 

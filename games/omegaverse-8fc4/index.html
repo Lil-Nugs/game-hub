@@ -15,9 +15,9 @@ button{margin-top:8px;padding:8px 12px;background:#3a1e2f;border:1px solid #ff7a
 </style></head><body>
 <a href="../../index.html" style="position:fixed;top:8px;left:8px;z-index:30;color:#ffd6e7;text-decoration:none;background:#20111a;padding:3px 8px;border:1px solid #ff7aa8;font-family:Silkscreen;font-size:14px">← Hub</a>
 <div id="ui-overlay"><div class="panel" id="panel"></div></div>
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 const GAME_ID='omegaverse-8fc4';
-const LEADERBOARD_API='https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API=window.GAME_HUB_API_BASE;
 async function submitScore(playerName, score){try{const r=await fetch(`${LEADERBOARD_API}/api/scores`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gameId:GAME_ID,playerName,score})});return await r.json()}catch{return null}}
 async function getLeaderboard(limit=10){try{const r=await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);const d=await r.json();return d.scores||[]}catch{return[]}}
 

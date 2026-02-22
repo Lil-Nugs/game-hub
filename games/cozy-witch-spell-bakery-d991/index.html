@@ -48,7 +48,7 @@
     </div>
   </div>
 
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 /* DESIGN HEADER
 Controls: WASD/Arrow keys to move, mouse/touch drag to steer.
 Loop/Death: top-down cozy survivor; bake spell pastries at glowing ovens while dodging hazards; collision with hazard ends run.
@@ -59,7 +59,7 @@ Difficulty: smooth curve via easeInOut over 120s scaling spawn rate, hazard spee
 Visual/Audio: candy-pastel witch bakery, Fredoka font, floating sparkles; soft chimes for collects, warm pops for bakes, crackle for death.
 */
 const GAME_ID = 'cozy-witch-spell-bakery-d991';
-const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API = window.GAME_HUB_API_BASE;
 
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 function playSound(type, freq, duration, volume=0.2) {

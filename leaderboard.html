@@ -221,12 +221,18 @@
   <div id="panels"></div>
 </div>
 
+<script src="shared/supabase-config.js"></script>
+<script src="shared/supabase-client.js"></script>
 <script>
-const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
-
 (async () => {
   const tabsEl = document.getElementById('tabs');
   const panelsEl = document.getElementById('panels');
+  const supabase = window.GameHubSupabase;
+
+  if (!supabase || !supabase.isConfigured()) {
+    panelsEl.innerHTML = '<div class="empty-lb"><span>⚠️</span>Supabase config is missing.</div>';
+    return;
+  }
 
   // Load games list
   let games = [];
@@ -247,11 +253,34 @@ const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
   // Only show active (non-archived) games; sort newest first
   games = games.filter(g => !g.archived).sort((a, b) => new Date(b.date) - new Date(a.date));
 
-  // Create tabs and panels
+  // Create global tab + panel
+  const globalTab = document.createElement('button');
+  globalTab.className = 'game-tab active';
+  globalTab.textContent = 'Global';
+  globalTab.dataset.slug = '__global__';
+  globalTab.addEventListener('click', () => switchTab('__global__'));
+  tabsEl.appendChild(globalTab);
+
+  const globalPanel = document.createElement('div');
+  globalPanel.className = 'lb-panel active';
+  globalPanel.id = 'panel-__global__';
+  globalPanel.innerHTML = `
+    <div class="lb-header">
+      <div>
+        <h2>Global Top Scores</h2>
+        <p class="desc-text">Highest scores across all active games.</p>
+      </div>
+      <span class="play-link">All Games</span>
+    </div>
+    <div class="loading"><div class="spinner"></div><br>Loading scores...</div>
+  `;
+  panelsEl.appendChild(globalPanel);
+
+  // Create game tabs and panels
   games.forEach((game, i) => {
     // Tab
     const tab = document.createElement('button');
-    tab.className = 'game-tab' + (i === 0 ? ' active' : '');
+    tab.className = 'game-tab';
     tab.textContent = game.title;
     tab.dataset.slug = game.slug;
     tab.addEventListener('click', () => switchTab(game.slug));
@@ -259,7 +288,7 @@ const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
 
     // Panel
     const panel = document.createElement('div');
-    panel.className = 'lb-panel' + (i === 0 ? ' active' : '');
+    panel.className = 'lb-panel';
     panel.id = 'panel-' + game.slug;
     panel.innerHTML = `
       <div class="lb-header">
@@ -274,15 +303,21 @@ const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
     panelsEl.appendChild(panel);
   });
 
-  // Load first game's leaderboard
-  loadLeaderboard(games[0].slug);
+  loadGlobalLeaderboard();
 
   function switchTab(slug) {
     document.querySelectorAll('.game-tab').forEach(t => t.classList.toggle('active', t.dataset.slug === slug));
     document.querySelectorAll('.lb-panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + slug));
     // Load if not already loaded
     const panel = document.getElementById('panel-' + slug);
-    if (panel.querySelector('.loading')) loadLeaderboard(slug);
+    if (!panel || !panel.querySelector('.loading')) {
+      return;
+    }
+    if (slug === '__global__') {
+      loadGlobalLeaderboard();
+      return;
+    }
+    loadLeaderboard(slug);
   }
 
   async function loadLeaderboard(slug) {
@@ -290,9 +325,7 @@ const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
     const contentArea = panel.querySelector('.loading') || panel.querySelector('.lb-content');
     
     try {
-      const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${slug}&limit=25`);
-      const data = await res.json();
-      const scores = data.scores || [];
+      const scores = await supabase.getLeaderboard(slug, 25);
 
       if (scores.length === 0) {
         if (contentArea) contentArea.outerHTML = '<div class="empty-lb"><span>👻</span>No scores yet — be the first to play!</div>';
@@ -306,7 +339,7 @@ const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
         return `<tr>
           <td class="rank ${rankClass}">${medal}${i + 1}</td>
           <td class="player-name">${escHtml(s.playerName)}</td>
-          <td>${s.score.toLocaleString()}</td>
+          <td>${Number(s.score || 0).toLocaleString()}</td>
         </tr>`;
       }).join('');
 
@@ -318,6 +351,41 @@ const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
       if (contentArea) contentArea.outerHTML = html;
     } catch (e) {
       if (contentArea) contentArea.outerHTML = '<div class="empty-lb"><span>⚠️</span>Couldn\'t load leaderboard. Try again later.</div>';
+    }
+  }
+
+  async function loadGlobalLeaderboard() {
+    const panel = document.getElementById('panel-__global__');
+    const contentArea = panel.querySelector('.loading') || panel.querySelector('.lb-content');
+
+    try {
+      const scores = await supabase.getGlobalLeaderboard(50);
+
+      if (!scores.length) {
+        if (contentArea) contentArea.outerHTML = '<div class="empty-lb"><span>👻</span>No scores yet — start a run and claim #1.</div>';
+        return;
+      }
+
+      const medals = ['🥇', '🥈', '🥉'];
+      const rows = scores.map((s, i) => {
+        const rankClass = i < 3 ? `rank-${i + 1}` : 'rank-other';
+        const medal = i < 3 ? `<span class="medal">${medals[i]}</span>` : '';
+        return `<tr>
+          <td class="rank ${rankClass}">${medal}${i + 1}</td>
+          <td class="player-name">${escHtml(s.playerName)}</td>
+          <td class="player-name">${escHtml(s.gameTitle || s.gameSlug)}</td>
+          <td>${Number(s.score || 0).toLocaleString()}</td>
+        </tr>`;
+      }).join('');
+
+      const html = `<div class="lb-content"><table class="lb-table">
+        <thead><tr><th>Rank</th><th>Player</th><th>Game</th><th>Score</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+
+      if (contentArea) contentArea.outerHTML = html;
+    } catch (e) {
+      if (contentArea) contentArea.outerHTML = '<div class="empty-lb"><span>⚠️</span>Couldn\'t load global leaderboard.</div>';
     }
   }
 })();

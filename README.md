@@ -38,7 +38,10 @@ After a batch of games is generated, we analyze patterns and feed improvements b
 | `leaderboard.html` | Top scores across all active games |
 | `games.json` | Game manifest — title, slug, creator, model, date, archived flag |
 | `games/{slug}/index.html` | Individual game files |
-| `worker/` | Cloudflare Worker source for the leaderboard API |
+| `shared/` | Shared frontend Supabase config/client utilities |
+| `supabase/migrations/` | SQL schema and policy migrations |
+| `scripts/supabase/` | Admin sync scripts (service role only) |
+| `worker/` | Legacy Cloudflare Worker backend (kept for reference) |
 
 ---
 
@@ -99,5 +102,59 @@ See `AGENTS.md` for the full game generation spec.
 
 - **Frontend**: Static HTML/CSS/JS on GitHub Pages
 - **Games**: Single-file HTML5 (Phaser 3 via CDN, Web Audio API)
-- **Leaderboard API**: Cloudflare Worker + KV storage
+- **Leaderboard + Ratings**: Supabase Postgres + RLS + PostgREST RPC
 - **Deploy**: Git push → GitHub Pages (no build step)
+
+---
+
+## Supabase Migration
+
+Supabase credentials live at:
+
+`~/.openclaw/credentials/supabase.json`
+
+Expected keys:
+
+- `url` (Supabase project URL)
+- `publishableKey` (frontend anon key)
+- `secretKey` (service role key for admin scripts only)
+- `dbUrl` (direct Postgres connection string)
+
+### Frontend key usage (GitHub Pages safe)
+
+- `shared/supabase-config.js` contains only `url` and `publishableKey`
+- `shared/supabase-client.js` provides shared frontend integration:
+  - Worker-compatible `/api/scores` shim for existing game code
+  - Per-game leaderboard reads/writes
+  - Global leaderboard query
+  - Rating upsert + summary helpers
+
+### Apply SQL migration
+
+```bash
+psql "$(jq -r '.dbUrl' ~/.openclaw/credentials/supabase.json)" \
+  -f supabase/migrations/20260222_000001_game_hub_schema.sql
+```
+
+### Sync `games.json` into Supabase `games` table
+
+```bash
+node scripts/supabase/sync-games-from-games-json.mjs
+```
+
+Dry-run:
+
+```bash
+node scripts/supabase/sync-games-from-games-json.mjs --dry-run
+```
+
+### Security checks
+
+Verify no `secretKey` value appears in client-delivered files:
+
+```bash
+SECRET_KEY="$(jq -r '.secretKey' ~/.openclaw/credentials/supabase.json)"
+rg -n --fixed-strings "$SECRET_KEY" index.html leaderboard.html games shared
+```
+
+`secretKey` must only be used in local admin workflows/scripts, never in shipped frontend assets.

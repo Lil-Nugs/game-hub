@@ -76,7 +76,7 @@
   </div>
 </div>
 
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 /* =====================================================================
    COZY WITCH CAFÉ — Vampire Survivors Structural Adaptation
    =====================================================================
@@ -111,7 +111,7 @@
    ===================================================================== */
 
 const GAME_ID = 'cozy-witch-cafe-b5c2';
-const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API = window.GAME_HUB_API_BASE;
 
 // ── Web Audio ──────────────────────────────────────────────────────────────
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();

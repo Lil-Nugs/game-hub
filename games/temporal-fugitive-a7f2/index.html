@@ -107,7 +107,7 @@
   <div id="phase-bar"><div id="phase-bar-fill"></div></div>
 </div>
 
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 /*
 === DESIGN HEADER ===
 GAME: Temporal Fugitive
@@ -147,7 +147,7 @@ AUDIO: Synth tones — sine/triangle for pickups, sawtooth for hits, distorted f
 */
 
 const GAME_ID = 'temporal-fugitive-a7f2';
-const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API = window.GAME_HUB_API_BASE;
 
 // ─── Audio ───────────────────────────────────────────────────────────────────
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();

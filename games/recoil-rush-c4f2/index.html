@@ -62,7 +62,7 @@
     <button id="play-again-btn">FLY AGAIN</button>
   </div>
 </div>
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 /*
  * DESIGN HEADER — Recoil Rush
  * ─────────────────────────────────────────────────────
@@ -100,7 +100,7 @@
  */
 
 const GAME_ID = 'recoil-rush-c4f2';
-const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API = window.GAME_HUB_API_BASE;
 
 // ── Audio ──────────────────────────────────────────────────────────────
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();

@@ -51,9 +51,9 @@
     </div>
   </div>
 
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 const GAME_ID = 'pressure-panic-7c1e';
-const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API = window.GAME_HUB_API_BASE;
 
 /* DESIGN HEADER
 Controls: hold/tap one button (space/mouse/touch) to thrust upward; release to fall.

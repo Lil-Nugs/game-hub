@@ -142,7 +142,7 @@ body {
   </div>
 </div>
 
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 // ============================================================
 // DESIGN HEADER
 // Title: Gravity Pull
@@ -168,7 +168,7 @@ body {
 // ============================================================
 
 const GAME_ID = 'gravity-pull-a3f9';
-const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API = window.GAME_HUB_API_BASE;
 
 // ---- Audio ----
 let audioCtx;

@@ -130,7 +130,7 @@
   <button id="replay-btn">🔁 TRY AGAIN</button>
 </div>
 
-<script>
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script><script>
 /*
  * ═══════════════════════════════════════════════════
  * DESIGN HEADER — "Don't Hold It"
@@ -185,7 +185,7 @@
  */
 
 const GAME_ID = 'dont-hold-it-e2b9';
-const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const LEADERBOARD_API = window.GAME_HUB_API_BASE;
 
 // ─── Audio ───────────────────────────────────────────────────────────────────
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
