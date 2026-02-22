@@ -328,5 +328,29 @@
     "creator": "codex",
     "date": "2026-02-22T16:25:32.232Z",
     "model": "codex"
+  },
+  {
+    "slug": "power-creep-b3a2",
+    "title": "Power Creep",
+    "description": "Collect Power Crystals to grow stronger — but each one slows you down. Balance raw power against mobility to survive endless enemy waves.",
+    "creator": "vimgo",
+    "model": "codex",
+    "date": "2026-02-22T09:29:20.057Z"
+  },
+  {
+    "slug": "stomp-blitz-7584",
+    "title": "STOMP BLITZ",
+    "description": "Neon cyberpunk auto-scrolling platformer — stomp enemies, collect star shards to unlock roguelite upgrades, combo for massive scores!",
+    "creator": "lilnug",
+    "model": "codex",
+    "date": "2026-02-22T09:26:40.972Z"
+  },
+  {
+    "slug": "skyline-stomp-roguelite",
+    "title": "Skyline Stomp Roguelite",
+    "description": "Tight platformer with stomp combat, pick-3 upgrades, touch controls, and global leaderboard.",
+    "creator": "Codex",
+    "model": "codex",
+    "date": "2026-02-22T09:24:25.438Z"
   }
 ]
