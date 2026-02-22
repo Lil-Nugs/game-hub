@@ -83,5 +83,51 @@
     ],
     "implementationStatus": "not-started",
     "taskTrackerStatus": "not-converted"
+  },
+  {
+    "id": "linear-mcp-integration-v1",
+    "title": "Linear MCP Integration Plan (v1)",
+    "date": "2026-02-21",
+    "author": "Codex Gamehub",
+    "summary": "MCP-native Linear integration for Discord-driven long-running work, agent routing lanes, and GameHub architecture planning with open governance questions for lil nug + vim.",
+    "tags": [
+      "linear",
+      "mcp",
+      "agents",
+      "planning",
+      "operations"
+    ],
+    "sections": [
+      {
+        "heading": "Context",
+        "body": "Goal: move operational work tracking to Linear via its hosted MCP server, while keeping strategic planning in GameHub planning pages. Starting assumption: zero setup."
+      },
+      {
+        "heading": "Captured Decisions",
+        "body": "• Start with one Linear workspace.\n• Explicit Discord requests can create tasks immediately (no second approval).\n• If agent wants to create tasks without explicit request, ask first.\n• Routing uses both team/project context and explicit labels.\n• Agents should manage most status movement.\n• No dedicated intake triage at v1."
+      },
+      {
+        "heading": "Workspace Schema (v1)",
+        "body": "Teams: GH-GEN (game generation), GH-CORE (architecture/platform), GH-OPS (automation/reliability).\n\nLabels:\n• source:discord | source:planning | source:automation\n• exec:agent | exec:human | exec:hybrid\n• agent:gamegen | agent:core | agent:ops\n• kind:epic | kind:task | kind:bug | kind:research\n\nIssue conventions: owner target, acceptance criteria, priority (P0-P3), automation allowed (yes/no)."
+      },
+      {
+        "heading": "Execution Flow",
+        "body": "Discord mention/request -> intake agent drafts structured issue -> Linear issue created via MCP -> confirmation message returns with link + route summary. Long-running work defaults to issue creation; one-shot chat help does not."
+      },
+      {
+        "heading": "MCP/Skill Operating Pattern",
+        "body": "Use a read-first, write-second workflow: clarify scope/team/priority, list/search/get context, then create/update in logical batches, then summarize blockers and next actions. Preferred endpoint: https://mcp.linear.app/mcp (streamable HTTP)."
+      },
+      {
+        "heading": "Further Discussion Needed (lil nug + vim)",
+        "body": "1) Should any issue types/labels require human signoff before Done?\n2) What exact status names should automation use in your workspace?\n3) At what volume should we introduce a dedicated triage queue/project?\n4) Autonomous task creation boundaries outside explicit asks."
+      },
+      {
+        "heading": "Initial Success Metrics",
+        "body": "Track intake-to-issue time, cycle time by lane, agent completion %, reopen rate, and architecture epic progress trend."
+      }
+    ],
+    "implementationStatus": "not-started",
+    "taskTrackerStatus": "not-converted"
   }
 ]
