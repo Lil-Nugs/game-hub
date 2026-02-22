@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Human Backlog — Game Hub Planning</title>
+  <link rel="stylesheet" href="assets/style.css">
+  <style>
+    .initiative-card {
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 10px;
+      padding: 1.1rem 1.3rem;
+      transition: border-color .15s;
+    }
+    .initiative-card:hover { border-color: var(--border); }
+    .initiative-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: .8rem;
+      margin-bottom: .4rem;
+    }
+    .initiative-label {
+      font-size: .68rem;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: .2rem;
+    }
+    .initiative-title {
+      font-weight: 600;
+      font-size: .97rem;
+      color: #fff;
+    }
+    .initiative-badges { display: flex; flex-wrap: wrap; gap: .3rem; flex-shrink: 0; }
+    .initiative-desc {
+      font-size: .85rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+      margin-bottom: .6rem;
+    }
+    .initiative-notes {
+      font-size: .8rem;
+      color: var(--text-dim);
+      background: var(--surface2);
+      border-radius: 6px;
+      padding: .5rem .7rem;
+      border-left: 2px solid var(--border);
+      font-style: italic;
+    }
+    .initiative-meta {
+      margin-top: .7rem;
+      font-size: .75rem;
+      color: var(--text-dim);
+      display: flex;
+      gap: .8rem;
+      flex-wrap: wrap;
+    }
+    .roadmap-ref {
+      font-size: .72rem;
+      background: var(--accent-bg);
+      color: var(--accent-lt);
+      border: 1px solid rgba(108,92,231,.2);
+      padding: .15rem .5rem;
+      border-radius: 4px;
+      text-decoration: none;
+    }
+    .roadmap-ref:hover { background: rgba(108,92,231,.2); }
+    .initiative-list { display: flex; flex-direction: column; gap: .8rem; }
+    .filter-group { display: flex; flex-direction: column; gap: .4rem; margin-bottom: 1.2rem; }
+    .filter-row { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+    .filter-label { font-size: .72rem; color: var(--text-dim); min-width: 60px; }
+    .not-agent-note {
+      background: rgba(245,158,11,.05);
+      border: 1px solid rgba(245,158,11,.15);
+      border-radius: 8px;
+      padding: .7rem 1rem;
+      font-size: .8rem;
+      color: var(--yellow);
+      margin-bottom: 1.5rem;
+    }
+  </style>
+</head>
+<body>
+
+<nav class="nav" id="planning-nav"></nav>
+
+<div class="strategy-banner">
+  <strong>Human planning only.</strong> This area is for human strategy and long-term direction. Agent execution tracking belongs in Linear, not here.
+</div>
+
+<main class="page">
+  <div class="page-header">
+    <h1>Human Backlog</h1>
+    <p>Strategic initiatives owned by humans. These are directions, not tickets.</p>
+  </div>
+
+  <div class="not-agent-note">
+    ⚠️ These are <strong>Human Initiatives</strong>, not tasks. They represent strategic intent and longer-horizon direction.
+    Day-to-day agent work lives in Linear. If you're an agent reading this — this isn't for you.
+  </div>
+
+  <div class="filter-group">
+    <div class="filter-row">
+      <span class="filter-label">Status</span>
+      <div id="filter-status" style="display:flex;flex-wrap:wrap;gap:.4rem"></div>
+    </div>
+    <div class="filter-row">
+      <span class="filter-label">Horizon</span>
+      <div id="filter-horizon" style="display:flex;flex-wrap:wrap;gap:.4rem"></div>
+    </div>
+    <div class="filter-row">
+      <span class="filter-label">Priority</span>
+      <div id="filter-priority" style="display:flex;flex-wrap:wrap;gap:.4rem"></div>
+    </div>
+  </div>
+
+  <div class="initiative-list" id="initiative-list">
+    <div class="empty">Loading…</div>
+  </div>
+</main>
+
+<script src="assets/nav.js"></script>
+<script>
+let allInitiatives = [];
+let roadmapItems = [];
+let activeStatus = 'all';
+let activeHorizon = 'all';
+let activePriority = 'all';
+
+function renderInitiatives() {
+  let filtered = allInitiatives;
+  if (activeStatus !== 'all')   filtered = filtered.filter(i => i.status === activeStatus);
+  if (activeHorizon !== 'all')  filtered = filtered.filter(i => i.horizon === activeHorizon);
+  if (activePriority !== 'all') filtered = filtered.filter(i => i.priority === activePriority);
+
+  const el = document.getElementById('initiative-list');
+  if (!filtered.length) {
+    el.innerHTML = '<div class="empty">No initiatives match this filter.</div>';
+    return;
+  }
+
+  el.innerHTML = filtered.map(item => {
+    const rm = roadmapItems.find(r => r.id === item.roadmapRef);
+    const rmLink = rm
+      ? `<a class="roadmap-ref" href="roadmap.html" title="${esc(rm.description)}">🗺️ ${esc(rm.title)}</a>`
+      : '';
+
+    return `
+      <div class="initiative-card">
+        <div class="initiative-label">Human Initiative</div>
+        <div class="initiative-header">
+          <div class="initiative-title">${esc(item.title)}</div>
+          <div class="initiative-badges">
+            ${priorityBadge(item.priority)}
+            ${statusBadge(item.status)}
+          </div>
+        </div>
+        <div class="initiative-desc">${esc(item.description)}</div>
+        ${item.notes ? `<div class="initiative-notes">${esc(item.notes)}</div>` : ''}
+        <div class="initiative-meta">
+          ${horizonBadge(item.horizon)}
+          <span>Owner: ${esc(item.owner)}</span>
+          ${rmLink}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function makeFilterBtns(containerId, values, allLabel, getCurrent, setCurrent) {
+  const el = document.getElementById(containerId);
+  const render = () => {
+    const cur = getCurrent();
+    el.innerHTML = [{ v: 'all', l: allLabel }, ...values].map(o =>
+      `<button class="filter-btn ${o.v === cur ? 'active' : ''}" data-val="${esc(o.v)}">${esc(o.l)}</button>`
+    ).join('');
+    el.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => { setCurrent(btn.dataset.val); render(); renderInitiatives(); });
+    });
+  };
+  render();
+}
+
+(async () => {
+  await initPlanning({ page: 'backlog' });
+
+  try {
+    const [ir, rr] = await Promise.all([
+      fetch('../../data/planning/human-backlog.json'),
+      fetch('../../data/planning/roadmap.json'),
+    ]);
+    allInitiatives = await ir.json();
+    roadmapItems = await rr.json();
+  } catch (_) {}
+
+  // Sort: active first, then by priority
+  const priorityOrder = { high: 0, medium: 1, low: 2 };
+  const statusOrder = { active: 0, parked: 1, done: 2 };
+  allInitiatives.sort((a, b) =>
+    (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9) ||
+    (priorityOrder[a.priority] ?? 9) - (priorityOrder[b.priority] ?? 9)
+  );
+
+  makeFilterBtns('filter-status',
+    ['active','parked','done'].map(s => ({ v: s, l: s.charAt(0).toUpperCase() + s.slice(1) })),
+    'All', () => activeStatus, v => { activeStatus = v; });
+
+  makeFilterBtns('filter-horizon',
+    [{ v: 'short', l: 'Short-term' }, { v: 'mid', l: 'Mid-term' }, { v: 'long', l: 'Long-term' }],
+    'All', () => activeHorizon, v => { activeHorizon = v; });
+
+  makeFilterBtns('filter-priority',
+    ['high','medium','low'].map(p => ({ v: p, l: p.charAt(0).toUpperCase() + p.slice(1) })),
+    'All', () => activePriority, v => { activePriority = v; });
+
+  renderInitiatives();
+})();
+</script>
+</body>
+</html>

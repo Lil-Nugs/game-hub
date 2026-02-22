@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Planning — Game Hub</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<nav class="nav" id="planning-nav"></nav>
+
+<div class="strategy-banner">
+  <strong>Human planning only.</strong> This area is for human strategy and long-term direction. Agent execution tracking belongs in Linear, not here.
+</div>
+
+<main class="page">
+  <div class="page-header">
+    <h1>Project Overview</h1>
+    <p>Game Hub planning — where we track what we're doing and why.</p>
+  </div>
+
+  <div class="focus-card">
+    <div class="focus-label">Current Focus</div>
+    <div class="focus-text" id="current-focus">Loading…</div>
+  </div>
+
+  <div class="quick-links">
+    <a class="quick-link" href="roadmap.html">
+      <span class="quick-link-icon">🗺️</span>
+      <div class="quick-link-body">
+        <span class="quick-link-title">Roadmap</span>
+        <span class="quick-link-desc">Milestones · Now / Next / Later</span>
+      </div>
+    </a>
+    <a class="quick-link" href="decisions.html">
+      <span class="quick-link-icon">⚖️</span>
+      <div class="quick-link-body">
+        <span class="quick-link-title">Decision Log</span>
+        <span class="quick-link-desc">What we decided and why</span>
+      </div>
+    </a>
+    <a class="quick-link" href="human-backlog.html">
+      <span class="quick-link-icon">🎯</span>
+      <div class="quick-link-body">
+        <span class="quick-link-title">Human Backlog</span>
+        <span class="quick-link-desc">Strategic initiatives · humans only</span>
+      </div>
+    </a>
+    <a class="quick-link" href="../../index.html">
+      <span class="quick-link-icon">🎮</span>
+      <div class="quick-link-body">
+        <span class="quick-link-title">Game Hub</span>
+        <span class="quick-link-desc">Back to the main site</span>
+      </div>
+    </a>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Active Now</div>
+    <div class="card-grid" id="active-now">
+      <div class="empty">Loading…</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Recent Decisions</div>
+    <div id="recent-decisions">
+      <div class="empty">Loading…</div>
+    </div>
+  </div>
+</main>
+
+<script src="assets/nav.js"></script>
+<script>
+(async () => {
+  const meta = await initPlanning({ page: 'overview' });
+
+  if (meta) {
+    document.getElementById('current-focus').textContent = meta.currentFocus;
+  }
+
+  // Load roadmap — show active items
+  let roadmap = [];
+  try {
+    const r = await fetch('../../data/planning/roadmap.json');
+    roadmap = await r.json();
+  } catch (_) {}
+
+  const nowActive = roadmap.filter(m => m.lane === 'now' && m.status !== 'done');
+  const nowEl = document.getElementById('active-now');
+  if (nowActive.length) {
+    nowEl.innerHTML = nowActive.map(m => `
+      <div class="card">
+        <div class="card-title">${esc(m.title)}</div>
+        <div class="card-desc">${esc(m.description)}</div>
+        <div class="card-meta">
+          ${statusBadge(m.status)}
+          <span>Owner: ${esc(m.owner)}</span>
+        </div>
+      </div>
+    `).join('');
+  } else {
+    nowEl.innerHTML = '<div class="empty">Nothing active right now.</div>';
+  }
+
+  // Load decisions — show most recent 3
+  let decisions = [];
+  try {
+    const d = await fetch('../../data/planning/decisions.json');
+    decisions = await d.json();
+  } catch (_) {}
+
+  decisions.sort((a, b) => b.date.localeCompare(a.date));
+  const recent = decisions.slice(0, 3);
+  const decEl = document.getElementById('recent-decisions');
+  if (recent.length) {
+    decEl.innerHTML = recent.map(d => `
+      <div class="decision">
+        <div class="decision-date">${esc(d.date)}</div>
+        <div class="decision-title">${esc(d.decision)}</div>
+        <div class="decision-body">
+          <dt>Rationale</dt>
+          <dd>${esc(d.rationale)}</dd>
+        </div>
+      </div>
+    `).join('');
+  } else {
+    decEl.innerHTML = '<div class="empty">No decisions logged yet.</div>';
+  }
+})();
+</script>
+</body>
+</html>

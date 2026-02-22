@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Roadmap — Game Hub Planning</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<nav class="nav" id="planning-nav"></nav>
+
+<div class="strategy-banner">
+  <strong>Human planning only.</strong> This area is for human strategy and long-term direction. Agent execution tracking belongs in Linear, not here.
+</div>
+
+<main class="page">
+  <div class="page-header">
+    <h1>Roadmap</h1>
+    <p>Where we're going — milestones broken into Now, Next, and Later horizons.</p>
+  </div>
+
+  <div class="filters" id="filters"></div>
+
+  <div class="lane-grid" id="lane-grid">
+    <div class="lane lane-now">
+      <div class="lane-header">🟢 Now</div>
+      <div id="lane-now"><div class="empty">Loading…</div></div>
+    </div>
+    <div class="lane lane-next">
+      <div class="lane-header">🟡 Next</div>
+      <div id="lane-next"><div class="empty">Loading…</div></div>
+    </div>
+    <div class="lane lane-later">
+      <div class="lane-header">⬜ Later</div>
+      <div id="lane-later"><div class="empty">Loading…</div></div>
+    </div>
+  </div>
+</main>
+
+<script src="assets/nav.js"></script>
+<script>
+let allItems = [];
+let activeStatus = 'all';
+
+function renderLanes() {
+  const filtered = activeStatus === 'all'
+    ? allItems
+    : allItems.filter(m => m.status === activeStatus);
+
+  ['now', 'next', 'later'].forEach(lane => {
+    const items = filtered.filter(m => m.lane === lane);
+    const el = document.getElementById(`lane-${lane}`);
+    if (!items.length) {
+      el.innerHTML = `<div class="empty" style="padding:1rem 0;font-size:.82rem">Nothing here</div>`;
+      return;
+    }
+    el.innerHTML = items.map(m => `
+      <div class="card">
+        <div class="card-title">${esc(m.title)}</div>
+        <div class="card-desc">${esc(m.description)}</div>
+        <div class="card-meta">
+          ${statusBadge(m.status)}
+          <span>Owner: ${esc(m.owner)}</span>
+        </div>
+      </div>
+    `).join('');
+  });
+}
+
+(async () => {
+  await initPlanning({ page: 'roadmap' });
+
+  try {
+    const r = await fetch('../../data/planning/roadmap.json');
+    allItems = await r.json();
+  } catch (_) {}
+
+  const statuses = [...new Set(allItems.map(m => m.status))].sort();
+  buildFilters('filters',
+    statuses.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) })),
+    'All Statuses',
+    val => { activeStatus = val; renderLanes(); }
+  );
+
+  renderLanes();
+})();
+</script>
+</body>
+</html>

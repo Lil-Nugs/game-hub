@@ -1,0 +1,58 @@
+[
+  {
+    "id": "r1",
+    "lane": "now",
+    "title": "Model Comparison Study",
+    "description": "Generate games from both Claude and Codex under identical prompts. Evaluate output quality, fun factor, visual polish, and stability. Determine which model (or combo) produces the best games.",
+    "status": "active",
+    "owner": "lilnug"
+  },
+  {
+    "id": "r2",
+    "lane": "now",
+    "title": "Game Hub Site Stability",
+    "description": "Fix site-level bugs as they appear (games.json format mismatches, display issues, leaderboard gaps). Keep the hub working as games are added.",
+    "status": "active",
+    "owner": "lilnug"
+  },
+  {
+    "id": "r3",
+    "lane": "next",
+    "title": "Quality Gate System",
+    "description": "Define hard and soft quality checks for generated games. Hard gates: does it run, does it end, is there a score. Soft rubric: fun, visual, stability, balance. Agents should not publish games that fail hard gates.",
+    "status": "planned",
+    "owner": "vimgo"
+  },
+  {
+    "id": "r4",
+    "lane": "next",
+    "title": "Game Generator Skill Refinement",
+    "description": "After the model study, update the game-generator skill based on findings. Improve prompting strategy, difficulty curve defaults, and visual variety guidance.",
+    "status": "planned",
+    "owner": "lilnug"
+  },
+  {
+    "id": "r5",
+    "lane": "next",
+    "title": "Leaderboard & Ratings Polish",
+    "description": "Improve leaderboard UX, add per-game score history, and surface rating trends so humans can see which games players actually enjoy.",
+    "status": "planned",
+    "owner": "lilnug"
+  },
+  {
+    "id": "r6",
+    "lane": "later",
+    "title": "Multi-Agent Parallel Game Generation",
+    "description": "Explore splitting game generation across agents — one for game logic, one for visuals, one for balancing. Investigate whether specialization improves quality or introduces too much conflict overhead.",
+    "status": "idea",
+    "owner": "vimgo"
+  },
+  {
+    "id": "r7",
+    "lane": "later",
+    "title": "Community Contributions",
+    "description": "Open game-hub to community-submitted games. Define submission format, review process, and quality bar for community work vs agent-generated work.",
+    "status": "idea",
+    "owner": "lilnug"
+  }
+]

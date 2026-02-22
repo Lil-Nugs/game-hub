@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Decision Log — Game Hub Planning</title>
+  <link rel="stylesheet" href="assets/style.css">
+  <style>
+    .decision-list { display: flex; flex-direction: column; gap: .8rem; }
+    .decision-links { margin-top: .6rem; display: flex; flex-wrap: wrap; gap: .4rem; }
+    .roadmap-ref {
+      font-size: .72rem;
+      background: var(--accent-bg);
+      color: var(--accent-lt);
+      border: 1px solid rgba(108,92,231,.2);
+      padding: .15rem .5rem;
+      border-radius: 4px;
+      text-decoration: none;
+    }
+    .roadmap-ref:hover { background: rgba(108,92,231,.2); }
+    .search-wrap {
+      margin-bottom: 1rem;
+    }
+    .search-wrap input {
+      width: 100%;
+      max-width: 380px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: .87rem;
+      padding: .5rem .9rem;
+      outline: none;
+      transition: border-color .15s;
+    }
+    .search-wrap input::placeholder { color: var(--text-dim); }
+    .search-wrap input:focus { border-color: var(--accent); }
+  </style>
+</head>
+<body>
+
+<nav class="nav" id="planning-nav"></nav>
+
+<div class="strategy-banner">
+  <strong>Human planning only.</strong> This area is for human strategy and long-term direction. Agent execution tracking belongs in Linear, not here.
+</div>
+
+<main class="page">
+  <div class="page-header">
+    <h1>Decision Log</h1>
+    <p>A record of significant decisions — what we chose, why, and what followed.</p>
+  </div>
+
+  <div class="search-wrap">
+    <input type="text" id="search" placeholder="Search decisions…">
+  </div>
+
+  <div class="decision-list" id="decision-list">
+    <div class="empty">Loading…</div>
+  </div>
+</main>
+
+<script src="assets/nav.js"></script>
+<script>
+let allDecisions = [];
+let roadmapItems = [];
+
+function renderDecisions(query = '') {
+  const q = query.toLowerCase();
+  const filtered = q
+    ? allDecisions.filter(d =>
+        d.decision.toLowerCase().includes(q) ||
+        d.rationale.toLowerCase().includes(q) ||
+        d.consequences.toLowerCase().includes(q))
+    : allDecisions;
+
+  const el = document.getElementById('decision-list');
+  if (!filtered.length) {
+    el.innerHTML = '<div class="empty">No decisions match.</div>';
+    return;
+  }
+
+  el.innerHTML = filtered.map(d => {
+    const refs = (d.links || []).map(rid => {
+      const rm = roadmapItems.find(r => r.id === rid);
+      return rm
+        ? `<a class="roadmap-ref" href="roadmap.html" title="${esc(rm.description)}">🗺️ ${esc(rm.title)}</a>`
+        : '';
+    }).join('');
+
+    return `
+      <div class="decision">
+        <div class="decision-date">${esc(d.date)}</div>
+        <div class="decision-title">${esc(d.decision)}</div>
+        <dl class="decision-body">
+          <dt>Rationale</dt>
+          <dd>${esc(d.rationale)}</dd>
+          <dt>Consequences</dt>
+          <dd>${esc(d.consequences)}</dd>
+        </dl>
+        ${refs ? `<div class="decision-links">${refs}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+(async () => {
+  await initPlanning({ page: 'decisions' });
+
+  try {
+    const [dr, rr] = await Promise.all([
+      fetch('../../data/planning/decisions.json'),
+      fetch('../../data/planning/roadmap.json'),
+    ]);
+    allDecisions = await dr.json();
+    roadmapItems = await rr.json();
+  } catch (_) {}
+
+  allDecisions.sort((a, b) => b.date.localeCompare(a.date));
+  renderDecisions();
+
+  document.getElementById('search').addEventListener('input', e => {
+    renderDecisions(e.target.value);
+  });
+})();
+</script>
+</body>
+</html>

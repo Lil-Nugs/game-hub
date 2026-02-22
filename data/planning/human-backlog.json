@@ -1,0 +1,57 @@
+[
+  {
+    "id": "b1",
+    "title": "Define model comparison study success criteria",
+    "description": "Before the study ends, agree on what 'winning' looks like. Number of games? Average fun score? Playtest time? Write it down so we judge fairly.",
+    "owner": "lilnug",
+    "horizon": "short",
+    "priority": "high",
+    "status": "active",
+    "notes": "Probably a simple rubric: visual quality, gameplay fun, stability, replay value. Rate 1-5 per category per game.",
+    "roadmapRef": "r1"
+  },
+  {
+    "id": "b2",
+    "title": "Decide on quality gate thresholds for hard checks",
+    "description": "What does a game need to do to pass a hard gate? Runs without crash, has a score, has a lose condition, loads in < 5s. Define this before building the gate system.",
+    "owner": "vimgo",
+    "horizon": "short",
+    "priority": "high",
+    "status": "active",
+    "notes": "Keep hard gates binary — pass or fail. Soft rubric handles subjective quality.",
+    "roadmapRef": "r3"
+  },
+  {
+    "id": "b3",
+    "title": "Write retrospective after model comparison study",
+    "description": "Document what we learned about Claude vs Codex for game generation. What surprised us? What held up? What do we change in the skill?",
+    "owner": "lilnug",
+    "horizon": "short",
+    "priority": "medium",
+    "status": "parked",
+    "notes": "Do this after the study is done, not during.",
+    "roadmapRef": "r1"
+  },
+  {
+    "id": "b4",
+    "title": "Investigate parallel multi-agent game generation",
+    "description": "Is it worth splitting game generation across agents? Logic agent + visual agent + balance agent. Would need conflict resolution strategy for shared files.",
+    "owner": "vimgo",
+    "horizon": "mid",
+    "priority": "medium",
+    "status": "parked",
+    "notes": "High complexity. Only worth exploring after the single-agent study shows clear ceiling.",
+    "roadmapRef": "r6"
+  },
+  {
+    "id": "b5",
+    "title": "Plan community game submission pipeline",
+    "description": "If we open to community games, we need a review process, format spec, and quality bar. What makes a community game different from an agent game?",
+    "owner": "lilnug",
+    "horizon": "long",
+    "priority": "low",
+    "status": "parked",
+    "notes": "Not urgent. Revisit after the study and quality gate work is done.",
+    "roadmapRef": "r7"
+  }
+]
