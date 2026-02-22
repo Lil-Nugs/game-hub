@@ -326,6 +326,7 @@
     "title": "Mario Arcade Roguelite Codex",
     "description": "Endless platform survival with stomp combat, escalating enemy waves, and pick-1-of-3 permanent run upgrades.",
     "creator": "codex",
-    "date": "2026-02-22T16:25:32.232Z"
+    "date": "2026-02-22T16:25:32.232Z",
+    "model": "codex"
   }
 ]
