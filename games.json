@@ -360,5 +360,13 @@
     "creator": "discord-user",
     "model": "openai-codex/gpt-5.3-codex",
     "date": "2026-02-21T23:31:45.445Z"
+  },
+  {
+    "slug": "codex-arcade-platformer-roguelite",
+    "title": "Codex Arcade Platformer Roguelite",
+    "description": "Arcade platformer with recurring pick-1-of-3 permanent roguelite upgrades",
+    "creator": "codex",
+    "model": "gpt-5.3-codex",
+    "date": "2026-02-22T09:24:18.787Z"
   }
 ]
