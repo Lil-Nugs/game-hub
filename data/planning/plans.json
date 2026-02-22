@@ -90,12 +90,12 @@
         "body": "Persist ratings so they survive Worker deploys:\n\n• Snapshot JSON committed on a daily schedule\n• Dated history files for trend analysis\n• Summary markdown for quick human review\n\nKeeps the data version-controlled and auditable."
       },
       {
-        "heading": "Recommended First Milestone",
-        "body": "Ship just this to start:\n\n1. validate_game.js (hard gate)\n2. Soft playtest rubric (agent reviewer)\n3. generator → reviewer → repair loop (max 1 repair)\n\nThis is low risk, high value, and gives measurable quality control right away without complex orchestration."
+        "heading": "Priority Update (2026-02-22)",
+        "body": "Updated execution order based on current state:\n\n1) Finish and ship the Supabase-backed ratings system across existing games.\n2) Collect human ratings on current games to create a real baseline.\n3) Iterate the current game-generator skill using this rating signal + observed failures.\n4) Re-analyze the broader Game Skill Improvement Plan and then decide/break out the larger skill refactor tracks.\n\nThis intentionally delays the larger refactor breakdown until post-ratings evidence exists."
       }
     ],
     "implementationStatus": "in-progress",
-    "taskTrackerStatus": "not-converted"
+    "taskTrackerStatus": "in-progress"
   },
   {
     "id": "backend-migration-supabase-v1",
