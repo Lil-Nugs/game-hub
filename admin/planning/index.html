@@ -5,129 +5,140 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Planning — Game Hub</title>
   <link rel="stylesheet" href="assets/style.css">
+  <style>
+    .plan-card {
+      display: block;
+      text-decoration: none;
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 12px;
+      padding: 1.3rem 1.5rem;
+      transition: border-color .15s, background .15s;
+      color: inherit;
+    }
+    .plan-card:hover {
+      border-color: var(--accent);
+      background: var(--surface2);
+    }
+    .plan-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 1rem;
+      margin-bottom: .5rem;
+    }
+    .plan-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .plan-date {
+      font-size: .75rem;
+      color: var(--text-dim);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .plan-author {
+      font-size: .78rem;
+      color: var(--text-dim);
+      margin-bottom: .55rem;
+    }
+    .plan-summary {
+      font-size: .87rem;
+      color: var(--text-muted);
+      line-height: 1.55;
+      margin-bottom: .75rem;
+    }
+    .plan-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .35rem;
+    }
+    .plan-tag {
+      font-size: .68rem;
+      padding: .15rem .5rem;
+      border-radius: 999px;
+      background: var(--accent-bg);
+      color: var(--accent-lt);
+      border: 1px solid rgba(108,92,231,.15);
+    }
+    .plans-list {
+      display: flex;
+      flex-direction: column;
+      gap: .9rem;
+    }
+    .empty-state {
+      text-align: center;
+      color: var(--text-dim);
+      padding: 4rem 1rem;
+      font-size: .9rem;
+      line-height: 1.8;
+    }
+    .intro {
+      color: var(--text-muted);
+      font-size: .88rem;
+      line-height: 1.6;
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 10px;
+      padding: 1rem 1.3rem;
+      margin-bottom: 1.8rem;
+    }
+    .intro strong { color: var(--text); }
+  </style>
 </head>
 <body>
 
 <nav class="nav" id="planning-nav"></nav>
 
-<div class="strategy-banner">
-  <strong>Human planning only.</strong> This area is for human strategy and long-term direction. Agent execution tracking belongs in Linear, not here.
-</div>
-
 <main class="page">
   <div class="page-header">
-    <h1>Project Overview</h1>
-    <p>Game Hub planning — where we track what we're doing and why.</p>
+    <h1>Planning</h1>
+    <p>Saved plans and decisions — a reference archive for this project.</p>
   </div>
 
-  <div class="focus-card">
-    <div class="focus-label">Current Focus</div>
-    <div class="focus-text" id="current-focus">Loading…</div>
+  <div class="intro">
+    <strong>What goes here:</strong> Plans, proposals, and decisions worth preserving — not daily tasks.
+    When we figure something out in Discord, we summarize it and save it here so it doesn't get lost.
   </div>
 
-  <div class="quick-links">
-    <a class="quick-link" href="roadmap.html">
-      <span class="quick-link-icon">🗺️</span>
-      <div class="quick-link-body">
-        <span class="quick-link-title">Roadmap</span>
-        <span class="quick-link-desc">Milestones · Now / Next / Later</span>
-      </div>
-    </a>
-    <a class="quick-link" href="decisions.html">
-      <span class="quick-link-icon">⚖️</span>
-      <div class="quick-link-body">
-        <span class="quick-link-title">Decision Log</span>
-        <span class="quick-link-desc">What we decided and why</span>
-      </div>
-    </a>
-    <a class="quick-link" href="human-backlog.html">
-      <span class="quick-link-icon">🎯</span>
-      <div class="quick-link-body">
-        <span class="quick-link-title">Human Backlog</span>
-        <span class="quick-link-desc">Strategic initiatives · humans only</span>
-      </div>
-    </a>
-    <a class="quick-link" href="../../index.html">
-      <span class="quick-link-icon">🎮</span>
-      <div class="quick-link-body">
-        <span class="quick-link-title">Game Hub</span>
-        <span class="quick-link-desc">Back to the main site</span>
-      </div>
-    </a>
-  </div>
-
-  <div class="section">
-    <div class="section-title">Active Now</div>
-    <div class="card-grid" id="active-now">
-      <div class="empty">Loading…</div>
-    </div>
-  </div>
-
-  <div class="section">
-    <div class="section-title">Recent Decisions</div>
-    <div id="recent-decisions">
-      <div class="empty">Loading…</div>
-    </div>
+  <div class="plans-list" id="plans-list">
+    <div class="empty-state">Loading plans…</div>
   </div>
 </main>
 
 <script src="assets/nav.js"></script>
 <script>
 (async () => {
-  const meta = await initPlanning({ page: 'overview' });
+  await initPlanning({ page: 'overview' });
 
-  if (meta) {
-    document.getElementById('current-focus').textContent = meta.currentFocus;
-  }
-
-  // Load roadmap — show active items
-  let roadmap = [];
+  let plans = [];
   try {
-    const r = await fetch('../../data/planning/roadmap.json');
-    roadmap = await r.json();
+    const res = await fetch('../../data/planning/plans.json');
+    plans = await res.json();
   } catch (_) {}
 
-  const nowActive = roadmap.filter(m => m.lane === 'now' && m.status !== 'done');
-  const nowEl = document.getElementById('active-now');
-  if (nowActive.length) {
-    nowEl.innerHTML = nowActive.map(m => `
-      <div class="card">
-        <div class="card-title">${esc(m.title)}</div>
-        <div class="card-desc">${esc(m.description)}</div>
-        <div class="card-meta">
-          ${statusBadge(m.status)}
-          <span>Owner: ${esc(m.owner)}</span>
-        </div>
-      </div>
-    `).join('');
-  } else {
-    nowEl.innerHTML = '<div class="empty">Nothing active right now.</div>';
+  const el = document.getElementById('plans-list');
+
+  if (!plans.length) {
+    el.innerHTML = `<div class="empty-state">No plans saved yet.<br>Add entries to <code>data/planning/plans.json</code> to get started.</div>`;
+    return;
   }
 
-  // Load decisions — show most recent 3
-  let decisions = [];
-  try {
-    const d = await fetch('../../data/planning/decisions.json');
-    decisions = await d.json();
-  } catch (_) {}
+  // Sort newest first
+  plans.sort((a, b) => b.date.localeCompare(a.date));
 
-  decisions.sort((a, b) => b.date.localeCompare(a.date));
-  const recent = decisions.slice(0, 3);
-  const decEl = document.getElementById('recent-decisions');
-  if (recent.length) {
-    decEl.innerHTML = recent.map(d => `
-      <div class="decision">
-        <div class="decision-date">${esc(d.date)}</div>
-        <div class="decision-title">${esc(d.decision)}</div>
-        <div class="decision-body">
-          <dt>Rationale</dt>
-          <dd>${esc(d.rationale)}</dd>
-        </div>
+  el.innerHTML = plans.map(p => `
+    <a class="plan-card" href="plan.html?id=${encodeURIComponent(p.id)}">
+      <div class="plan-card-header">
+        <div class="plan-title">${esc(p.title)}</div>
+        <div class="plan-date">${esc(p.date)}</div>
       </div>
-    `).join('');
-  } else {
-    decEl.innerHTML = '<div class="empty">No decisions logged yet.</div>';
-  }
+      <div class="plan-author">by ${esc(p.author)}</div>
+      <div class="plan-summary">${esc(p.summary)}</div>
+      ${p.tags?.length ? `<div class="plan-tags">${p.tags.map(t => `<span class="plan-tag">${esc(t)}</span>`).join('')}</div>` : ''}
+    </a>
+  `).join('');
 })();
 </script>
 </body>

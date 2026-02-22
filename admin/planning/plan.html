@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plan — Game Hub Planning</title>
+  <link rel="stylesheet" href="assets/style.css">
+  <style>
+    .plan-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .5rem 1.2rem;
+      align-items: center;
+      margin-bottom: 1.8rem;
+      font-size: .82rem;
+      color: var(--text-muted);
+    }
+    .plan-meta .meta-author { color: var(--accent-lt); }
+    .plan-meta .meta-date   { color: var(--text-dim); }
+    .plan-tag {
+      font-size: .68rem;
+      padding: .15rem .5rem;
+      border-radius: 999px;
+      background: var(--accent-bg);
+      color: var(--accent-lt);
+      border: 1px solid rgba(108,92,231,.15);
+    }
+
+    .plan-summary-block {
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-left: 3px solid var(--accent);
+      border-radius: 0 10px 10px 0;
+      padding: .9rem 1.2rem;
+      font-size: .9rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+      margin-bottom: 2.2rem;
+    }
+
+    .plan-section {
+      margin-bottom: 1.8rem;
+    }
+    .plan-section-heading {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: .7rem;
+      padding-bottom: .4rem;
+      border-bottom: 1px solid var(--border2);
+    }
+    .plan-section-body {
+      font-size: .9rem;
+      color: var(--text-muted);
+      line-height: 1.7;
+      white-space: pre-line;
+    }
+    .plan-section-body strong { color: var(--text); }
+
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      color: var(--text-dim);
+      text-decoration: none;
+      font-size: .82rem;
+      margin-bottom: 1.5rem;
+      transition: color .15s;
+    }
+    .back-link:hover { color: var(--accent-lt); }
+
+    .not-found {
+      text-align: center;
+      color: var(--text-dim);
+      padding: 4rem 1rem;
+    }
+    .not-found h2 { color: var(--text-muted); margin-bottom: .5rem; }
+  </style>
+</head>
+<body>
+
+<nav class="nav" id="planning-nav"></nav>
+
+<main class="page">
+  <a class="back-link" href="index.html">← All plans</a>
+  <div id="plan-content"><div style="color:var(--text-dim);padding:2rem 0">Loading…</div></div>
+</main>
+
+<script src="assets/nav.js"></script>
+<script>
+(async () => {
+  await initPlanning({ page: 'overview' });
+
+  const id = new URLSearchParams(location.search).get('id');
+  const el = document.getElementById('plan-content');
+
+  if (!id) {
+    el.innerHTML = `<div class="not-found"><h2>No plan specified</h2><p><a href="index.html" style="color:var(--accent-lt)">Back to plans</a></p></div>`;
+    return;
+  }
+
+  let plans = [];
+  try {
+    const res = await fetch('../../data/planning/plans.json');
+    plans = await res.json();
+  } catch (_) {}
+
+  const plan = plans.find(p => p.id === id);
+
+  if (!plan) {
+    el.innerHTML = `<div class="not-found"><h2>Plan not found</h2><p style="margin-bottom:.8rem">ID: <code>${esc(id)}</code></p><a href="index.html" style="color:var(--accent-lt)">Back to plans</a></div>`;
+    return;
+  }
+
+  document.title = `${plan.title} — Game Hub Planning`;
+
+  el.innerHTML = `
+    <div class="page-header">
+      <h1>${esc(plan.title)}</h1>
+    </div>
+
+    <div class="plan-meta">
+      <span class="meta-author">by ${esc(plan.author)}</span>
+      <span class="meta-date">${esc(plan.date)}</span>
+      ${(plan.tags || []).map(t => `<span class="plan-tag">${esc(t)}</span>`).join('')}
+    </div>
+
+    <div class="plan-summary-block">${esc(plan.summary)}</div>
+
+    ${(plan.sections || []).map(s => `
+      <div class="plan-section">
+        <div class="plan-section-heading">${esc(s.heading)}</div>
+        <div class="plan-section-body">${esc(s.body)}</div>
+      </div>
+    `).join('')}
+  `;
+})();
+</script>
+</body>
+</html>
