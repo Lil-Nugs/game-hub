@@ -1,0 +1,1112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Power Creep</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #050510;
+    display: flex; justify-content: center; align-items: center;
+    height: 100vh; overflow: hidden; touch-action: none;
+  }
+  #ui-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    display: none; justify-content: center; align-items: center;
+    z-index: 10; background: rgba(5,5,16,0.92);
+    font-family: 'Orbitron', sans-serif;
+  }
+  #ui-overlay.active { display: flex; }
+  .overlay-box {
+    background: rgba(15,8,40,0.97);
+    border: 2px solid #7b2fff;
+    border-radius: 14px;
+    padding: 30px 38px;
+    max-width: 460px; width: 92%;
+    text-align: center;
+    box-shadow: 0 0 50px rgba(123,47,255,0.5);
+  }
+  .game-over-title { color: #ff4488; font-size: 26px; font-weight: 900; margin-bottom: 6px;
+    text-shadow: 0 0 20px rgba(255,68,136,0.9); }
+  .score-display { color: #ffd700; font-size: 24px; font-weight: 700; margin: 10px 0; }
+  .sub-stats { color: #c084fc; font-size: 12px; margin-bottom: 18px; }
+  #ui-overlay input {
+    width: 100%; padding: 10px 14px;
+    background: rgba(255,255,255,0.08); border: 1px solid #7b2fff;
+    border-radius: 6px; color: #fff;
+    font-family: 'Orbitron', sans-serif; font-size: 13px;
+    margin-bottom: 10px; outline: none;
+  }
+  #ui-overlay input:focus { border-color: #ff4488; }
+  .btn-row { display: flex; gap: 8px; justify-content: center; margin: 6px 0; }
+  #ui-overlay button {
+    background: linear-gradient(135deg, #7b2fff, #ff4488);
+    border: none; border-radius: 6px;
+    color: #fff; font-family: 'Orbitron', sans-serif;
+    font-size: 13px; font-weight: 700;
+    padding: 10px 22px; cursor: pointer;
+    transition: transform 0.1s, opacity 0.1s;
+  }
+  #ui-overlay button:hover { transform: scale(1.05); }
+  #ui-overlay button:active { transform: scale(0.95); opacity: 0.8; }
+  #ui-overlay button.secondary {
+    background: rgba(255,255,255,0.08); border: 1px solid #7b2fff;
+  }
+  #leaderboard { margin-top: 16px; text-align: left; }
+  #leaderboard h3 { color: #00d4ff; font-size: 12px; margin-bottom: 8px; text-align: center; }
+  .lb-entry {
+    display: flex; justify-content: space-between;
+    color: #889aaa; font-size: 11px; padding: 3px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  .lb-entry:nth-child(2) { color: #ffd700; }
+  .lb-entry:nth-child(3) { color: #c0c0c0; }
+  .lb-entry:nth-child(4) { color: #cd7f32; }
+</style>
+</head>
+<body>
+
+<div id="ui-overlay">
+  <div class="overlay-box">
+    <div class="game-over-title">⚡ POWER SURGE ENDED</div>
+    <div class="score-display">SCORE: <span id="final-score">0</span></div>
+    <div class="sub-stats">
+      Max Power: <span id="final-power">0</span>/20 &nbsp;|&nbsp;
+      Survived: <span id="final-time">0s</span>
+    </div>
+    <input type="text" id="player-name" placeholder="Enter your callsign..." maxlength="20">
+    <div class="btn-row">
+      <button id="submit-btn">Submit Score</button>
+      <button class="secondary" id="replay-btn">Play Again</button>
+    </div>
+    <div id="leaderboard"></div>
+  </div>
+</div>
+
+<script>
+/*
+ * ═══════════════════════════════════════════════════════════════
+ * POWER CREEP  —  DESIGN HEADER
+ * ═══════════════════════════════════════════════════════════════
+ * Prompt: "You grow stronger but slower."
+ *
+ * Controls:
+ *   Desktop : WASD / Arrow keys to move. Auto-aims & fires at nearest enemy.
+ *   Touch   : Drag anywhere to move (virtual joystick).
+ *
+ * Core Loop:
+ *   Survive endless waves in a space arena. Defeat enemies to drop
+ *   Power Crystals. Each crystal raises your power level (faster shooting,
+ *   bigger bullets, more damage) but PERMANENTLY slows your movement.
+ *   The tension: chase crystals to overpower enemies vs stay nimble to dodge.
+ *
+ * Death Condition:
+ *   Any enemy body contacts the player → instant death.
+ *
+ * Hazards / Enemies:
+ *   1. Drifter (purple orb)   — slow, wobbles toward player; HP 1. Common.
+ *   2. Rusher (orange arrow)  — telegraphs then charges fast; HP 2. Unlocks 15 s.
+ *   3. Warper (teal diamond)  — teleports near player then lunges; HP 3. Unlocks 35 s.
+ *
+ * Pickups:
+ *   1. Power Crystal (gold hex) — +1 power, -speed. 65% drop. Always tempting.
+ *   2. Speed Tonic  (cyan tri)  — +60% speed for 3.5 s. 15% drop.
+ *      Risk/Reward: Running to grab a crystal puts you in bullet-sponge territory.
+ *
+ * Scoring:
+ *   score = Math.floor(timeAlive * 10 + bonusPoints)
+ *   Kill bonus: Drifter +25, Rusher +50, Warper +100
+ *   Crystal collect: +10
+ *
+ * Difficulty (smooth lerp over 120 s):
+ *   spawnInterval: 2500 → 350 ms  (easeIn curve)
+ *   enemyBaseSpeed: 55 → 185 px/s
+ *   Rusher unlocks at 15 s; Warper at 35 s.
+ *
+ * Power System (0–20):
+ *   speed        = 178 / (1 + powerLevel * 0.12)     px/s
+ *   fireCooldown = lerp(720, 130, powerLevel/20)       ms
+ *   bulletRadius = lerp(5, 16, powerLevel/20)
+ *   bulletDamage = Math.floor(1 + powerLevel * 0.2)
+ *
+ * Visual Theme:
+ *   Cosmic/Space. Deep navy→purple gradient background, twinkling star field.
+ *   Player orb grows and color-shifts blue→purple→gold as power increases.
+ *   Font: Orbitron. Enemy designs: distinct silhouettes (circle, arrow, diamond).
+ *
+ * Audio:
+ *   Procedural Web Audio. Laser shoot, crystal chime, tonic glide,
+ *   enemy hit crunch, death explosion sweep.
+ * ═══════════════════════════════════════════════════════════════
+ */
+
+const GAME_ID       = 'power-creep-b3a2';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+const MAX_POWER     = 20;
+
+// ─── Audio ──────────────────────────────────────────────────────────────────
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playTone(type, freq, dur, vol = 0.25, freqEnd = null) {
+  if (audioCtx.state === 'suspended') return;
+  try {
+    const osc  = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    if (freqEnd !== null)
+      osc.frequency.linearRampToValueAtTime(freqEnd, audioCtx.currentTime + dur);
+    gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+    osc.start();
+    osc.stop(audioCtx.currentTime + dur);
+  } catch(e) {}
+}
+
+function sfxShoot(power) {
+  const f = 500 + power * 35;
+  playTone('sawtooth', f, 0.07, 0.12, f * 0.55);
+}
+function sfxHit() {
+  playTone('square', 220, 0.1, 0.18);
+  playTone('sawtooth', 100, 0.12, 0.12);
+}
+function sfxCrystal() {
+  playTone('sine', 880, 0.12, 0.22);
+  playTone('sine', 1320, 0.1,  0.16);
+}
+function sfxTonic() {
+  playTone('sine', 380, 0.25, 0.22, 1100);
+}
+function sfxDeath() {
+  playTone('sawtooth', 280, 0.7,  0.3,  55);
+  playTone('square',   120, 0.9,  0.22, 35);
+}
+function sfxStart() {
+  playTone('sine', 440, 0.12, 0.2);
+  setTimeout(() => playTone('sine', 660, 0.12, 0.2), 120);
+  setTimeout(() => playTone('sine', 880, 0.18, 0.2), 240);
+}
+
+// ─── Leaderboard ────────────────────────────────────────────────────────────
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch(e) {
+    console.warn('Leaderboard submit unavailable:', e);
+    return null;
+  }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const res  = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch(e) {
+    console.warn('Leaderboard fetch unavailable:', e);
+    return [];
+  }
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function lerp(a, b, t)   { return a + (b - a) * Math.max(0, Math.min(1, t)); }
+function easeIn(t)        { return t * t; }
+
+// ─── MenuScene ───────────────────────────────────────────────────────────────
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+
+    // BG gradient
+    const bg = this.add.graphics();
+    bg.fillGradientStyle(0x050510, 0x050510, 0x0c0428, 0x0c0428, 1);
+    bg.fillRect(0, 0, W, H);
+    bg.setDepth(-10);
+
+    // Stars
+    const sg = this.add.graphics().setDepth(-9);
+    this._stars = [];
+    for (let i = 0; i < 220; i++) {
+      const s = {
+        x: Phaser.Math.Between(0, W), y: Phaser.Math.Between(0, H),
+        r: Math.random() * 1.6 + 0.3, a: Math.random() * 0.7 + 0.2,
+        ph: Math.random() * Math.PI * 2, spd: Math.random() * 0.025 + 0.008
+      };
+      this._stars.push(s);
+    }
+    this._sg = sg;
+
+    // Titles
+    this.add.text(W / 2, H * 0.22, 'POWER', {
+      fontFamily: 'Orbitron', fontSize: '68px', fontStyle: 'bold',
+      color: '#ffffff', stroke: '#7b2fff', strokeThickness: 8,
+      shadow: { color: '#7b2fff', blur: 30, fill: true }
+    }).setOrigin(0.5);
+
+    this.add.text(W / 2, H * 0.22 + 68, 'CREEP', {
+      fontFamily: 'Orbitron', fontSize: '68px', fontStyle: 'bold',
+      color: '#ff4488', stroke: '#ff4488', strokeThickness: 4,
+      shadow: { color: '#ff4488', blur: 28, fill: true }
+    }).setOrigin(0.5);
+
+    this.add.text(W / 2, H * 0.51, 'You grow stronger — but slower.', {
+      fontFamily: 'Orbitron', fontSize: '15px', color: '#c084fc'
+    }).setOrigin(0.5);
+
+    const instructions = [
+      'WASD / Arrows — Move    (Touch: drag to steer)',
+      'Auto-aims & fires at enemies',
+      'Collect ⬡ Power Crystals → bigger shots, faster fire',
+      '…but each crystal slows you down permanently',
+      'Use ▲ Speed Tonics for a burst of mobility',
+      '',
+      'Survive as long as possible!'
+    ].join('\n');
+    this.add.text(W / 2, H * 0.67, instructions, {
+      fontFamily: 'Orbitron', fontSize: '11px', color: '#7799bb',
+      align: 'center', lineSpacing: 7
+    }).setOrigin(0.5);
+
+    const tap = this.add.text(W / 2, H * 0.88, '— TAP OR PRESS ANY KEY TO START —', {
+      fontFamily: 'Orbitron', fontSize: '13px', color: '#ffd700'
+    }).setOrigin(0.5);
+
+    this.tweens.add({
+      targets: tap, alpha: 0.15, yoyo: true, repeat: -1, duration: 680,
+      ease: 'Sine.easeInOut'
+    });
+
+    // Animated preview orb
+    this._orbGfx = this.add.graphics().setDepth(1);
+    this._orbAngle = 0;
+
+    // Input → start
+    const go = () => {
+      audioCtx.resume().then(() => sfxStart());
+      this.scene.start('GameScene');
+    };
+    this.input.once('pointerdown', go);
+    this.input.keyboard.once('keydown', go);
+  }
+
+  update() {
+    this._orbAngle += 0.022;
+    const W = this.scale.width, H = this.scale.height;
+    const cx = W / 2, cy = H * 0.405;
+    const g = this._orbGfx;
+    g.clear();
+
+    // Orbit dots
+    for (let i = 0; i < 5; i++) {
+      const a  = this._orbAngle + (i / 5) * Math.PI * 2;
+      const px = cx + Math.cos(a) * 32;
+      const py = cy + Math.sin(a) * 32;
+      g.fillStyle(0xffd700, 0.7);
+      g.fillCircle(px, py, 3);
+    }
+    const pulse = 1 + Math.sin(this._orbAngle * 2.2) * 0.12;
+    g.fillStyle(0x4422cc, 0.2);  g.fillCircle(cx, cy, 36 * pulse);
+    g.fillStyle(0x7744ff, 0.45); g.fillCircle(cx, cy, 24);
+    g.fillStyle(0xbbaaff, 1);    g.fillCircle(cx, cy, 15);
+    g.fillStyle(0xffffff, 0.75); g.fillCircle(cx - 5, cy - 5, 6);
+    g.fillStyle(0xffffff, 0.9);  g.fillCircle(cx, cy, 3);
+
+    // Star twinkle
+    this._sg.clear();
+    for (const s of this._stars) {
+      s.ph += s.spd;
+      const a = s.a * (0.65 + 0.35 * Math.sin(s.ph));
+      this._sg.fillStyle(0xffffff, a);
+      this._sg.fillCircle(s.x, s.y, s.r);
+    }
+  }
+}
+
+// ─── GameScene ───────────────────────────────────────────────────────────────
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  /* ── Preload: all procedural, nothing external ─────────────────────────── */
+  preload() {}
+
+  /* ── Create ────────────────────────────────────────────────────────────── */
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+    this.W = W; this.H = H;
+
+    // ── Game state ──────────────────────────────────────────────────────────
+    this.bonusPoints  = 0;
+    this.powerLevel   = 0;
+    this.maxPower     = 0;
+    this.isDead       = false;
+    this.tonicActive  = false;
+    this.tonicTimer   = 0;
+    this.lastShot     = 0;
+    this.spawnClock   = 0;
+    this.gameStart    = this.time.now;
+
+    // Touch joystick state
+    this.touchOn  = false;
+    this.touchVx  = 0;
+    this.touchVy  = 0;
+    this.touchOx  = 0;
+    this.touchOy  = 0;
+
+    // ── Background ──────────────────────────────────────────────────────────
+    const bgGfx = this.add.graphics().setDepth(-10);
+    bgGfx.fillGradientStyle(0x050510, 0x050510, 0x0c0428, 0x0c0428, 1);
+    bgGfx.fillRect(0, 0, W, H);
+
+    this._starGfx  = this.add.graphics().setDepth(-9);
+    this._starData = [];
+    for (let i = 0; i < 190; i++) {
+      this._starData.push({
+        x: Phaser.Math.Between(0, W), y: Phaser.Math.Between(0, H),
+        r: Math.random() * 1.5 + 0.3, a: Math.random() * 0.65 + 0.2,
+        ph: Math.random() * Math.PI * 2, spd: Math.random() * 0.02 + 0.006
+      });
+    }
+
+    // Arena border
+    const border = this.add.graphics().setDepth(6);
+    border.lineStyle(2, 0x330966, 0.6);
+    border.strokeRect(2, 2, W - 4, H - 4);
+
+    // ── Build textures ──────────────────────────────────────────────────────
+    this._buildTextures();
+
+    // ── Physics groups ──────────────────────────────────────────────────────
+    this.bullets = this.physics.add.group();
+    this.enemies = this.physics.add.group();
+    this.pickups = this.physics.add.group();
+
+    // ── Player ──────────────────────────────────────────────────────────────
+    this.player = this.physics.add.sprite(W / 2, H / 2, 'pl0');
+    this.player.setDepth(10);
+    // Forgiving hitbox (80% of visual radius ≈ 13px)
+    this.player.body.setCircle(13, 6, 6);
+
+    // ── HUD ─────────────────────────────────────────────────────────────────
+    this.scoreTxt = this.add.text(W / 2, 12, 'SCORE: 0', {
+      fontFamily: 'Orbitron', fontSize: '18px', fontStyle: 'bold',
+      color: '#ffd700', stroke: '#000', strokeThickness: 3
+    }).setOrigin(0.5, 0).setDepth(20);
+
+    this.timeTxt = this.add.text(W - 10, 12, '0:00', {
+      fontFamily: 'Orbitron', fontSize: '12px', color: '#7799bb'
+    }).setOrigin(1, 0).setDepth(20);
+
+    // Power section (top-left)
+    this.add.text(10, 10, 'POWER', {
+      fontFamily: 'Orbitron', fontSize: '9px', color: '#c084fc'
+    }).setDepth(20);
+    this.powerNumTxt = this.add.text(10, 22, '0/20', {
+      fontFamily: 'Orbitron', fontSize: '12px', fontStyle: 'bold', color: '#ffd700'
+    }).setDepth(20);
+
+    // Power dots (20 tiny squares, two rows of 10)
+    this._pdots = [];
+    for (let i = 0; i < MAX_POWER; i++) {
+      const g = this.add.graphics().setDepth(20);
+      this._pdots.push(g);
+    }
+    this._refreshPowerHUD();
+
+    // Speed bar (bottom-left)
+    this.add.text(10, H - 38, 'SPEED', {
+      fontFamily: 'Orbitron', fontSize: '9px', color: '#00d4ff'
+    }).setDepth(20);
+    this._speedBg = this.add.graphics().setDepth(20);
+    this._speedFg = this.add.graphics().setDepth(20);
+    this._speedBg.fillStyle(0x223344, 1);
+    this._speedBg.fillRect(10, H - 24, 130, 8);
+
+    // Tonic counter
+    this.tonicTxt = this.add.text(W / 2, 40, '', {
+      fontFamily: 'Orbitron', fontSize: '11px', color: '#00ffff',
+      stroke: '#000', strokeThickness: 2
+    }).setOrigin(0.5, 0).setDepth(20);
+
+    // ── Input ────────────────────────────────────────────────────────────────
+    this.cursors = this.input.keyboard.createCursorKeys();
+    this.wasd    = this.input.keyboard.addKeys({
+      up:    Phaser.Input.Keyboard.KeyCodes.W,
+      down:  Phaser.Input.Keyboard.KeyCodes.S,
+      left:  Phaser.Input.Keyboard.KeyCodes.A,
+      right: Phaser.Input.Keyboard.KeyCodes.D,
+    });
+
+    this.input.on('pointerdown', p => {
+      if (this.isDead) return;
+      this.touchOn = true;
+      this.touchOx = p.x; this.touchOy = p.y;
+      this.touchVx = 0;   this.touchVy = 0;
+    });
+    this.input.on('pointermove', p => {
+      if (!this.touchOn || this.isDead) return;
+      const dx = p.x - this.touchOx, dy = p.y - this.touchOy;
+      const m  = Math.sqrt(dx * dx + dy * dy);
+      if (m > 10) { this.touchVx = dx / m; this.touchVy = dy / m; }
+    });
+    this.input.on('pointerup', () => {
+      this.touchOn = false; this.touchVx = 0; this.touchVy = 0;
+    });
+
+    // ── Collisions ───────────────────────────────────────────────────────────
+    this.physics.add.overlap(
+      this.bullets, this.enemies,
+      this._bulletHitEnemy, null, this
+    );
+    this.physics.add.overlap(
+      this.player, this.enemies,
+      this._playerHitEnemy, null, this
+    );
+    this.physics.add.overlap(
+      this.player, this.pickups,
+      this._playerPickup, null, this
+    );
+
+    // ── Particle emitters ────────────────────────────────────────────────────
+    this._deathPfx = this.add.particles(0, 0, 'pfx_gold', {
+      speed: { min: 60, max: 240 },
+      lifespan: { min: 250, max: 550 },
+      scale: { start: 1.2, end: 0 },
+      alpha: { start: 1, end: 0 },
+      quantity: 0, emitting: false
+    }).setDepth(14);
+
+    this._sparkPfx = this.add.particles(0, 0, 'pfx_cyan', {
+      speed: { min: 40, max: 110 },
+      lifespan: { min: 180, max: 380 },
+      scale: { start: 0.9, end: 0 },
+      alpha: { start: 1, end: 0 },
+      quantity: 0, emitting: false
+    }).setDepth(14);
+
+    // Resume audio if suspended
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  }
+
+  /* ── Texture generation ─────────────────────────────────────────────────── */
+  _buildTextures() {
+    const g = this.add.graphics();
+
+    // Player textures pl0…pl20 (color shifts blue→purple→gold, grows)
+    for (let p = 0; p <= MAX_POWER; p++) {
+      const t    = p / MAX_POWER;
+      const rad  = lerp(14, 24, t);
+
+      // Color: cool blue (0x22aaff) → vivid purple (0x9944ff) → warm gold (0xffaa00)
+      let cr, cg, cb;
+      if (t < 0.5) {
+        const u = t * 2;
+        cr = Math.round(lerp(0x22, 0x99, u));
+        cg = Math.round(lerp(0xaa, 0x44, u));
+        cb = Math.round(lerp(0xff, 0xff, u));
+      } else {
+        const u = (t - 0.5) * 2;
+        cr = Math.round(lerp(0x99, 0xff, u));
+        cg = Math.round(lerp(0x44, 0xaa, u));
+        cb = Math.round(lerp(0xff, 0x00, u));
+      }
+      const col  = Phaser.Display.Color.GetColor(cr, cg, cb);
+      const dark = Phaser.Display.Color.GetColor(Math.round(cr * 0.4), Math.round(cg * 0.4), Math.round(cb * 0.4));
+
+      g.clear();
+      g.fillStyle(col, 0.15); g.fillCircle(32, 32, rad + 14);
+      g.fillStyle(col, 0.35); g.fillCircle(32, 32, rad + 6);
+      g.fillStyle(dark, 1);   g.fillCircle(32, 32, rad);
+      g.fillStyle(col, 1);    g.fillCircle(32, 32, rad - 2);
+      g.fillStyle(0xffffff, 0.45); g.fillCircle(32 - rad * 0.3, 32 - rad * 0.3, rad * 0.3);
+      g.fillStyle(0xffffff, 0.9);  g.fillCircle(32, 32, 2.5);
+      g.generateTexture(`pl${p}`, 64, 64);
+    }
+
+    // Bullet textures bl0…bl20
+    for (let p = 0; p <= MAX_POWER; p++) {
+      const t   = p / MAX_POWER;
+      const rad = lerp(5, 16, t);
+      const cr  = 0xff;
+      const cg  = Math.round(lerp(0xee, 0x88, t));
+      const cb  = Math.round(lerp(0x44, 0x00, t));
+      const col = Phaser.Display.Color.GetColor(cr, cg, cb);
+
+      g.clear();
+      g.fillStyle(col, 0.35); g.fillCircle(16, 16, rad + 5);
+      g.fillStyle(col, 1);    g.fillCircle(16, 16, rad);
+      g.fillStyle(0xffffff, 0.8); g.fillCircle(16 - 2, 16 - 2, rad * 0.35);
+      g.generateTexture(`bl${p}`, 32, 32);
+    }
+
+    // Drifter (purple layered orb with spikes)
+    g.clear();
+    g.fillStyle(0x9933cc, 0.3); g.fillCircle(24, 24, 22);
+    g.fillStyle(0xbb55ee, 0.7); g.fillCircle(24, 24, 16);
+    g.fillStyle(0xddaaff, 1);   g.fillCircle(24, 24, 10);
+    g.fillStyle(0xffffff, 0.5); g.fillCircle(20, 20, 4);
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      g.lineStyle(2, 0xcc66ff, 0.9);
+      g.lineBetween(
+        24 + Math.cos(a) * 15, 24 + Math.sin(a) * 15,
+        24 + Math.cos(a) * 26, 24 + Math.sin(a) * 26
+      );
+    }
+    g.generateTexture('drifter', 48, 48);
+
+    // Rusher (orange-red arrow/triangle shape)
+    g.clear();
+    g.fillStyle(0xcc2200, 0.35); g.fillTriangle(24, 0, 46, 46, 2, 46);
+    g.fillStyle(0xff4422, 0.75); g.fillTriangle(24, 4, 42, 44, 6, 44);
+    g.fillStyle(0xff6644, 1);    g.fillTriangle(24, 10, 38, 42, 10, 42);
+    g.fillStyle(0xffaa88, 0.9);  g.fillTriangle(24, 16, 33, 38, 15, 38);
+    // Glowing core
+    g.fillStyle(0xff2200, 1);    g.fillCircle(24, 30, 6);
+    g.fillStyle(0xffffff, 0.8);  g.fillCircle(25, 29, 2.5);
+    g.generateTexture('rusher', 48, 48);
+
+    // Warper (teal diamond + cross)
+    g.clear();
+    g.fillStyle(0x009999, 0.3); g.fillCircle(28, 28, 26);
+    g.fillStyle(0x00dddd, 0.6); g.fillCircle(28, 28, 18);
+    g.fillStyle(0xaaffff, 1);   g.fillCircle(28, 28, 11);
+    g.lineStyle(3, 0x00ffff, 0.85);
+    g.lineBetween(28, 4,  28, 52);
+    g.lineBetween(4,  28, 52, 28);
+    g.fillStyle(0x00ffff, 0.9);
+    g.fillRect(24, 0, 8, 8);
+    g.fillRect(24, 48, 8, 8);
+    g.fillRect(0,  24, 8, 8);
+    g.fillRect(48, 24, 8, 8);
+    g.fillStyle(0xffffff, 0.7); g.fillCircle(24, 24, 4);
+    g.generateTexture('warper', 56, 56);
+
+    // Power Crystal pickup (gold hexagon)
+    g.clear();
+    g.fillStyle(0xffcc00, 0.25); g.fillCircle(16, 16, 15);
+    g.fillStyle(0xffdd33, 0.8);
+    for (let i = 0; i < 6; i++) {
+      const a1 = (i / 6) * Math.PI * 2 - Math.PI / 6;
+      const a2 = ((i + 1) / 6) * Math.PI * 2 - Math.PI / 6;
+      g.fillTriangle(16, 16,
+        16 + Math.cos(a1) * 13, 16 + Math.sin(a1) * 13,
+        16 + Math.cos(a2) * 13, 16 + Math.sin(a2) * 13
+      );
+    }
+    g.fillStyle(0xffffff, 0.7); g.fillCircle(13, 13, 4);
+    g.generateTexture('crystal', 32, 32);
+
+    // Speed Tonic pickup (cyan triangle)
+    g.clear();
+    g.fillStyle(0x00ccff, 0.25); g.fillCircle(16, 16, 14);
+    g.fillStyle(0x22eeff, 0.85); g.fillTriangle(16, 3, 30, 28, 2, 28);
+    g.fillStyle(0x99ffff, 1);    g.fillTriangle(16, 8, 26, 26, 6, 26);
+    g.fillStyle(0xffffff, 0.65); g.fillCircle(15, 14, 3.5);
+    g.generateTexture('tonic', 32, 32);
+
+    // Particle textures
+    g.clear();
+    g.fillStyle(0xffd700, 1); g.fillCircle(5, 5, 5);
+    g.generateTexture('pfx_gold', 10, 10);
+
+    g.clear();
+    g.fillStyle(0x00ffff, 1); g.fillCircle(4, 4, 4);
+    g.generateTexture('pfx_cyan', 8, 8);
+
+    g.destroy();
+  }
+
+  /* ── Computed stats ─────────────────────────────────────────────────────── */
+  _speed()    {
+    const base = 178 / (1 + this.powerLevel * 0.12);
+    return this.tonicActive ? base * 1.6 : base;
+  }
+  _cooldown() { return lerp(720, 130, this.powerLevel / MAX_POWER); }
+  _bRad()     { return lerp(5, 16, this.powerLevel / MAX_POWER); }
+  _bDamage()  { return Math.max(1, Math.floor(1 + this.powerLevel * 0.2)); }
+
+  /* ── HUD refreshes ──────────────────────────────────────────────────────── */
+  _refreshPowerHUD() {
+    this.powerNumTxt.setText(`${this.powerLevel}/${MAX_POWER}`);
+    const dw = 7, dg = 2, sx = 10;
+    for (let i = 0; i < MAX_POWER; i++) {
+      const dot = this._pdots[i];
+      dot.clear();
+      const col = i % 10, row = Math.floor(i / 10);
+      const dx = sx + col * (dw + dg);
+      const dy = 38 + row * (dw + dg + 1);
+      if (i < this.powerLevel) {
+        const t = i / MAX_POWER;
+        let cr, cg, cb;
+        if (t < 0.5) {
+          const u = t * 2;
+          cr = Math.round(lerp(0x22, 0x99, u)); cg = Math.round(lerp(0xaa, 0x44, u)); cb = 0xff;
+        } else {
+          const u = (t - 0.5) * 2;
+          cr = Math.round(lerp(0x99, 0xff, u)); cg = Math.round(lerp(0x44, 0xaa, u)); cb = Math.round(lerp(0xff, 0, u));
+        }
+        dot.fillStyle(Phaser.Display.Color.GetColor(cr, cg, cb), 1);
+        dot.fillRect(dx, dy, dw, dw);
+      } else {
+        dot.fillStyle(0x222f44, 0.7);
+        dot.fillRect(dx, dy, dw, dw);
+      }
+    }
+  }
+
+  _refreshSpeedHUD() {
+    const maxSpd = 178, cur = this._speed();
+    const frac   = Math.min(cur / maxSpd, 1);
+    let cr, cg, cb;
+    if (frac > 0.6)       { cr = 0;    cg = 0xff; cb = 0; }
+    else if (frac > 0.3)  { const u = (frac - 0.3) / 0.3; cr = Math.round(lerp(0xff, 0, u)); cg = 0xff; cb = 0; }
+    else                  { cr = 0xff; cg = Math.round(lerp(0, 0xff, frac / 0.3)); cb = 0; }
+    this._speedFg.clear();
+    this._speedFg.fillStyle(Phaser.Display.Color.GetColor(cr, cg, cb), 1);
+    this._speedFg.fillRect(10, this.H - 24, 130 * frac, 8);
+  }
+
+  /* ── Enemy spawning ─────────────────────────────────────────────────────── */
+  _spawnEnemy(type) {
+    const W = this.W, H = this.H;
+    let x, y;
+    const side = Phaser.Math.Between(0, 3);
+    if      (side === 0) { x = Phaser.Math.Between(0, W); y = -50; }
+    else if (side === 1) { x = W + 50;  y = Phaser.Math.Between(0, H); }
+    else if (side === 2) { x = Phaser.Math.Between(0, W); y = H + 50; }
+    else                 { x = -50;     y = Phaser.Math.Between(0, H); }
+
+    const elapsed = (this.time.now - this.gameStart) / 1000;
+    const diff    = Math.min(elapsed / 120, 1);
+    const bSpd    = lerp(55, 185, easeIn(diff));
+
+    const cfg = {
+      drifter: { key: 'drifter', hp: 1, spdMul: 1.0,  sz: 16, ox: 8,  oy: 8  },
+      rusher:  { key: 'rusher',  hp: 2, spdMul: 2.5,  sz: 28, ox: 10, oy: 10 },
+      warper:  { key: 'warper',  hp: 3, spdMul: 1.45, sz: 20, ox: 18, oy: 18 },
+    }[type];
+
+    const e = this.enemies.create(x, y, cfg.key);
+    e.setDepth(8);
+    e.hp       = cfg.hp;
+    e.maxHp    = cfg.hp;
+    e.type     = type;
+    e.baseSpd  = bSpd * cfg.spdMul;
+    e.state    = type === 'rusher' ? 'approach' : type === 'warper' ? 'teleport' : 'drift';
+    e.stTimer  = Phaser.Math.Between(600, 1400);
+    e.wob      = Math.random() * Math.PI * 2;
+    e.body.setCircle(cfg.sz, cfg.ox, cfg.oy);  // forgiving hitbox
+    if (type === 'warper') e.setAlpha(0.25);
+    return e;
+  }
+
+  /* ── Pickup spawning ────────────────────────────────────────────────────── */
+  _spawnPickup(x, y) {
+    const roll = Math.random();
+    const key  = roll < 0.65 ? 'crystal' : roll < 0.80 ? 'tonic' : null;
+    if (!key) return;
+
+    const pk = this.pickups.create(x, y, key);
+    pk.setDepth(7);
+    pk.pickupType = key;
+    pk.body.setCircle(11, 5, 5);
+    pk.body.setVelocity(
+      Phaser.Math.Between(-70, 70),
+      Phaser.Math.Between(-70, 70)
+    );
+
+    // Drift to stop
+    this.time.delayedCall(500, () => {
+      if (pk.active) pk.body.setVelocity(0, 0);
+    });
+
+    // Pulse
+    this.tweens.add({
+      targets: pk, scaleX: 1.3, scaleY: 1.3,
+      yoyo: true, repeat: -1, duration: 550, ease: 'Sine.easeInOut'
+    });
+
+    // Auto-despawn after 12 s
+    this.time.delayedCall(12000, () => {
+      if (pk && pk.active)
+        this.tweens.add({ targets: pk, alpha: 0, duration: 500, onComplete: () => pk.destroy() });
+    });
+  }
+
+  /* ── Shooting ───────────────────────────────────────────────────────────── */
+  _shoot(time) {
+    if (time - this.lastShot < this._cooldown()) return;
+
+    // Nearest active enemy
+    let nearest = null, nearestDsq = Infinity;
+    for (const e of this.enemies.getChildren()) {
+      if (!e.active) continue;
+      const dx = e.x - this.player.x, dy = e.y - this.player.y;
+      const dsq = dx * dx + dy * dy;
+      if (dsq < nearestDsq) { nearestDsq = dsq; nearest = e; }
+    }
+    if (!nearest) return;
+
+    this.lastShot = time;
+    const dx = nearest.x - this.player.x, dy = nearest.y - this.player.y;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    const nx = dx / len, ny = dy / len;
+    const bSpd = lerp(400, 260, this.powerLevel / MAX_POWER);
+    const rad  = this._bRad();
+
+    const b = this.physics.add.sprite(this.player.x, this.player.y, `bl${this.powerLevel}`);
+    b.setDepth(9);
+    b.damage = this._bDamage();
+    b.body.setCircle(rad, 16 - rad, 16 - rad);
+    b.body.setVelocity(nx * bSpd, ny * bSpd);
+    this.bullets.add(b);
+
+    sfxShoot(this.powerLevel);
+
+    // Bullet lifespan
+    this.time.delayedCall(1800, () => { if (b && b.active) b.destroy(); });
+  }
+
+  /* ── Collision handlers ─────────────────────────────────────────────────── */
+  _bulletHitEnemy(bullet, enemy) {
+    if (!bullet.active || !enemy.active) return;
+    bullet.destroy();
+    enemy.hp -= bullet.damage;
+    sfxHit();
+    if (enemy.active) {
+      enemy.setTint(0xffffff);
+      this.time.delayedCall(70, () => { if (enemy.active) enemy.clearTint(); });
+    }
+    if (enemy.hp <= 0) this._killEnemy(enemy);
+  }
+
+  _playerHitEnemy(player, enemy) {
+    if (this.isDead || !enemy.active) return;
+    this._die();
+  }
+
+  _playerPickup(player, pickup) {
+    if (!pickup.active) return;
+    const type = pickup.pickupType;
+    pickup.destroy();
+
+    if (type === 'crystal') {
+      if (this.powerLevel < MAX_POWER) {
+        this.powerLevel++;
+        if (this.powerLevel > this.maxPower) this.maxPower = this.powerLevel;
+        this.player.setTexture(`pl${this.powerLevel}`);
+        this._refreshPowerHUD();
+      }
+      this.bonusPoints += 10;
+      sfxCrystal();
+      this.cameras.main.flash(120, 255, 215, 0, false);
+      this._floatText(player.x, player.y - 22, '+POWER', '#ffd700');
+    } else {
+      this.tonicActive = true;
+      this.tonicTimer  = 3500;
+      sfxTonic();
+      this.cameras.main.flash(120, 0, 200, 255, false);
+      this._floatText(player.x, player.y - 22, '+SPEED', '#00ffff');
+    }
+
+    this._sparkPfx.setPosition(player.x, player.y);
+    this._sparkPfx.explode(14);
+  }
+
+  /* ── Enemy death ────────────────────────────────────────────────────────── */
+  _killEnemy(enemy) {
+    const x = enemy.x, y = enemy.y, type = enemy.type;
+    this._deathPfx.setPosition(x, y);
+    this._deathPfx.explode(18);
+
+    const bonus = { drifter: 25, rusher: 50, warper: 100 }[type] || 25;
+    this.bonusPoints += bonus;
+    this._floatText(x, y - 18, `+${bonus}`, '#ffd700');
+
+    this._spawnPickup(x, y);
+    enemy.destroy();
+  }
+
+  /* ── Player death ───────────────────────────────────────────────────────── */
+  _die() {
+    this.isDead = true;
+    sfxDeath();
+    this.cameras.main.shake(500, 0.03);
+    this.cameras.main.flash(350, 255, 68, 136);
+
+    this.tweens.add({
+      targets: this.player, scaleX: 2.8, scaleY: 2.8, alpha: 0,
+      duration: 550, ease: 'Power2'
+    });
+    this._deathPfx.setPosition(this.player.x, this.player.y);
+    this._deathPfx.explode(45);
+
+    // Stop enemies
+    this.enemies.getChildren().forEach(e => {
+      if (e.body) e.body.setVelocity(0, 0);
+    });
+
+    const elapsed    = (this.time.now - this.gameStart) / 1000;
+    const finalScore = Math.floor(elapsed * 10 + this.bonusPoints);
+
+    this.time.delayedCall(750, () => {
+      this.scene.pause();
+      showGameOverUI(finalScore, this.maxPower, Math.floor(elapsed));
+    });
+  }
+
+  /* ── Floating score text ────────────────────────────────────────────────── */
+  _floatText(x, y, msg, color = '#ffd700') {
+    const t = this.add.text(x, y, msg, {
+      fontFamily: 'Orbitron', fontSize: '12px', fontStyle: 'bold',
+      color, stroke: '#000', strokeThickness: 2
+    }).setOrigin(0.5).setDepth(25);
+    this.tweens.add({
+      targets: t, y: y - 45, alpha: 0, duration: 850, ease: 'Power2',
+      onComplete: () => t.destroy()
+    });
+  }
+
+  /* ── Main update ────────────────────────────────────────────────────────── */
+  update(time, delta) {
+    if (this.isDead) return;
+
+    const dt      = delta / 16.667;   // normalise to 60 fps
+    const elapsed = (time - this.gameStart) / 1000;
+    const diff    = Math.min(elapsed / 120, 1);
+
+    // ── Score & time HUD ──
+    const score = Math.floor(elapsed * 10 + this.bonusPoints);
+    this.scoreTxt.setText(`SCORE: ${score}`);
+    const s = Math.floor(elapsed);
+    this.timeTxt.setText(`${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`);
+
+    // ── Tonic countdown ──
+    if (this.tonicActive) {
+      this.tonicTimer -= delta;
+      if (this.tonicTimer <= 0) { this.tonicActive = false; this.tonicTxt.setText(''); }
+      else this.tonicTxt.setText(`⚡ BOOST ${(this.tonicTimer / 1000).toFixed(1)}s`);
+    }
+
+    // ── Player movement ──
+    const spd = this._speed();
+    let vx = 0, vy = 0;
+    if (this.cursors.left.isDown  || this.wasd.left.isDown)  vx -= 1;
+    if (this.cursors.right.isDown || this.wasd.right.isDown) vx += 1;
+    if (this.cursors.up.isDown    || this.wasd.up.isDown)    vy -= 1;
+    if (this.cursors.down.isDown  || this.wasd.down.isDown)  vy += 1;
+    if (this.touchOn) { vx = this.touchVx; vy = this.touchVy; }
+
+    const m = Math.sqrt(vx * vx + vy * vy);
+    if (m > 0) this.player.body.setVelocity((vx / m) * spd, (vy / m) * spd);
+    else        this.player.body.setVelocity(0, 0);
+
+    // Clamp to arena
+    this.player.x = Phaser.Math.Clamp(this.player.x, 20, this.W - 20);
+    this.player.y = Phaser.Math.Clamp(this.player.y, 20, this.H - 20);
+
+    // Gentle rotation (faster at high power = wobblier with power)
+    this.player.angle += dt * (0.8 + this.powerLevel * 0.4);
+
+    // ── Auto-fire ──
+    this._shoot(time);
+
+    // ── HUD ──
+    this._refreshSpeedHUD();
+
+    // ── Enemy spawn ──
+    const spawnInterval = lerp(2500, 350, easeIn(diff));
+    this.spawnClock += delta;
+    if (this.spawnClock >= spawnInterval) {
+      this.spawnClock = 0;
+      const count = Math.floor(lerp(1, 4, easeIn(diff)));
+      for (let i = 0; i < count; i++) {
+        let type = 'drifter';
+        if (elapsed > 35) {
+          const r = Math.random();
+          type = r < 0.38 ? 'drifter' : r < 0.72 ? 'rusher' : 'warper';
+        } else if (elapsed > 15) {
+          type = Math.random() < 0.5 ? 'drifter' : 'rusher';
+        }
+        this._spawnEnemy(type);
+      }
+    }
+
+    // ── Enemy AI ──
+    for (const e of this.enemies.getChildren()) {
+      if (!e.active) continue;
+      e.stTimer -= delta;
+
+      // Kill if too far off-screen
+      if (e.x < -200 || e.x > this.W + 200 || e.y < -200 || e.y > this.H + 200) {
+        e.destroy(); continue;
+      }
+
+      const px = this.player.x, py = this.player.y;
+      const ex = e.x, ey = e.y;
+      const ddx = px - ex, ddy = py - ey;
+      const dist = Math.sqrt(ddx * ddx + ddy * ddy) || 1;
+
+      if (e.type === 'drifter') {
+        // Gentle wobbling approach
+        e.wob += 0.035;
+        const wobble = Math.sin(e.wob) * 0.35;
+        const nx = ddx / dist + wobble * (-ddy / dist);
+        const ny = ddy / dist + wobble * (ddx / dist);
+        const len = Math.sqrt(nx * nx + ny * ny) || 1;
+        e.body.setVelocity((nx / len) * e.baseSpd, (ny / len) * e.baseSpd);
+        e.angle += 1.5 * dt;
+
+      } else if (e.type === 'rusher') {
+        if (e.state === 'approach') {
+          // Slow approach until close or timer up
+          e.body.setVelocity((ddx / dist) * e.baseSpd * 0.45, (ddy / dist) * e.baseSpd * 0.45);
+          if (dist < 220 || e.stTimer <= 0) {
+            // Lock on and charge!
+            e.state    = 'charge';
+            e.stTimer  = 1400;
+            e.chargeX  = px;
+            e.chargeY  = py;
+            e.setTint(0xff2200);
+            this.time.delayedCall(100, () => { if (e.active) e.clearTint(); });
+            const cdx = e.chargeX - ex, cdy = e.chargeY - ey;
+            const cl  = Math.sqrt(cdx * cdx + cdy * cdy) || 1;
+            e.body.setVelocity((cdx / cl) * e.baseSpd * 1.85, (cdy / cl) * e.baseSpd * 1.85);
+          }
+        } else if (e.state === 'charge') {
+          // Continue charging at locked direction (velocity already set)
+          if (e.stTimer <= 0) {
+            e.state   = 'approach';
+            e.stTimer = Phaser.Math.Between(700, 1500);
+          }
+        } else {
+          e.state   = 'approach';
+          e.stTimer = Phaser.Math.Between(700, 1500);
+        }
+        e.angle += 2.5 * dt;
+
+      } else if (e.type === 'warper') {
+        if (e.state === 'teleport') {
+          // Flicker while teleporting
+          e.alpha = 0.2 + 0.2 * Math.abs(Math.sin(time * 0.009));
+          if (e.stTimer <= 0) {
+            // Land near player (but not ON player)
+            const a = Math.random() * Math.PI * 2;
+            const r = Phaser.Math.Between(130, 260);
+            e.x = Phaser.Math.Clamp(px + Math.cos(a) * r, 40, this.W - 40);
+            e.y = Phaser.Math.Clamp(py + Math.sin(a) * r, 40, this.H - 40);
+            e.setAlpha(1);
+            e.state   = 'chase';
+            e.stTimer = Phaser.Math.Between(1600, 2400);
+          } else {
+            e.body.setVelocity(0, 0);
+          }
+        } else if (e.state === 'chase') {
+          e.body.setVelocity((ddx / dist) * e.baseSpd, (ddy / dist) * e.baseSpd);
+          if (e.stTimer <= 0) {
+            e.state   = 'teleport';
+            e.stTimer = Phaser.Math.Between(350, 700);
+            e.setAlpha(0.25);
+          }
+          e.angle += 3 * dt;
+        } else {
+          e.state   = 'teleport';
+          e.stTimer = 600;
+          e.setAlpha(0.25);
+        }
+      }
+    }
+
+    // ── Star twinkle ──
+    this._starGfx.clear();
+    for (const s of this._starData) {
+      s.ph += s.spd;
+      const a = s.a * (0.65 + 0.35 * Math.sin(s.ph));
+      this._starGfx.fillStyle(0xffffff, a);
+      this._starGfx.fillCircle(s.x, s.y, s.r);
+    }
+  }
+}
+
+// ─── Phaser config ────────────────────────────────────────────────────────────
+const config = {
+  type: Phaser.AUTO,
+  width: 800, height: 600,
+  backgroundColor: '#050510',
+  physics: {
+    default: 'arcade',
+    arcade: { gravity: { y: 0 }, debug: false }
+  },
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
+  scene: [MenuScene, GameScene],
+};
+
+const game = new Phaser.Game(config);
+
+// ─── Game over overlay ────────────────────────────────────────────────────────
+function showGameOverUI(finalScore, maxPower, timeSec) {
+  const overlay = document.getElementById('ui-overlay');
+  document.getElementById('final-score').textContent = finalScore;
+  document.getElementById('final-power').textContent = maxPower;
+  document.getElementById('final-time').textContent  = `${timeSec}s`;
+  overlay.classList.add('active');
+
+  const nameInput = document.getElementById('player-name');
+  nameInput.value = localStorage.getItem('pcName') || '';
+  nameInput.focus();
+
+  const submitBtn = document.getElementById('submit-btn');
+  submitBtn.disabled = false;
+  submitBtn.textContent = 'Submit Score';
+  submitBtn.onclick = async () => {
+    const name = nameInput.value.trim() || 'Anonymous';
+    localStorage.setItem('pcName', name);
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Submitting…';
+    await submitScore(name, finalScore);
+    submitBtn.textContent = '✓ Submitted';
+    await _loadLeaderboard();
+  };
+
+  document.getElementById('replay-btn').onclick = () => {
+    overlay.classList.remove('active');
+    game.scene.stop('GameScene');
+    game.scene.start('GameScene');
+  };
+
+  _loadLeaderboard();
+}
+
+async function _loadLeaderboard() {
+  const lbDiv = document.getElementById('leaderboard');
+  lbDiv.innerHTML = '<h3>🏆 TOP SURVIVORS</h3><div style="color:#556677;font-size:11px;text-align:center">Loading…</div>';
+  const scores = await getLeaderboard(10);
+  if (!scores.length) {
+    lbDiv.innerHTML = '<h3>🏆 TOP SURVIVORS</h3><div style="color:#556677;font-size:11px;text-align:center">No scores yet — be first!</div>';
+    return;
+  }
+  let html = '<h3>🏆 TOP SURVIVORS</h3>';
+  scores.forEach((s, i) => {
+    html += `<div class="lb-entry"><span>${i + 1}. ${s.playerName}</span><span>${s.score}</span></div>`;
+  });
+  lbDiv.innerHTML = html;
+}
+</script>
+</body>
+</html>
