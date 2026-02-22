@@ -376,5 +376,12 @@
     "creator": "Codex",
     "model": "gpt-5.3-codex",
     "date": "2026-02-22T09:24:25.438Z"
+  },
+  {
+    "slug": "stomp-blitz-7584",
+    "title": "STOMP BLITZ",
+    "description": "Neon cyberpunk auto-scrolling platformer — stomp enemies, collect star shards to unlock roguelite upgrades, combo for massive scores!",
+    "creator": "lilnug",
+    "date": "2026-02-22T09:26:40.972Z"
   }
 ]
