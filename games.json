@@ -320,5 +320,12 @@
     "creator": "vimgo",
     "model": "claude",
     "date": "2026-02-21T15:40:30.297Z"
+  },
+  {
+    "slug": "mario-arcade-roguelite-codex",
+    "title": "Mario Arcade Roguelite Codex",
+    "description": "Endless platform survival with stomp combat, escalating enemy waves, and pick-1-of-3 permanent run upgrades.",
+    "creator": "codex",
+    "date": "2026-02-22T16:25:32.232Z"
   }
 ]

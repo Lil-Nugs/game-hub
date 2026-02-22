@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>GAM-27 Codex — Polished Survival</title>
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: radial-gradient(circle at top, #c6ebff 0%, #8fcfff 40%, #3f88d0 100%);
+      overflow: hidden;
+      font-family: "Trebuchet MS", system-ui, sans-serif;
+      touch-action: none;
+      color: #eaf6ff;
+    }
+    #game-root { width: 100vw; height: 100vh; }
+    #hud { position: fixed; top: 12px; right: 12px; z-index: 40; width: min(340px, 44vw); padding: 10px; border-radius: 12px; background: rgba(6,17,36,.74); border: 1px solid rgba(255,255,255,.22); backdrop-filter: blur(5px); font-size: 14px; }
+    #hud h3 { font-size: 15px; margin-bottom: 6px; }
+    #leaderboard { max-height: 120px; overflow-y: auto; line-height: 1.4; }
+    #leaderboard li { margin-left: 18px; }
+    .small { opacity: .85; font-size: 12px; margin-top: 5px; }
+    #runUpgrades { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.2); max-height: 110px; overflow-y: auto; }
+    #runUpgrades h4 { font-size: 13px; margin-bottom: 5px; }
+    #runUpgrades ul { margin-left: 17px; line-height: 1.35; }
+    #gameOverPanel { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 60; background: rgba(0,0,0,.62); }
+    #gameOverCard { width: min(430px, 92vw); background: #0b1933; border: 1px solid rgba(255,255,255,.2); border-radius: 14px; padding: 16px; box-shadow: 0 18px 50px rgba(0,0,0,.5); }
+    #upgradePanel { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 70; background: rgba(0,0,0,.58); }
+    #upgradeCard { width: min(780px, 96vw); background: #0b1933; border: 1px solid rgba(255,255,255,.25); border-radius: 14px; padding: 16px; box-shadow: 0 18px 50px rgba(0,0,0,.55); }
+    #upgradeChoices { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; margin-top: 12px; }
+    .upgradeBtn { text-align: left; min-height: 120px; padding: 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.08); color: #fff; cursor: pointer; }
+    .upgradeBtn b { display: block; margin-bottom: 6px; }
+    #gameOverCard .row { display: flex; gap: 8px; margin-top: 10px; }
+    input, button { border-radius: 8px; border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.1); color: #fff; padding: 9px 10px; font-weight: 600; }
+    input { flex: 1; }
+    button { cursor: pointer; }
+    #touch { position: fixed; inset: auto 0 10px 0; z-index: 50; pointer-events: none; display: flex; justify-content: space-between; padding: 0 14px; }
+    .pad { display: flex; gap: 10px; pointer-events: auto; }
+    .touchBtn { width: 68px; height: 68px; border-radius: 50%; background: rgba(8,22,48,.55); border: 1px solid rgba(255,255,255,.3); color:#fff; font-size:20px; font-weight:800; user-select:none; -webkit-user-select:none; }
+    .touchBtn:active, .touchBtn.active { background: rgba(125,203,255,.5); }
+  </style>
+</head>
+<body>
+<div id="game-root"></div>
+<div id="hud">
+  <h3>Global Leaderboard</h3>
+  <ol id="leaderboard"></ol>
+  <div class="small">Score = floor(timeAlive*10 + bonusPoints). Endless survival with recurring upgrades.</div>
+  <div id="runUpgrades"><h4>Run Upgrades</h4><ul id="upgradeList"><li>None yet</li></ul></div>
+</div>
+<div id="upgradePanel"><div id="upgradeCard"><h2>Choose an Upgrade</h2><div class="small">Pick 1 of 3 permanent upgrades. Game pauses during selection.</div><div id="upgradeChoices"></div></div></div>
+<div id="gameOverPanel"><div id="gameOverCard"><h2>Run Over</h2><div id="finalText">Score: 0</div><div class="row"><input id="nameInput" maxlength="20" placeholder="Name" value="Player" /><button id="submitBtn">Submit</button><button id="restartBtn">Restart</button></div><div id="submitStatus" class="small"></div></div></div>
+<div id="touch"><div class="pad"><button class="touchBtn" id="btnLeft">◀</button><button class="touchBtn" id="btnRight">▶</button></div><div class="pad"><button class="touchBtn" id="btnShoot">●</button><button class="touchBtn" id="btnJump">⤒</button></div></div>
+<script>
+const GAME_ID = 'gam-27-codex';
+const SUPABASE_URL = 'https://lecyuhectrddtbjfyarm.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_gEX7QnQ24XzV6t0eNuWnVQ_ud19UxxJ';
+const LEADERBOARD_API = 'https://game-hub-supabase.local';
+const CFG = {
+  world: { width: 960, height: 540, gravityY: 1800 },
+  player: { startX: 120, startY: 420, width: 34, height: 46, moveSpeed: 315, accelGround: 0.23, accelAir: 0.14, groundDecel: 0.28, jumpVelocity: 700, maxFallSpeed: 1080, coyoteMs: 110, jumpBufferMs: 130, jumpCutMultiplier: 0.52, hurtIFrameMs: 900, knockbackX: 320, knockbackY: 380, maxHp: 3 },
+  enemy: { baseSpawnMs: 1780, minSpawnMs: 460, rampSeconds: 220, speedBase: 85, speedMaxBonus: 220, stompBounce: 540, stompMinFallSpeed: 115, stompGracePx: 14, safeSpawnRadius: 185, stompScore: { walker: 35, hopper: 50, charger: 75 } },
+  upgrades: { firstAtScore: 320, scoreStep: 320 },
+  weapon: { baseCooldownMs: 390, projectileSpeed: 640, baseBonus: 20 }
+};
+
+const RUN_MODS = {
+  moveSpeedMult:1, jumpMult:1, stompScoreMult:1, enemySpawnRateMult:1, enemySpeedMult:1, iFrameMult:1,
+  maxHpBonus:0, airControlBonus:0,
+  weaponUnlocked:false, projectileCooldownMult:1, projectileDamage:1, projectilePierce:0, projectileSpread:1
+};
+const RUN_UPGRADES = [];
+
+const UPGRADE_POOL = [
+  { id:'fleet_feet', name:'Fleet Feet', desc:'+12% movement speed.', effect:'moveSpeed', amount:0.12 },
+  { id:'high_jump', name:'High Jump', desc:'+10% jump strength.', effect:'jumpPower', amount:0.10 },
+  { id:'reinforced', name:'Reinforced Frame', desc:'+1 max HP and heal 1.', effect:'maxHp', amount:1 },
+  { id:'stomp_training', name:'Stomp Training', desc:'+20% stomp score bonus.', effect:'stompScore', amount:0.20 },
+  { id:'air_mastery', name:'Air Mastery', desc:'+0.04 air control.', effect:'airControl', amount:0.04 },
+  { id:'phase_skin', name:'Phase Skin', desc:'+18% invulnerability frames.', effect:'iFrames', amount:0.18 },
+  { id:'blaster_unlock', name:'Pocket Blaster', desc:'Unlock projectile attack (X / ●).', effect:'weaponUnlock', amount:1 },
+  { id:'rapid_fire', name:'Rapid Fire', desc:'Projectile cooldown -16%.', effect:'projectileCooldown', amount:0.16 },
+  { id:'heavy_rounds', name:'Heavy Rounds', desc:'+1 projectile damage.', effect:'projectileDamage', amount:1 },
+  { id:'scatter_rounds', name:'Scatter Rounds', desc:'+1 projectile spread (max 3).', effect:'projectileSpread', amount:1 },
+  { id:'pierce_rounds', name:'Pierce Rounds', desc:'+1 projectile pierce.', effect:'projectilePierce', amount:1 }
+];
+
+function resetRunMods(){
+  Object.assign(RUN_MODS,{ moveSpeedMult:1, jumpMult:1, stompScoreMult:1, enemySpawnRateMult:1, enemySpeedMult:1, iFrameMult:1, maxHpBonus:0, airControlBonus:0, weaponUnlocked:false, projectileCooldownMult:1, projectileDamage:1, projectilePierce:0, projectileSpread:1 });
+  RUN_UPGRADES.length = 0;
+  renderRunUpgrades();
+}
+
+function applyUpgrade(upgradeDef, scene){
+  if(!upgradeDef) return;
+  switch(upgradeDef.effect){
+    case 'moveSpeed': RUN_MODS.moveSpeedMult += upgradeDef.amount; break;
+    case 'jumpPower': RUN_MODS.jumpMult += upgradeDef.amount; break;
+    case 'stompScore': RUN_MODS.stompScoreMult += upgradeDef.amount; break;
+    case 'enemyPace': RUN_MODS.enemySpawnRateMult += upgradeDef.amount; break;
+    case 'enemySpeed': RUN_MODS.enemySpeedMult += upgradeDef.amount; break;
+    case 'iFrames': RUN_MODS.iFrameMult += upgradeDef.amount; break;
+    case 'maxHp': RUN_MODS.maxHpBonus += upgradeDef.amount; if(scene){ scene.hp = Math.min(scene.maxHp(), scene.hp + upgradeDef.amount); } break;
+    case 'airControl': RUN_MODS.airControlBonus += upgradeDef.amount; break;
+    case 'weaponUnlock': RUN_MODS.weaponUnlocked = true; break;
+    case 'projectileCooldown': RUN_MODS.projectileCooldownMult = Math.max(0.35, RUN_MODS.projectileCooldownMult - upgradeDef.amount); break;
+    case 'projectileDamage': RUN_MODS.projectileDamage += upgradeDef.amount; break;
+    case 'projectilePierce': RUN_MODS.projectilePierce += upgradeDef.amount; break;
+    case 'projectileSpread': RUN_MODS.projectileSpread = Math.min(3, RUN_MODS.projectileSpread + upgradeDef.amount); break;
+  }
+  RUN_UPGRADES.push(upgradeDef.name);
+  renderRunUpgrades();
+}
+
+window.GAM27_API = {
+  applyUpgrade,
+  getRunMods: () => ({ ...RUN_MODS }),
+  computeScore: (timeAlive, bonusPoints) => computeScore(timeAlive, bonusPoints),
+  getConfig: () => JSON.parse(JSON.stringify(CFG))
+};
+
+function pickUpgradeChoices(count=3){
+  const pool = [...UPGRADE_POOL];
+  const chosen = [];
+  while(pool.length && chosen.length < count){
+    chosen.push(pool.splice(Math.floor(Math.random()*pool.length),1)[0]);
+  }
+  return chosen;
+}
+
+function renderRunUpgrades(){
+  const list = document.getElementById('upgradeList');
+  if(!list) return;
+  list.innerHTML = '';
+  if(!RUN_UPGRADES.length){ const li=document.createElement('li'); li.textContent='None yet'; list.appendChild(li); return; }
+  const grouped = RUN_UPGRADES.reduce((acc,n)=>{ acc[n]=(acc[n]||0)+1; return acc; },{});
+  Object.entries(grouped).forEach(([name,count])=>{ const li=document.createElement('li'); li.textContent = count > 1 ? `${name} x${count}` : name; list.appendChild(li); });
+}
+
+let activeScene = null, latestScore = 0;
+let audioCtx = null;
+function ensureAudio(){ if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }
+function sfx(freq=420,dur=0.06,type='square',vol=0.04){ if(!audioCtx||audioCtx.state!=='running') return; const o=audioCtx.createOscillator(), g=audioCtx.createGain(); o.type=type; o.frequency.value=freq; g.gain.value=vol; g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+dur); o.connect(g).connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime+dur); }
+function computeScore(timeAlive, bonusPoints){
+  const safeTime = Math.max(0, Number(timeAlive) || 0);
+  const safeBonus = Math.max(0, Math.floor(Number(bonusPoints) || 0));
+  return Math.floor(safeTime * 10 + safeBonus);
+}
+
+class GameScene extends Phaser.Scene {
+  constructor(){ super('GameScene'); }
+  create(){
+    activeScene = this;
+    this.timeAlive=0; this.bonusPoints=0; this.lastOnGroundAt=0; this.jumpPressedAt=-9999; this.jumpConsumedAt=-9999; this.jumpHeld=false; this.lastSpawnAt=0; this.dead=false; this.prevPlayerBottom=0;
+    this.maxHp=()=>CFG.player.maxHp + RUN_MODS.maxHpBonus; this.hp=this.maxHp();
+    this.nextUpgradeScore = CFG.upgrades.firstAtScore;
+    this.inUpgradeSelection = false;
+    this.lastShotAt = 0;
+    this.facing = 1;
+    this.touch={left:false,right:false,jump:false,jumpJust:false,shoot:false,shootJust:false};
+
+    this.add.rectangle(480,430,960,220,0x95d56c); this.add.rectangle(480,300,960,18,0xffffff,0.18); this.add.rectangle(480,85,960,105,0xffffff,0.08);
+    this.platforms=this.physics.add.staticGroup();
+    [[480,510,960,60],[240,404,156,20],[500,350,184,20],[760,298,190,20],[150,270,140,20],[436,230,130,20],[670,188,130,20]].forEach(([x,y,w,h])=>{ const r=this.add.rectangle(x,y,w,h,0x3f8b44).setStrokeStyle(2,0x245128); this.physics.add.existing(r,true); this.platforms.add(r); });
+
+    this.player=this.add.rectangle(CFG.player.startX,CFG.player.startY,CFG.player.width,CFG.player.height,0x1f315c); this.physics.add.existing(this.player); const b=this.player.body; b.setCollideWorldBounds(true); b.setMaxVelocity(1000,CFG.player.maxFallSpeed); this.prevPlayerBottom = b.bottom;
+    this.enemies=this.physics.add.group();
+    this.projectiles = this.physics.add.group();
+
+    this.keys=this.input.keyboard.addKeys({left:Phaser.Input.Keyboard.KeyCodes.LEFT,right:Phaser.Input.Keyboard.KeyCodes.RIGHT,a:Phaser.Input.Keyboard.KeyCodes.A,d:Phaser.Input.Keyboard.KeyCodes.D,jump1:Phaser.Input.Keyboard.KeyCodes.SPACE,jump2:Phaser.Input.Keyboard.KeyCodes.UP,jump3:Phaser.Input.Keyboard.KeyCodes.Z,shoot:Phaser.Input.Keyboard.KeyCodes.X});
+    this.touchBindings = [];
+    const bind=(id,key)=>{
+      const el=document.getElementById(id);
+      const down=()=>{ ensureAudio(); this.touch[key]=true; if(key==='jump') this.touch.jumpJust=true; if(key==='shoot') this.touch.shootJust=true; el.classList.add('active'); };
+      const up=()=>{ this.touch[key]=false; el.classList.remove('active'); };
+      el.addEventListener('pointerdown',down); el.addEventListener('pointerup',up); el.addEventListener('pointerleave',up); el.addEventListener('pointerout',up); el.addEventListener('pointercancel',up);
+      this.touchBindings.push({el,down,up});
+    };
+    bind('btnLeft','left'); bind('btnRight','right'); bind('btnJump','jump'); bind('btnShoot','shoot');
+
+    this.resetControls = () => {
+      this.touch.left = false; this.touch.right = false; this.touch.jump = false; this.touch.jumpJust = false; this.touch.shoot = false; this.touch.shootJust = false; this.jumpHeld = false;
+      document.querySelectorAll('.touchBtn.active').forEach((el)=>el.classList.remove('active'));
+    };
+    this.onVisibilityChange = () => { if (document.hidden) this.resetControls(); };
+    window.addEventListener('blur', this.resetControls);
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
+    this.events.once('shutdown', () => {
+      window.removeEventListener('blur', this.resetControls);
+      document.removeEventListener('visibilitychange', this.onVisibilityChange);
+      (this.touchBindings || []).forEach(({el,down,up})=>{
+        el.removeEventListener('pointerdown', down);
+        el.removeEventListener('pointerup', up);
+        el.removeEventListener('pointerleave', up);
+        el.removeEventListener('pointerout', up);
+        el.removeEventListener('pointercancel', up);
+      });
+    });
+
+    this.input.on('pointerdown',()=>ensureAudio());
+    this.ui=this.add.text(16,14,'',{font:'22px Trebuchet MS',color:'#0f2a4f',stroke:'#f2fbff',strokeThickness:5}).setDepth(20);
+    this.msg=this.add.text(16,46,'Move: ← → / A D   Jump: Z / SPACE / ↑   Shoot: X / ● (when unlocked)',{font:'16px Trebuchet MS',color:'#123f70'}).setDepth(20);
+
+    this.physics.add.collider(this.player,this.platforms);
+    this.physics.add.collider(this.enemies,this.platforms);
+    this.physics.add.collider(this.projectiles,this.platforms,(proj)=>proj.destroy());
+    this.physics.add.overlap(this.player,this.enemies,this.onOverlap,null,this);
+    this.physics.add.overlap(this.projectiles,this.enemies,this.onProjectileHitEnemy,null,this);
+    this.time.addEvent({delay:150,loop:true,callback:this.spawnCheck,callbackScope:this});
+  }
+
+  get score(){ return computeScore(this.timeAlive, this.bonusPoints); }
+  difficulty01(){ return Phaser.Math.Clamp(this.timeAlive/CFG.enemy.rampSeconds,0,1); }
+  easedDifficulty01(){ const d=this.difficulty01(); return d*d*(3-2*d); }
+  currentSpawnIntervalMs(){ return Phaser.Math.Linear(CFG.enemy.baseSpawnMs,CFG.enemy.minSpawnMs,this.easedDifficulty01())/Math.max(0.7,RUN_MODS.enemySpawnRateMult); }
+
+  spawnCheck(){
+    if(this.dead || this.inUpgradeSelection) return;
+    const now=this.time.now; const d=this.difficulty01(); const eased=this.easedDifficulty01(); const interval=this.currentSpawnIntervalMs(); if(now-this.lastSpawnAt<interval) return; this.lastSpawnAt=now;
+    const roll=Math.random(); const type = roll < (0.62-d*0.2) ? 'walker' : roll < (0.9-d*0.1) ? 'hopper' : 'charger'; const side=Math.random()<0.5?-1:1; const x=side<0?-30:CFG.world.width+30;
+    const lanes=[145,205,265,325,385,455];
+    let y = Phaser.Utils.Array.GetRandom(lanes);
+    for(let i=0;i<4;i++){ if(Math.abs(y-this.player.y) >= CFG.enemy.safeSpawnRadius) break; y = Phaser.Utils.Array.GetRandom(lanes); }
+    const e=this.add.rectangle(x,y,type==='charger'?36:30,type==='hopper'?30:28,type==='walker'?0x8f2323:type==='hopper'?0x8f5d23:0x7d238f); this.physics.add.existing(e); e.body.setMaxVelocity(700,1000);
+    const base=(CFG.enemy.speedBase+eased*CFG.enemy.speedMaxBonus)*RUN_MODS.enemySpeedMult; const speed= type==='walker'?base:type==='hopper'?base*0.82:base*1.22;
+    e.setData('type',type); e.setData('dir',side<0?1:-1); e.setData('speed',speed); e.setData('nextHopAt',now+Phaser.Math.Between(500,900)); this.enemies.add(e);
+  }
+
+  onProjectileHitEnemy(proj, enemy){
+    if(!proj?.active || !enemy?.active || this.dead) return;
+    const hp = (enemy.getData('hp') || (enemy.getData('type')==='charger' ? 2 : 1)) - (proj.getData('damage') || 1);
+    enemy.setData('hp', hp);
+    proj.setData('pierceLeft', (proj.getData('pierceLeft') || 0) - 1);
+    if(hp <= 0){
+      this.bonusPoints += Math.max(1, Math.floor(CFG.weapon.baseBonus * RUN_MODS.stompScoreMult));
+      const burst=this.add.circle(enemy.x, enemy.y, 6, 0xb5ebff, 0.95); this.tweens.add({targets:burst,alpha:0,scale:2,duration:120,onComplete:()=>burst.destroy()});
+      enemy.destroy();
+    }
+    if((proj.getData('pierceLeft') || 0) < 0) proj.destroy();
+  }
+
+  fireProjectile(){
+    if(!RUN_MODS.weaponUnlocked || this.inUpgradeSelection || this.dead) return;
+    const now = this.time.now;
+    const cooldown = CFG.weapon.baseCooldownMs * RUN_MODS.projectileCooldownMult;
+    if(now - this.lastShotAt < cooldown) return;
+    this.lastShotAt = now;
+
+    const spreadCount = Math.max(1, RUN_MODS.projectileSpread|0);
+    const spreadAngles = spreadCount === 1 ? [0] : spreadCount === 2 ? [-7, 7] : [-11, 0, 11];
+    spreadAngles.forEach((deg)=>{
+      const angle = Phaser.Math.DegToRad(deg);
+      const vx = this.facing * Math.cos(angle) * CFG.weapon.projectileSpeed;
+      const vy = Math.sin(angle) * CFG.weapon.projectileSpeed;
+      const p=this.add.rectangle(this.player.x + this.facing*20, this.player.y - 8, 12, 5, 0xd5f5ff); this.physics.add.existing(p);
+      p.body.allowGravity = false;
+      p.body.setVelocity(vx, vy);
+      p.setData('damage', RUN_MODS.projectileDamage);
+      p.setData('pierceLeft', RUN_MODS.projectilePierce);
+      this.projectiles.add(p);
+    });
+    sfx(620,0.045,'square',0.03);
+  }
+
+  onOverlap(player, enemy){
+    if(!enemy?.active||this.dead || this.inUpgradeSelection) return; const pb=player.body, eb=enemy.body;
+    const approachedFromAbove = this.prevPlayerBottom <= (eb.top + CFG.enemy.stompGracePx);
+    const relativeFallSpeed = pb.velocity.y - (eb.velocity?.y || 0);
+    const stomp = relativeFallSpeed >= CFG.enemy.stompMinFallSpeed && approachedFromAbove;
+    if(stomp){ const stompValue=(CFG.enemy.stompScore[enemy.getData('type')]||35)*RUN_MODS.stompScoreMult; this.bonusPoints += Math.max(1, Math.floor(stompValue)); const burst=this.add.circle(enemy.x, enemy.y-8, 8, 0xfff2a6, 0.9); this.tweens.add({targets:burst,alpha:0,scale:2,duration:140,onComplete:()=>burst.destroy()}); this.tweens.add({targets:enemy,scaleX:0.2,scaleY:0.1,alpha:0,duration:120,onComplete:()=>enemy.destroy()}); pb.setVelocityY(-CFG.enemy.stompBounce*RUN_MODS.jumpMult); this.cameras.main.shake(60,0.003); sfx(760,0.05,'square',0.045); return; }
+    if((player.getData('hurtUntil')||0)>this.time.now) return; player.setData('hurtUntil',this.time.now + CFG.player.hurtIFrameMs*RUN_MODS.iFrameMult); this.hp -= 1; const push=Math.sign(player.x-enemy.x)||1; pb.setVelocity(push*CFG.player.knockbackX,-CFG.player.knockbackY); player.setFillStyle(0xf8c7c7); this.time.delayedCall(130,()=>!this.dead&&player.setFillStyle(0x1f315c)); sfx(170,0.09,'sawtooth',0.045); if(this.hp<=0) this.gameOver();
+  }
+
+  openUpgradeSelection(){
+    this.inUpgradeSelection = true;
+    this.physics.world.pause();
+    const panel = document.getElementById('upgradePanel');
+    const holder = document.getElementById('upgradeChoices');
+    holder.innerHTML = '';
+    const choices = pickUpgradeChoices(3);
+    choices.forEach((u)=>{
+      const btn = document.createElement('button');
+      btn.className = 'upgradeBtn';
+      btn.innerHTML = `<b>${u.name}</b><span>${u.desc}</span>`;
+      btn.addEventListener('click', ()=>this.chooseUpgrade(u), { once: true });
+      holder.appendChild(btn);
+    });
+    panel.style.display = 'flex';
+  }
+
+  chooseUpgrade(upgrade){
+    applyUpgrade(upgrade, this);
+    this.nextUpgradeScore += CFG.upgrades.scoreStep;
+    document.getElementById('upgradePanel').style.display = 'none';
+    this.inUpgradeSelection = false;
+    this.physics.world.resume();
+    sfx(520,0.08,'triangle',0.05);
+  }
+
+  update(_,delta){
+    if(this.dead) return;
+    if(this.inUpgradeSelection){ this.prevPlayerBottom = this.player.body.bottom; return; }
+
+    this.timeAlive += delta/1000;
+    const body=this.player.body;
+    const left=this.keys.left.isDown||this.keys.a.isDown||this.touch.left;
+    const right=this.keys.right.isDown||this.keys.d.isDown||this.touch.right;
+    const jumpDown=this.keys.jump1.isDown||this.keys.jump2.isDown||this.keys.jump3.isDown||this.touch.jump;
+    const jumpJust=Phaser.Input.Keyboard.JustDown(this.keys.jump1)||Phaser.Input.Keyboard.JustDown(this.keys.jump2)||Phaser.Input.Keyboard.JustDown(this.keys.jump3)||this.touch.jumpJust;
+    const shootJust=Phaser.Input.Keyboard.JustDown(this.keys.shoot)||this.touch.shootJust;
+    this.touch.jumpJust=false; this.touch.shootJust=false;
+
+    if(left) this.facing = -1; else if(right) this.facing = 1;
+    if(shootJust) this.fireProjectile();
+
+    const grounded=body.blocked.down||body.touching.down; if(grounded) this.lastOnGroundAt=this.time.now; if(jumpJust) this.jumpPressedAt=this.time.now;
+    const coyote=(this.time.now-this.lastOnGroundAt)<=CFG.player.coyoteMs, buffered=(this.time.now-this.jumpPressedAt)<=CFG.player.jumpBufferMs;
+    if(buffered&&coyote&&this.jumpConsumedAt!==this.jumpPressedAt){ body.setVelocityY(-CFG.player.jumpVelocity*RUN_MODS.jumpMult); this.jumpConsumedAt=this.jumpPressedAt; sfx(300,0.05,'triangle',0.04); }
+    if(!jumpDown&&this.jumpHeld&&body.velocity.y<0) body.setVelocityY(body.velocity.y*CFG.player.jumpCutMultiplier); this.jumpHeld=jumpDown;
+
+    const axis=(left?-1:0)+(right?1:0); const target=axis*(CFG.player.moveSpeed*RUN_MODS.moveSpeedMult); const airAccel=Phaser.Math.Clamp(CFG.player.accelAir+RUN_MODS.airControlBonus,0.1,0.38); const baseAccel=grounded?CFG.player.accelGround:airAccel; const reversing=axis!==0&&Math.sign(axis)!==Math.sign(body.velocity.x)&&Math.abs(body.velocity.x)>26; const accel=reversing&&grounded?Math.min(0.42,baseAccel+0.14):baseAccel; body.velocity.x=Phaser.Math.Linear(body.velocity.x,target,accel); if(!axis&&grounded) body.velocity.x=Phaser.Math.Linear(body.velocity.x,0,CFG.player.groundDecel);
+
+    this.enemies.getChildren().forEach(e=>{ if(!e.active) return; const type=e.getData('type'), dir=e.getData('dir')||1, speed=e.getData('speed')||120; if(type==='hopper'){ if(this.time.now>=(e.getData('nextHopAt')||0)&&(e.body.blocked.down||e.body.touching.down)){ e.body.setVelocityY(-460); e.setData('nextHopAt',this.time.now+Phaser.Math.Between(450,820)); } e.body.setVelocityX(dir*speed*0.8); } else if(type==='charger'){ const near=Math.abs(this.player.x-e.x)<300; e.body.setVelocityX(dir*(near?speed*1.35:speed)); } else { e.body.setVelocityX(dir*speed); } if(e.x<-130||e.x>CFG.world.width+130||e.y>CFG.world.height+100) e.destroy(); });
+
+    this.projectiles.getChildren().forEach(p=>{ if(!p.active) return; if(p.x < -40 || p.x > CFG.world.width + 40 || p.y < -40 || p.y > CFG.world.height + 40) p.destroy(); });
+
+    if(this.score >= this.nextUpgradeScore){ this.openUpgradeSelection(); }
+
+    this.player.alpha=((this.player.getData('hurtUntil')||0)>this.time.now&&(Math.floor(this.time.now/65)%2))?0.32:1;
+    this.ui.setText(`Score ${this.score}   HP ${this.hp}/${this.maxHp()}   Bonus ${Math.floor(this.bonusPoints)}   Threat ${Math.floor(this.easedDifficulty01()*100)}%   Next+ ${Math.max(0,this.nextUpgradeScore-this.score)}`);
+    this.prevPlayerBottom = body.bottom;
+  }
+
+  gameOver(){
+    this.dead=true;
+    latestScore=this.score;
+    this.physics.world.resume();
+    this.player.body.enable=false;
+    this.player.setFillStyle(0x111111);
+    this.cameras.main.shake(120,0.006);
+    document.getElementById('upgradePanel').style.display='none';
+    document.getElementById('finalText').textContent=`Final Score: ${latestScore}`;
+    document.getElementById('submitStatus').textContent='';
+    document.getElementById('gameOverPanel').style.display='flex';
+    refreshLeaderboard();
+  }
+}
+
+new Phaser.Game({ type: Phaser.AUTO, parent: 'game-root', width: CFG.world.width, height: CFG.world.height, backgroundColor:'#7cc8ff', physics:{ default:'arcade', arcade:{ gravity:{ y:CFG.world.gravityY }, debug:false } }, scale:{ mode:Phaser.Scale.FIT, autoCenter:Phaser.Scale.CENTER_BOTH }, scene:[GameScene] });
+
+function getClientFingerprint() {
+  const key = 'gamehub.client-fingerprint.v1';
+  const existing = localStorage.getItem(key);
+  if (existing) return existing;
+  const created = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  localStorage.setItem(key, created);
+  return created;
+}
+
+async function supabaseRequest(path, { method = 'GET', body, prefer } = {}) {
+  const headers = {
+    apikey: SUPABASE_PUBLISHABLE_KEY,
+    Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+    'Content-Type': 'application/json'
+  };
+  if (prefer) headers.Prefer = prefer;
+
+  const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined
+  });
+
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) throw new Error((data && (data.message || data.error)) || `Supabase ${res.status}`);
+  return data;
+}
+
+async function submitScore(playerName, score) {
+  try {
+    await supabaseRequest('/leaderboard_scores', {
+      method: 'POST',
+      prefer: 'return=minimal',
+      body: {
+        game_slug: GAME_ID,
+        player_name: String(playerName || 'Anonymous').slice(0, 20),
+        score: Math.round(score),
+        client_fingerprint: getClientFingerprint()
+      }
+    });
+
+    const scores = await getLeaderboard(100);
+    const rank = scores.findIndex((row) => row.playerName === String(playerName || 'Anonymous').slice(0, 20) && row.score === Math.round(score)) + 1;
+    return { ok: true, rank: rank > 0 ? rank : null, totalScores: scores.length };
+  } catch (e) {
+    console.warn('Leaderboard unavailable:', e);
+    return null;
+  }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const rows = await supabaseRequest('/rpc/get_game_leaderboard', {
+      method: 'POST',
+      body: { p_game_slug: GAME_ID, p_limit: Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100) }
+    });
+    return (rows || []).map((row) => ({
+      playerName: row.player_name,
+      score: Number(row.score) || 0,
+      date: row.created_at
+    }));
+  } catch (e) {
+    console.warn('Leaderboard unavailable:', e);
+    return [];
+  }
+}
+
+async function refreshLeaderboard(){ const el=document.getElementById('leaderboard'); el.innerHTML='<li>Loading...</li>'; try{ const rows=await getLeaderboard(10); el.innerHTML=''; if(!rows?.length){ const li=document.createElement('li'); li.textContent='No scores yet — be first!'; el.appendChild(li); return; } rows.forEach((r,i)=>{ const li=document.createElement('li'); li.textContent=`${r.playerName||'anon'} — ${r.score}`; if(i===0) li.style.color='#ffe58f'; el.appendChild(li); }); } catch { el.innerHTML='<li>Leaderboard unavailable.</li>'; } }
+
+const panel=document.getElementById('gameOverPanel'); const submitStatus=document.getElementById('submitStatus');
+document.getElementById('submitBtn').addEventListener('click',async()=>{ const name=(document.getElementById('nameInput').value||'Player').trim().slice(0,20)||'Player'; submitStatus.textContent='Submitting...'; try{ await submitScore(name,latestScore); submitStatus.textContent='Submitted!'; await refreshLeaderboard(); } catch { submitStatus.textContent='Submit failed — you can still restart.'; } });
+document.getElementById('restartBtn').addEventListener('click',()=>{ panel.style.display='none'; document.getElementById('upgradePanel').style.display='none'; resetRunMods(); if(activeScene) activeScene.scene.restart(); });
+
+resetRunMods();
+refreshLeaderboard();
+</script>
+</body>
+</html>
