@@ -1,5 +1,55 @@
 [
   {
+    "id": "game-ratings-rollout-v1",
+    "title": "Game Ratings Rollout Plan (Supabase + Existing Games)",
+    "date": "2026-02-22",
+    "author": "Codex Gamehub",
+    "summary": "Implement production game ratings across existing GameHub games using current Supabase stack: one rating per user per game (latest wins), 1-5 scale, aggregate display in game pages and hub cards, with staged rollout and validation.",
+    "tags": [
+      "ratings",
+      "supabase",
+      "ux",
+      "analytics",
+      "rollout"
+    ],
+    "sections": [
+      {
+        "heading": "Research Findings",
+        "body": "Current state: Supabase migration is live with `game_ratings` table, rating RPCs (`upsert_game_rating`, `get_game_rating_summary`), and shared client utility (`shared/supabase-client.js`) exposing rating helpers. Existing games are already wired to shared Supabase scripts for leaderboard compatibility but most game UIs do not yet expose a rating interaction flow. This means backend capability exists; missing layer is UI integration + aggregate surfacing + QA pass."
+      },
+      {
+        "heading": "Requirements (confirmed)",
+        "body": "• Rating scale: integer 1-5\n• Identity model: anonymous client fingerprint, one rating per game per user, latest rating wins\n• Keep GitHub Pages static architecture\n• Use Supabase direct client path (no Worker dependency)\n• Use existing games first (retrofit), then apply to new games by default"
+      },
+      {
+        "heading": "Architecture Approach",
+        "body": "Use `window.GameHubSupabase.upsertRating(gameSlug, rating)` and `window.GameHubSupabase.getRatingSummary(gameSlug)` from `shared/supabase-client.js`. Add a small reusable rating widget snippet to game pages (post-game overlay and/or persistent corner UI). Store/refresh aggregate summary in-page after submit. Extend hub rendering to show per-game average + count sourced from Supabase RPC (batched where practical)."
+      },
+      {
+        "heading": "Implementation Plan (phased)",
+        "body": "Phase 1 — Shared UI primitives\n1) Add reusable rating widget helper script under `shared/` for stars/buttons, loading state, submit state, and summary rendering.\n2) Define consistent UX copy and edge-case behavior (no rating yet, submit failed, retry).\n\nPhase 2 — Existing game integration\n3) Patch active game pages to include rating widget and call Supabase rating APIs.\n4) Ensure game slug binding is correct per page.\n5) Ensure latest-rating overwrite behavior is reflected in UI (replace previous vote).\n\nPhase 3 — Hub surfacing\n6) Update `index.html` cards to display `avg_rating` and `rating_count`.\n7) Optionally add sortable filter: Top Rated / Most Rated.\n\nPhase 4 — Validation + hardening\n8) Add smoke checklist script: submit rating, change rating, verify aggregate updates.\n9) Verify no secret exposure in client artifacts.\n10) Validate RLS behavior for anonymous writes and reads.\n\nPhase 5 — Operationalization\n11) Add default requirement to generation templates: include rating widget hooks.\n12) Track adoption metric: % active games with working rating UI."
+      },
+      {
+        "heading": "QA / Acceptance Criteria",
+        "body": "A rollout is complete when:\n• A user can rate any active game 1-5\n• Re-rating the same game updates (not duplicates) that user’s latest value\n• Aggregate avg/count updates and is visible both in game UI and hub cards\n• Failure states are non-blocking and user-visible\n• No `secretKey` appears in shipped frontend files"
+      },
+      {
+        "heading": "Risks + Mitigations",
+        "body": "• Inconsistent game HTML structures -> use minimal, inject-safe widget API and batch patch strategy.\n• Performance impact from per-card fetches -> add batched summary RPC if needed.\n• Anonymous abuse/noise -> acceptable for v1; later add throttling/signals if abuse appears.\n• Drift between generated new games and retrofitted old games -> make rating hooks part of generation contract."
+      },
+      {
+        "heading": "Execution Mapping (Linear)",
+        "body": "Map this plan to existing/next tasks:\n• Completed foundation: GAM-14 (schema), GAM-15 (RLS), GAM-16 (template migration)\n• New work items to create: ratings widget implementation, existing-games retrofit, hub aggregate display, rating QA harness, generation-template contract update."
+      },
+      {
+        "heading": "Recommended Next Move",
+        "body": "Start with Phase 1+2 in one PR to prove end-to-end rating flow on 3 representative games, then scale patch across all active games with a scripted codemod approach."
+      }
+    ],
+    "implementationStatus": "in-progress",
+    "taskTrackerStatus": "not-converted"
+  },
+  {
     "id": "game-skill-improvement-v1",
     "title": "Game Skill Improvement Plan",
     "date": "2026-02-21",
