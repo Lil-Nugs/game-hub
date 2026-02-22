@@ -364,10 +364,10 @@
   {
     "slug": "codex-arcade-platformer-roguelite",
     "title": "Codex Arcade Platformer Roguelite",
-    "description": "Tight platformer foundation with coyote time, jump buffer, variable jump, and stomp combat.",
-    "creator": "Codex",
-    "model": "gpt-5.3-codex",
-    "date": "2026-02-22T09:24:37.436Z"
+    "description": "Codex-isolated platformer roguelite foundation with stomp combat and survival scaling.",
+    "creator": "Codex Gamehub",
+    "model": "gpt-5-codex",
+    "date": "2026-02-22T09:26:06.458Z"
   },
   {
     "slug": "skyline-stomp-roguelite",
