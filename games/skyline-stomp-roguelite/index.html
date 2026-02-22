@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Skyline Stomp: Arcade Platformer Roguelite</title>
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: radial-gradient(circle at top, #bfe8ff 0%, #8cd1ff 35%, #3f88d0 100%);
+      overflow: hidden;
+      font-family: "Trebuchet MS", system-ui, sans-serif;
+      touch-action: none;
+      color: #eaf6ff;
+    }
+    #game-root { width: 100vw; height: 100vh; }
+
+    #hud {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      z-index: 40;
+      width: min(320px, 42vw);
+      padding: 10px;
+      border-radius: 12px;
+      background: rgba(6, 17, 36, 0.74);
+      border: 1px solid rgba(255,255,255,0.22);
+      backdrop-filter: blur(5px);
+      font-size: 14px;
+    }
+    #hud h3 { font-size: 15px; margin-bottom: 6px; }
+    #leaderboard { max-height: 160px; overflow-y: auto; line-height: 1.4; }
+    #leaderboard li { margin-left: 18px; }
+    .small { opacity: 0.85; font-size: 12px; margin-top: 5px; }
+
+    #gameOverPanel {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 60;
+      background: rgba(0,0,0,0.6);
+    }
+    #gameOverCard {
+      width: min(420px, 92vw);
+      background: #0b1933;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: 0 18px 50px rgba(0,0,0,0.5);
+    }
+    #gameOverCard h2 { margin-bottom: 6px; }
+    #gameOverCard .row { display: flex; gap: 8px; margin-top: 10px; }
+    input, button {
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.25);
+      background: rgba(255,255,255,0.1);
+      color: #fff;
+      padding: 9px 10px;
+      font-weight: 600;
+    }
+    input { flex: 1; }
+    button { cursor: pointer; }
+    button:hover { background: rgba(255,255,255,0.18); }
+
+    #touch {
+      position: fixed;
+      inset: auto 0 10px 0;
+      z-index: 50;
+      pointer-events: none;
+      display: flex;
+      justify-content: space-between;
+      padding: 0 14px;
+    }
+    .pad { display: flex; gap: 10px; pointer-events: auto; }
+    .touchBtn {
+      width: 68px; height: 68px; border-radius: 50%;
+      background: rgba(8,22,48,0.55);
+      border: 1px solid rgba(255,255,255,0.3);
+      color: #fff;
+      font-size: 20px; font-weight: 800;
+      user-select: none; -webkit-user-select: none;
+    }
+    .touchBtn:active, .touchBtn.active { background: rgba(125, 203, 255, 0.5); }
+    @media (min-width: 1024px) {
+      #touch { opacity: 0.15; }
+      #touch:hover { opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+<div id="game-root"></div>
+<div id="hud">
+  <h3>Global Leaderboard</h3>
+  <ol id="leaderboard"></ol>
+  <div class="small">Tip: stomp enemies from above. Upgrades appear every wave.</div>
+</div>
+
+<div id="gameOverPanel">
+  <div id="gameOverCard">
+    <h2>Run Over</h2>
+    <div id="finalText">Score: 0</div>
+    <div class="row">
+      <input id="nameInput" maxlength="20" placeholder="Name" value="Player" />
+      <button id="submitBtn">Submit</button>
+      <button id="restartBtn">Restart</button>
+    </div>
+    <div id="submitStatus" class="small"></div>
+  </div>
+</div>
+
+<div id="touch">
+  <div class="pad">
+    <button class="touchBtn" id="btnLeft">◀</button>
+    <button class="touchBtn" id="btnRight">▶</button>
+  </div>
+  <div class="pad">
+    <button class="touchBtn" id="btnJump">⤒</button>
+  </div>
+</div>
+
+<script>
+const GAME_ID = 'skyline-stomp-roguelite';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+const CFG = {
+  world: { width: 960, height: 540, gravityY: 1800 },
+  player: {
+    startX: 120, startY: 420, width: 34, height: 46,
+    moveSpeed: 300, accelGround: 0.2, accelAir: 0.12,
+    jumpVelocity: 680, maxFallSpeed: 1080,
+    coyoteMs: 100, jumpBufferMs: 125, jumpCutMultiplier: 0.5,
+    hurtIFrameMs: 900, knockbackX: 320, knockbackY: 380, maxHp: 3
+  },
+  enemy: {
+    baseSpawnMs: 1550, minSpawnMs: 420, rampSeconds: 190,
+    speedBase: 95, speedMaxBonus: 235, stompBounce: 530, stompScore: 45
+  },
+  score: { perSecond: 12, tickMs: 250 },
+  upgradesEveryScore: 250
+};
+
+const BASE_MODS = {
+  moveSpeedMult: 1, jumpMult: 1, stompScoreMult: 1, scoreRateMult: 1,
+  enemySpawnRateMult: 1, enemySpeedMult: 1, iFrameMult: 1,
+  extraHp: 0, airControlBoost: 0, healOnWave: 0
+};
+let RunModifiers = structuredClone(BASE_MODS);
+let activeScene = null;
+let latestScore = 0;
+let audioCtx = null;
+
+function resetRunModifiers() { RunModifiers = structuredClone(BASE_MODS); }
+function mod(key) { return RunModifiers[key] ?? 1; }
+function applyMod(key, amount) { if (RunModifiers[key] !== undefined) RunModifiers[key] += amount; }
+
+function ensureAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+function sfx(freq = 420, dur = 0.06, type = 'square', vol = 0.05) {
+  if (!audioCtx || audioCtx.state !== 'running') return;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type; o.frequency.value = freq;
+  g.gain.value = vol; g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+  o.connect(g).connect(audioCtx.destination);
+  o.start(); o.stop(audioCtx.currentTime + dur);
+}
+
+const UPGRADE_POOL = [
+  { name: 'Swift Boots', desc: '+12% move speed', apply: s => applyMod('moveSpeedMult', 0.12) },
+  { name: 'Spring Soles', desc: '+10% jump power', apply: s => applyMod('jumpMult', 0.10) },
+  { name: 'Trophy Magnet', desc: '+20% score gain', apply: s => applyMod('scoreRateMult', 0.20) },
+  { name: 'Skull Crusher', desc: '+25% stomp score', apply: s => applyMod('stompScoreMult', 0.25) },
+  { name: 'Reflex Weave', desc: '+20% i-frames', apply: s => applyMod('iFrameMult', 0.20) },
+  { name: 'Tempo Shift', desc: 'Enemies spawn slower', apply: s => applyMod('enemySpawnRateMult', -0.1) },
+  { name: 'Feather Drift', desc: 'Better air control', apply: s => applyMod('airControlBoost', 0.10) },
+  { name: 'Field Patch', desc: 'Heal 1 HP now', apply: s => s.hp = Math.min(s.maxHp(), s.hp + 1) },
+  { name: 'Steel Heart', desc: '+1 max HP', apply: s => { applyMod('extraHp', 1); s.hp += 1; } },
+  { name: 'Pressure Core', desc: '+9% enemy speed, +35% score', apply: s => { applyMod('enemySpeedMult', 0.09); applyMod('scoreRateMult', 0.35); } }
+];
+
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+  create() {
+    activeScene = this;
+    this.timeSec = 0;
+    this.lastOnGroundAt = 0;
+    this.jumpPressedAt = -9999;
+    this.jumpConsumedAt = -9999;
+    this.jumpHeld = false;
+    this.lastSpawnAt = 0;
+    this.dead = false;
+    this.score = 0;
+    this.nextUpgradeAt = CFG.upgradesEveryScore;
+    this.upgradeCount = 0;
+    this.touch = { left: false, right: false, jump: false, jumpJust: false };
+
+    this.maxHp = () => CFG.player.maxHp + RunModifiers.extraHp;
+    this.hp = this.maxHp();
+
+    this.buildWorld();
+    this.buildPlayer();
+    this.buildInput();
+    this.buildUi();
+    this.buildEnemies();
+
+    this.physics.add.collider(this.player, this.platforms);
+    this.physics.add.collider(this.enemies, this.platforms);
+    this.physics.add.overlap(this.player, this.enemies, this.onOverlap, null, this);
+
+    this.time.addEvent({ delay: CFG.score.tickMs, loop: true, callback: () => {
+      if (this.dead || this.upgradeOpen) return;
+      this.score += (CFG.score.tickMs / 1000) * CFG.score.perSecond * mod('scoreRateMult');
+    }});
+  }
+
+  buildWorld() {
+    this.add.rectangle(480, 430, 960, 220, 0x95d56c);
+    this.add.rectangle(480, 300, 960, 18, 0xffffff, 0.18);
+    this.add.rectangle(480, 85, 960, 105, 0xffffff, 0.08);
+
+    this.platforms = this.physics.add.staticGroup();
+    const p = [
+      [480, 510, 960, 60], [240, 404, 156, 20], [500, 350, 184, 20],
+      [760, 298, 190, 20], [150, 270, 140, 20], [436, 230, 130, 20], [670, 188, 130, 20]
+    ];
+    for (const [x,y,w,h] of p) {
+      const r = this.add.rectangle(x, y, w, h, 0x3f8b44).setStrokeStyle(2, 0x245128);
+      this.physics.add.existing(r, true);
+      this.platforms.add(r);
+    }
+  }
+
+  buildPlayer() {
+    this.player = this.add.rectangle(CFG.player.startX, CFG.player.startY, CFG.player.width, CFG.player.height, 0x1f315c);
+    this.physics.add.existing(this.player);
+    const b = this.player.body;
+    b.setCollideWorldBounds(true);
+    b.setGravityY(CFG.world.gravityY);
+    b.setMaxVelocity(1000, CFG.player.maxFallSpeed);
+    // lightweight footstep puffs are spawned procedurally in update()
+  }
+
+  buildEnemies() {
+    this.enemies = this.physics.add.group();
+    this.time.addEvent({ delay: 160, loop: true, callback: this.spawnCheck, callbackScope: this });
+  }
+
+  buildInput() {
+    this.keys = this.input.keyboard.addKeys({
+      left: Phaser.Input.Keyboard.KeyCodes.LEFT,
+      right: Phaser.Input.Keyboard.KeyCodes.RIGHT,
+      a: Phaser.Input.Keyboard.KeyCodes.A,
+      d: Phaser.Input.Keyboard.KeyCodes.D,
+      jump1: Phaser.Input.Keyboard.KeyCodes.SPACE,
+      jump2: Phaser.Input.Keyboard.KeyCodes.UP,
+      jump3: Phaser.Input.Keyboard.KeyCodes.Z
+    });
+
+    const bind = (id, key) => {
+      const el = document.getElementById(id);
+      const down = () => { this.touch[key] = true; if (key === 'jump') this.touch.jumpJust = true; el.classList.add('active'); ensureAudio(); };
+      const up = () => { this.touch[key] = false; el.classList.remove('active'); };
+      el.addEventListener('pointerdown', down);
+      el.addEventListener('pointerup', up);
+      el.addEventListener('pointerleave', up);
+      el.addEventListener('pointercancel', up);
+    };
+    bind('btnLeft', 'left'); bind('btnRight', 'right'); bind('btnJump', 'jump');
+
+    this.input.on('pointerdown', () => ensureAudio());
+  }
+
+  buildUi() {
+    this.ui = this.add.text(16, 14, '', {
+      font: '23px Trebuchet MS', color: '#102240', stroke: '#e9f8ff', strokeThickness: 5
+    }).setDepth(20);
+    this.msg = this.add.text(16, 46, 'Move: ← → / A D   Jump: Z / SPACE / ↑', {
+      font: '16px Trebuchet MS', color: '#10345f'
+    }).setDepth(20);
+  }
+
+  difficulty01() { return Phaser.Math.Clamp(this.timeSec / CFG.enemy.rampSeconds, 0, 1); }
+
+  spawnCheck() {
+    if (this.dead || this.upgradeOpen) return;
+    const now = this.time.now;
+    const d = this.difficulty01();
+    const eased = d * d * (3 - 2 * d);
+    const interval = Phaser.Math.Linear(CFG.enemy.baseSpawnMs, CFG.enemy.minSpawnMs, eased) / Math.max(0.6, mod('enemySpawnRateMult'));
+    if (now - this.lastSpawnAt < interval) return;
+    this.lastSpawnAt = now;
+
+    const side = Math.random() < 0.5 ? -1 : 1;
+    const x = side < 0 ? -30 : CFG.world.width + 30;
+    const yBands = [145, 205, 265, 325, 385, 455];
+    const y = Phaser.Utils.Array.GetRandom(yBands);
+    const enemy = this.add.rectangle(x, y, 30, 28, 0x8f2323);
+    this.physics.add.existing(enemy);
+    enemy.body.setGravityY(CFG.world.gravityY).setMaxVelocity(650, 1000);
+    enemy.setData('isEnemy', true);
+    enemy.setData('dir', side < 0 ? 1 : -1);
+    enemy.setData('speed', (CFG.enemy.speedBase + eased * CFG.enemy.speedMaxBonus) * mod('enemySpeedMult'));
+    this.enemies.add(enemy);
+  }
+
+  onOverlap(player, enemy) {
+    if (!enemy?.active || this.dead) return;
+    const pb = player.body, eb = enemy.body;
+    const stomp = pb.velocity.y > 120 && (pb.bottom - 4) <= eb.top + 10;
+
+    if (stomp) {
+      this.killEnemy(enemy);
+      pb.setVelocityY(-CFG.enemy.stompBounce * mod('jumpMult'));
+      this.cameras.main.shake(60, 0.003);
+      sfx(780, 0.04, 'square', 0.045);
+      return;
+    }
+
+    if (player.getData('hurtUntil') > this.time.now) return;
+    const hurtMs = CFG.player.hurtIFrameMs * mod('iFrameMult');
+    player.setData('hurtUntil', this.time.now + hurtMs);
+    this.hp -= 1;
+
+    const push = Math.sign(player.x - enemy.x) || 1;
+    pb.setVelocity(push * CFG.player.knockbackX, -CFG.player.knockbackY);
+    player.setFillStyle(0xf8c7c7);
+    this.time.delayedCall(130, () => !this.dead && player.setFillStyle(0x1f315c));
+    sfx(170, 0.08, 'sawtooth', 0.045);
+
+    if (this.hp <= 0) this.gameOver();
+  }
+
+  killEnemy(enemy) {
+    if (!enemy.active) return;
+    this.score += CFG.enemy.stompScore * mod('stompScoreMult');
+    const burst = this.add.circle(enemy.x, enemy.y, 6, 0xffdd8c);
+    this.tweens.add({ targets: burst, alpha: 0, scale: 3, duration: 180, onComplete: () => burst.destroy() });
+    this.tweens.add({ targets: enemy, scaleX: 0.2, scaleY: 0.1, alpha: 0, duration: 120, onComplete: () => enemy.destroy() });
+  }
+
+  maybeOfferUpgrade() {
+    if (this.score < this.nextUpgradeAt || this.upgradeOpen || this.dead) return;
+    this.nextUpgradeAt += CFG.upgradesEveryScore;
+    this.upgradeOpen = true;
+    this.physics.world.pause();
+
+    const pick = Phaser.Utils.Array.Shuffle([...UPGRADE_POOL]).slice(0, 3);
+    const panel = this.add.rectangle(480, 270, 640, 300, 0x061534, 0.93).setDepth(80).setStrokeStyle(2, 0xaad7ff);
+    const title = this.add.text(480, 170, 'Choose 1 Upgrade', { font: 'bold 34px Trebuchet MS', color: '#ffffff' }).setOrigin(0.5).setDepth(81);
+
+    const cleanup = [panel, title];
+    pick.forEach((u, i) => {
+      const x = 240 + i * 240;
+      const btn = this.add.rectangle(x, 290, 200, 150, 0x114172).setDepth(81).setInteractive({ useHandCursor: true }).setStrokeStyle(2, 0x86d1ff);
+      const text = this.add.text(x, 278, `${u.name}\n\n${u.desc}`, { font: 'bold 19px Trebuchet MS', align: 'center', color: '#eaf8ff', wordWrap: { width: 170 } }).setOrigin(0.5).setDepth(82);
+      cleanup.push(btn, text);
+      btn.on('pointerdown', () => {
+        u.apply(this);
+        this.upgradeCount += 1;
+        sfx(520 + i * 110, 0.09, 'triangle', 0.05);
+        cleanup.forEach(o => o.destroy());
+        this.upgradeOpen = false;
+        this.physics.world.resume();
+      });
+    });
+  }
+
+  gameOver() {
+    this.dead = true;
+    latestScore = Math.floor(this.score);
+    this.player.body.enable = false;
+    this.player.setFillStyle(0x111111);
+    this.cameras.main.shake(120, 0.006);
+
+    const panel = document.getElementById('gameOverPanel');
+    document.getElementById('finalText').textContent = `Final Score: ${latestScore}`;
+    document.getElementById('submitStatus').textContent = '';
+    panel.style.display = 'flex';
+    refreshLeaderboard();
+  }
+
+  update(_time, delta) {
+    if (this.dead) return;
+    const dt = delta / 1000;
+    this.timeSec += dt;
+    const body = this.player.body;
+
+    const keyLeft = this.keys.left.isDown || this.keys.a.isDown || this.touch.left;
+    const keyRight = this.keys.right.isDown || this.keys.d.isDown || this.touch.right;
+    const jumpDown = this.keys.jump1.isDown || this.keys.jump2.isDown || this.keys.jump3.isDown || this.touch.jump;
+    const jumpJust = Phaser.Input.Keyboard.JustDown(this.keys.jump1) || Phaser.Input.Keyboard.JustDown(this.keys.jump2) || Phaser.Input.Keyboard.JustDown(this.keys.jump3) || this.touch.jumpJust;
+    this.touch.jumpJust = false;
+
+    const grounded = body.blocked.down || body.touching.down;
+    if (grounded) this.lastOnGroundAt = this.time.now;
+    if (jumpJust) this.jumpPressedAt = this.time.now;
+
+    const coyote = (this.time.now - this.lastOnGroundAt) <= CFG.player.coyoteMs;
+    const buffered = (this.time.now - this.jumpPressedAt) <= CFG.player.jumpBufferMs;
+    if (buffered && coyote && this.jumpConsumedAt !== this.jumpPressedAt) {
+      body.setVelocityY(-CFG.player.jumpVelocity * mod('jumpMult'));
+      this.jumpConsumedAt = this.jumpPressedAt;
+      sfx(300, 0.05, 'triangle', 0.04);
+    }
+    if (!jumpDown && this.jumpHeld && body.velocity.y < 0) body.setVelocityY(body.velocity.y * CFG.player.jumpCutMultiplier);
+    this.jumpHeld = jumpDown;
+
+    const targetX = (keyLeft ? -1 : 0) + (keyRight ? 1 : 0);
+    const maxSpd = CFG.player.moveSpeed * mod('moveSpeedMult');
+    const accelAir = CFG.player.accelAir + RunModifiers.airControlBoost;
+    const accel = grounded ? CFG.player.accelGround : Phaser.Math.Clamp(accelAir, 0.1, 0.35);
+    body.velocity.x = Phaser.Math.Linear(body.velocity.x, targetX * maxSpd, accel);
+
+    if (Math.abs(body.velocity.x) > 80 && grounded && Math.random() < 0.35) {
+      const puff = this.add.circle(this.player.x, this.player.y + 22, Phaser.Math.Between(2, 4), 0xe8f8ff, 0.7);
+      this.tweens.add({ targets: puff, y: puff.y - 10, alpha: 0, duration: 220, onComplete: () => puff.destroy() });
+    }
+
+    this.enemies.getChildren().forEach(e => {
+      if (!e.active) return;
+      e.body.setVelocityX((e.getData('dir') || 1) * (e.getData('speed') || 120));
+      if (e.x < -130 || e.x > CFG.world.width + 130 || e.y > CFG.world.height + 100) e.destroy();
+    });
+
+    if (this.player.getData('hurtUntil') > this.time.now) this.player.alpha = (Math.floor(this.time.now / 65) % 2) ? 0.32 : 1;
+    else this.player.alpha = 1;
+
+    this.maybeOfferUpgrade();
+    this.ui.setText(`Score ${Math.floor(this.score)}   HP ${this.hp}/${this.maxHp()}   Wave ${this.upgradeCount + 1}   Threat ${Math.floor(this.difficulty01() * 100)}%`);
+  }
+}
+
+new Phaser.Game({
+  type: Phaser.AUTO,
+  parent: 'game-root',
+  width: CFG.world.width,
+  height: CFG.world.height,
+  backgroundColor: '#7cc8ff',
+  physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: false } },
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: [GameScene]
+});
+
+async function submitScore(playerName, score) {
+  const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+  });
+  if (!res.ok) throw new Error(`submit failed (${res.status})`);
+  return res.json();
+}
+async function fetchLeaderboard(limit = 10) {
+  const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+  if (!res.ok) throw new Error('leaderboard fetch failed');
+  return res.json();
+}
+async function refreshLeaderboard() {
+  const el = document.getElementById('leaderboard');
+  el.innerHTML = '<li>Loading...</li>';
+  try {
+    const rows = await fetchLeaderboard(10);
+    el.innerHTML = '';
+    if (!rows?.length) {
+      const li = document.createElement('li'); li.textContent = 'No scores yet — be first!'; el.appendChild(li); return;
+    }
+    rows.forEach((r, i) => {
+      const li = document.createElement('li');
+      li.textContent = `${r.playerName || 'anon'} — ${r.score}`;
+      if (i === 0) li.style.color = '#ffe58f';
+      el.appendChild(li);
+    });
+  } catch {
+    el.innerHTML = '<li>Leaderboard unavailable.</li>';
+  }
+}
+
+const panel = document.getElementById('gameOverPanel');
+const submitStatus = document.getElementById('submitStatus');
+document.getElementById('submitBtn').addEventListener('click', async () => {
+  const name = (document.getElementById('nameInput').value || 'Player').trim().slice(0, 20) || 'Player';
+  submitStatus.textContent = 'Submitting...';
+  try {
+    await submitScore(name, latestScore);
+    submitStatus.textContent = 'Submitted!';
+    await refreshLeaderboard();
+  } catch (e) {
+    submitStatus.textContent = 'Submit failed — you can still restart.';
+  }
+});
+document.getElementById('restartBtn').addEventListener('click', () => {
+  panel.style.display = 'none';
+  resetRunModifiers();
+  if (activeScene) activeScene.scene.restart();
+});
+
+refreshLeaderboard();
+</script>
+</body>
+</html>

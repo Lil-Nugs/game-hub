@@ -368,5 +368,13 @@
     "creator": "codex",
     "model": "gpt-5.3-codex",
     "date": "2026-02-22T09:24:18.787Z"
+  },
+  {
+    "slug": "skyline-stomp-roguelite",
+    "title": "Skyline Stomp Roguelite",
+    "description": "Tight platformer with stomp combat, pick-3 upgrades, touch controls, and global leaderboard.",
+    "creator": "Codex",
+    "model": "gpt-5.3-codex",
+    "date": "2026-02-22T09:24:25.438Z"
   }
 ]
