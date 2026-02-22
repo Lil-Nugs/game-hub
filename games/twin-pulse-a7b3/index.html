@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Twin Pulse</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #050510;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+    touch-action: none;
+  }
+  #ui-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    display: none; justify-content: center; align-items: center;
+    z-index: 100; background: rgba(2,2,16,0.88);
+    font-family: 'Orbitron', sans-serif; flex-direction: column;
+  }
+  #ui-overlay.visible { display: flex; }
+  #overlay-box {
+    background: linear-gradient(135deg, rgba(10,10,40,0.98), rgba(20,5,35,0.98));
+    border: 2px solid #9b59b6;
+    border-radius: 16px;
+    padding: 30px 28px;
+    max-width: 460px;
+    width: 92%;
+    text-align: center;
+    box-shadow: 0 0 50px rgba(155,89,182,0.4), inset 0 0 30px rgba(0,0,0,0.5);
+  }
+  #overlay-title {
+    font-size: 26px; font-weight: 900;
+    background: linear-gradient(90deg, #00ffff, #ff00ff);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    margin-bottom: 6px; letter-spacing: 2px;
+  }
+  #overlay-score { font-size: 22px; color: #ffd700; margin-bottom: 4px; }
+  #overlay-cause { font-size: 12px; color: #aa88cc; margin-bottom: 18px; letter-spacing: 1px; }
+  #name-input {
+    width: 100%; padding: 10px 14px;
+    font-family: 'Orbitron', sans-serif; font-size: 13px;
+    background: rgba(255,255,255,0.07); border: 2px solid #6a3a8a;
+    border-radius: 8px; color: #fff; margin-bottom: 10px; text-align: center;
+    transition: border-color 0.2s;
+  }
+  #name-input:focus { outline: none; border-color: #00ffff; }
+  .overlay-btn {
+    width: 100%; padding: 11px;
+    font-family: 'Orbitron', sans-serif; font-size: 13px; font-weight: 700;
+    border: none; border-radius: 8px; cursor: pointer; margin-bottom: 8px;
+    letter-spacing: 1px; transition: all 0.2s; text-transform: uppercase;
+  }
+  #submit-btn {
+    background: linear-gradient(135deg, #9b59b6, #3498db); color: #fff;
+  }
+  #submit-btn:hover:not(:disabled) { transform: scale(1.02); box-shadow: 0 0 20px rgba(155,89,182,0.5); }
+  #submit-btn:disabled { opacity: 0.6; cursor: default; }
+  #replay-btn {
+    background: linear-gradient(135deg, #00dddd, #cc00cc); color: #fff;
+    display: none;
+  }
+  #replay-btn:hover { transform: scale(1.02); box-shadow: 0 0 20px rgba(0,220,220,0.5); }
+  #leaderboard { margin: 10px 0 8px; max-height: 150px; overflow-y: auto; }
+  #leaderboard table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  #leaderboard th { color: #9b59b6; padding: 4px 6px; text-align: left; border-bottom: 1px solid rgba(155,89,182,0.3); }
+  #leaderboard td { color: #ccc; padding: 3px 6px; }
+  #leaderboard tr.my-score td { color: #ffd700; }
+  #leaderboard tr:nth-child(2) td { color: #c0c0c0; }
+  #status-msg { font-size: 11px; color: #888; margin: 3px 0 6px; min-height: 16px; }
+</style>
+</head>
+<body>
+<div id="ui-overlay">
+  <div id="overlay-box">
+    <div id="overlay-title">CONNECTION SEVERED</div>
+    <div id="overlay-score">SCORE: <span id="final-score">0</span></div>
+    <div id="overlay-cause"></div>
+    <input id="name-input" type="text" placeholder="Your name..." maxlength="16" autocomplete="off">
+    <button class="overlay-btn" id="submit-btn">Submit Score</button>
+    <div id="leaderboard"></div>
+    <div id="status-msg"></div>
+    <button class="overlay-btn" id="replay-btn">Play Again</button>
+  </div>
+</div>
+
+<script>
+/*
+ * ═══════════════════════════════════════════
+ * DESIGN HEADER — TWIN PULSE
+ * ═══════════════════════════════════════════
+ * Prompt: You control two characters at once.
+ *
+ * Controls:
+ *   Cyan Soul   → WASD (or touch LEFT half of screen)
+ *   Magenta Soul→ Arrow Keys (or touch RIGHT half of screen)
+ *   Both must survive. Either dying ends the run.
+ *
+ * Core Loop / Death Condition:
+ *   Two soul-entities share an arena. Enemies attack both.
+ *   Game over when either soul's HP reaches 0.
+ *   No win state — survive as long as possible.
+ *
+ * Hazards (3):
+ *   1. Homing Orbs — spawn off-screen, lock onto one soul, persistent.
+ *   2. Hunter Drones — angular enemies that drift/accelerate toward a target,
+ *      switch targets every few seconds. Survive collision (bounce).
+ *   3. Pulse Mines — stationary hazards that explode outward in a ring after delay.
+ *
+ * Pickups / Risk-Reward:
+ *   Energy Crystals — +25 bonus points. Appear near the center (away from spawn).
+ *   Tether Shield — When the two souls are within 200px, a shared shield forms.
+ *     • Shield absorbs orb hits (orb destroyed, no damage)
+ *     • Risk: both souls are close, so one AoE can threaten both
+ *     • Reward: significantly increases survival vs. orbs
+ *
+ * Scoring:
+ *   score = Math.floor(timeAlive * 10 + bonusPoints). Always increasing.
+ *
+ * Difficulty (time-based lerp, 0→1 over 120 seconds):
+ *   orbSpawnMs:  3000 → 550
+ *   orbSpeed:      90 → 280
+ *   droneMaxCount:  1 → 6
+ *   mineSpawnMs: 8000 → 2500
+ *
+ * Visual Theme: Cosmic/Space — dual aurora
+ *   BG: deep #050510 with star field + nebula gradient
+ *   Cyan Soul: #00ffff / Magenta Soul: #ff00ff
+ *   Enemies: orange-red / Crystals: gold
+ *   Tether line: #9b59b6 gradient, pulses when close
+ *   Font: Orbitron
+ *
+ * Audio:
+ *   Synth SFX via Web Audio API. No external files.
+ *   Pickup: ascending chime. Hit: harsh buzz. Death: descending wail.
+ * ═══════════════════════════════════════════
+ */
+
+const GAME_ID = 'twin-pulse-a7b3';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+// ─── Web Audio ─────────────────────────────
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playTone(type, freq, dur, vol, freqEnd) {
+  try {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    if (freqEnd !== undefined) osc.frequency.linearRampToValueAtTime(freqEnd, audioCtx.currentTime + dur);
+    gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+    osc.start(); osc.stop(audioCtx.currentTime + dur);
+  } catch(e) {}
+}
+function sfxStart()   { playTone('sine',200,0.18,0.15,600); playTone('triangle',400,0.25,0.1,1000); }
+function sfxCollect() { playTone('sine',880,0.08,0.2,1400); playTone('triangle',1100,0.1,0.12,1700); }
+function sfxHit()     { playTone('sawtooth',160,0.2,0.3,60); playTone('square',90,0.25,0.18); }
+function sfxAbsorb()  { playTone('triangle',500,0.12,0.15,800); playTone('sine',700,0.1,0.1,1000); }
+function sfxMine()    { playTone('sawtooth',220,0.3,0.35,40); playTone('square',110,0.4,0.2,30); }
+function sfxDeath()   { playTone('sawtooth',400,0.1,0.35,50); playTone('sawtooth',200,0.7,0.3,25); playTone('square',60,0.9,0.15); }
+
+// ─── Leaderboard ───────────────────────────
+let _finalScore = 0;
+
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch(e) { console.warn('Leaderboard:', e); return null; }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch(e) { console.warn('Leaderboard:', e); return []; }
+}
+
+// ═══════════════════════════════════════════
+// MENU SCENE
+// ═══════════════════════════════════════════
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+
+  preload() {
+    // Star pixel
+    const g = this.make.graphics({x:0,y:0,add:false});
+    g.fillStyle(0xffffff,1); g.fillCircle(3,3,3);
+    g.generateTexture('starPx',6,6); g.destroy();
+  }
+
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+
+    // Background gradient
+    const bg = this.add.graphics();
+    bg.fillGradientStyle(0x050510,0x050510,0x0a0828,0x080520,1);
+    bg.fillRect(0,0,W,H);
+
+    // Stars
+    this.stars = [];
+    for (let i = 0; i < 130; i++) {
+      const s = this.add.image(
+        Phaser.Math.Between(0,W), Phaser.Math.Between(0,H), 'starPx'
+      ).setAlpha(Math.random()*0.7+0.1).setScale(Math.random()*0.5+0.1);
+      this.stars.push(s);
+    }
+
+    // Title
+    this.add.text(W/2, H*0.15, 'TWIN', {
+      fontFamily:'Orbitron', fontSize:'64px', fontStyle:'bold',
+      fill:'#00ffff', stroke:'#003344', strokeThickness:6
+    }).setOrigin(0.5).setShadow(0,0,'#00ffff',22,true,true);
+
+    this.add.text(W/2, H*0.27, 'PULSE', {
+      fontFamily:'Orbitron', fontSize:'64px', fontStyle:'bold',
+      fill:'#ff00ff', stroke:'#330033', strokeThickness:6
+    }).setOrigin(0.5).setShadow(0,0,'#ff00ff',22,true,true);
+
+    this.add.text(W/2, H*0.40, 'Two souls. One fate.', {
+      fontFamily:'Orbitron', fontSize:'14px', fill:'#9988bb', letterSpacing:3
+    }).setOrigin(0.5);
+
+    // Demo chars
+    const demoA = this.add.circle(W/2-80, H*0.56, 22, 0x00ffff);
+    const demoB = this.add.circle(W/2+80, H*0.56, 22, 0xff00ff);
+    const glowA = this.add.circle(W/2-80, H*0.56, 30, 0x00ffff, 0.2);
+    const glowB = this.add.circle(W/2+80, H*0.56, 30, 0xff00ff, 0.2);
+
+    this.tweens.add({targets:[demoA,glowA], scaleX:1.2,scaleY:1.2, duration:900, yoyo:true, repeat:-1, ease:'Sine.easeInOut'});
+    this.tweens.add({targets:[demoB,glowB], scaleX:1.2,scaleY:1.2, duration:1100, yoyo:true, repeat:-1, ease:'Sine.easeInOut', delay:200});
+
+    // Tether between demo chars
+    const tLine = this.add.graphics();
+    tLine.lineStyle(3, 0x9b59b6, 0.7);
+    tLine.strokeLineShape(new Phaser.Geom.Line(W/2-58, H*0.56, W/2+58, H*0.56));
+
+    // Labels
+    this.add.text(W/2-80, H*0.56+34, 'WASD', { fontFamily:'Orbitron', fontSize:'10px', fill:'#00ffff' }).setOrigin(0.5);
+    this.add.text(W/2+80, H*0.56+34, '↑↓←→', { fontFamily:'Orbitron', fontSize:'10px', fill:'#ff00ff' }).setOrigin(0.5);
+
+    // Instructions
+    const instData = [
+      { t:'Dodge homing orbs and hunter drones.' },
+      { t:'Collect ★ crystals for bonus points.' },
+      { t:'Stay close → tether shield absorbs orbs.' },
+      { t:'Both souls must survive. Either death ends the run.' },
+    ];
+    instData.forEach((d, i) => {
+      this.add.text(W/2, H*0.70 + i*24, d.t, {
+        fontFamily:'Orbitron', fontSize:'11px', fill:'#8888aa'
+      }).setOrigin(0.5);
+    });
+
+    // Start prompt
+    const startTxt = this.add.text(W/2, H*0.90, '— TAP OR PRESS ANY KEY —', {
+      fontFamily:'Orbitron', fontSize:'13px', fill:'#ffd700'
+    }).setOrigin(0.5);
+    this.tweens.add({targets:startTxt, alpha:0.15, duration:750, yoyo:true, repeat:-1});
+
+    // Star twinkle
+    this.time.addEvent({
+      delay:120, callback:() => {
+        const s = Phaser.Utils.Array.GetRandom(this.stars);
+        if (s) this.tweens.add({targets:s, alpha:Math.random()*0.7+0.1, duration:500});
+      }, loop:true
+    });
+
+    // Start handlers
+    const go = () => {
+      audioCtx.resume();
+      sfxStart();
+      this.scene.start('GameScene');
+    };
+    this.input.once('pointerdown', go);
+    this.input.keyboard.once('keydown', go);
+  }
+}
+
+// ═══════════════════════════════════════════
+// GAME SCENE
+// ═══════════════════════════════════════════
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  // ── Helpers ───────────────────────────────
+  lerp(a,b,t) { return a + (b-a)*t; }
+  easeIn(t)   { return t*t; }
+  ease(t)     { return t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t+2,2)/2; }
+  getDiff()   {
+    const e = (this.time.now - this.gameStartTime) / 1000;
+    return Math.min(e / 120, 1);
+  }
+
+  // ── Preload ───────────────────────────────
+  preload() {
+    const mk = (fn) => { const g=this.make.graphics({x:0,y:0,add:false}); fn(g); return g; };
+
+    // Cyan Soul (charA)
+    {
+      const g = mk(g => {
+        // Outer glow
+        g.fillStyle(0x00ffff, 0.12); g.fillCircle(48,48,44);
+        g.fillStyle(0x00ddff, 0.25); g.fillCircle(48,48,36);
+        // Core
+        g.fillStyle(0x00ffff, 0.9);  g.fillCircle(48,48,26);
+        g.fillStyle(0xaaffff, 1);    g.fillCircle(48,48,15);
+        g.fillStyle(0xffffff, 1);    g.fillCircle(48,48,7);
+        // Ring
+        g.lineStyle(3, 0x00ffff, 0.9); g.strokeCircle(48,48,42);
+        // Prong details (4-way crystal)
+        g.fillStyle(0x00ffff, 0.8);
+        g.fillTriangle(48,8, 43,22, 53,22);
+        g.fillTriangle(48,88, 43,74, 53,74);
+        g.fillTriangle(8,48, 22,43, 22,53);
+        g.fillTriangle(88,48, 74,43, 74,53);
+        g.generateTexture('charA', 96, 96);
+        g.destroy();
+      });
+    }
+
+    // Magenta Soul (charB)
+    {
+      mk(g => {
+        g.fillStyle(0xff00ff, 0.12); g.fillCircle(48,48,44);
+        g.fillStyle(0xdd00ff, 0.25); g.fillCircle(48,48,36);
+        g.fillStyle(0xff00ff, 0.9);  g.fillCircle(48,48,26);
+        g.fillStyle(0xffaaff, 1);    g.fillCircle(48,48,15);
+        g.fillStyle(0xffffff, 1);    g.fillCircle(48,48,7);
+        g.lineStyle(3, 0xff00ff, 0.9); g.strokeCircle(48,48,42);
+        // Star spikes (5-way)
+        for (let i = 0; i < 5; i++) {
+          const a = (i * Math.PI*2/5) - Math.PI/2;
+          const ox = 48 + Math.cos(a)*36, oy = 48 + Math.sin(a)*36;
+          const al = a + Math.PI*2/5*0.5;
+          const ax = 48 + Math.cos(al)*18, ay = 48 + Math.sin(al)*18;
+          const a2 = a - Math.PI*2/5*0.5;
+          const bx = 48 + Math.cos(a2)*18, by = 48 + Math.sin(a2)*18;
+          g.fillStyle(0xff00ff, 0.75);
+          g.fillTriangle(ox,oy, ax,ay, bx,by);
+        }
+        g.generateTexture('charB', 96, 96);
+        g.destroy();
+      });
+    }
+
+    // Homing Orb
+    mk(g => {
+      g.fillStyle(0xff3300, 0.25); g.fillCircle(24,24,22);
+      g.fillStyle(0xff5500, 0.65); g.fillCircle(24,24,16);
+      g.fillStyle(0xff7700, 1);    g.fillCircle(24,24,10);
+      g.fillStyle(0xffcc44, 1);    g.fillCircle(24,24,4);
+      g.lineStyle(2, 0xff2200, 0.8); g.strokeCircle(24,24,21);
+      g.generateTexture('orb', 48, 48);
+      g.destroy();
+    });
+
+    // Hunter Drone (angular red triangle ship)
+    mk(g => {
+      g.fillStyle(0x880000, 0.35); g.fillRect(0,0,48,48);
+      g.fillStyle(0xcc2200, 1);    g.fillTriangle(24,2, 2,46, 46,46);
+      g.fillStyle(0xff4400, 1);    g.fillTriangle(24,10, 8,42, 40,42);
+      g.fillStyle(0xff7700, 0.9);  g.fillCircle(24,30, 6);
+      g.lineStyle(2, 0xff2200, 0.9); g.strokeTriangle(24,2, 2,46, 46,46);
+      g.generateTexture('drone', 48, 48);
+      g.destroy();
+    });
+
+    // Pulse Mine (ring with center)
+    mk(g => {
+      g.fillStyle(0x882200, 0.4);  g.fillCircle(24,24,20);
+      g.lineStyle(3, 0xff4400, 0.9); g.strokeCircle(24,24,18);
+      g.lineStyle(2, 0xff8800, 0.6); g.strokeCircle(24,24,12);
+      g.fillStyle(0xff8800, 1);    g.fillCircle(24,24,5);
+      g.fillStyle(0xffffff, 0.9);  g.fillCircle(24,24,2);
+      g.generateTexture('mine', 48, 48);
+      g.destroy();
+    });
+
+    // Mine explosion ring
+    mk(g => {
+      g.lineStyle(4, 0xff6600, 0.9); g.strokeCircle(40,40,36);
+      g.lineStyle(2, 0xffaa00, 0.5); g.strokeCircle(40,40,28);
+      g.generateTexture('mineRing', 80, 80);
+      g.destroy();
+    });
+
+    // Crystal (gold hexagon)
+    mk(g => {
+      const pts = [];
+      for (let i=0; i<6; i++) {
+        const a = (i*Math.PI/3) - Math.PI/6;
+        pts.push({x: 24+Math.cos(a)*20, y: 24+Math.sin(a)*20});
+      }
+      g.fillStyle(0xffd700, 0.95); g.fillPoints(pts,true);
+      g.lineStyle(2, 0xffffff, 0.6); g.strokePoints(pts,true);
+      g.fillStyle(0xffffff, 0.9); g.fillCircle(24,24,5);
+      g.generateTexture('crystal', 48, 48);
+      g.destroy();
+    });
+
+    // Star pixel
+    mk(g => {
+      g.fillStyle(0xffffff,1); g.fillCircle(3,3,3);
+      g.generateTexture('starPx',6,6); g.destroy();
+    });
+
+    // Particle dot
+    mk(g => {
+      g.fillStyle(0xffffff,1); g.fillCircle(4,4,4);
+      g.generateTexture('dot',8,8); g.destroy();
+    });
+
+    // Shield ring (for tether shield visual)
+    mk(g => {
+      g.lineStyle(5, 0x00ffff, 0.5); g.strokeCircle(50,50,44);
+      g.lineStyle(3, 0xff00ff, 0.35); g.strokeCircle(50,50,36);
+      g.generateTexture('shieldRing', 100, 100);
+      g.destroy();
+    });
+  }
+
+  // ── Create ────────────────────────────────
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+    this.W = W; this.H = H;
+
+    this.gameStartTime = this.time.now;
+    this.bonusPoints  = 0;
+    this.timeAlive    = 0;
+    this.gameRunning  = true;
+    this.invincA      = false;
+    this.invincB      = false;
+    this.droneCount   = 0;
+
+    // ── Background ─────────────────────────
+    const bg = this.add.graphics();
+    bg.fillGradientStyle(0x050510,0x050510,0x0e0a26,0x060412,1);
+    bg.fillRect(0,0,W,H);
+    bg.setDepth(-3);
+
+    // Stars
+    this.stars = [];
+    for (let i=0; i<140; i++) {
+      const s = this.add.image(
+        Phaser.Math.Between(0,W), Phaser.Math.Between(0,H), 'starPx'
+      ).setAlpha(Math.random()*0.65+0.1).setScale(Math.random()*0.45+0.1).setDepth(-2);
+      this.stars.push({obj:s, twinkleT:Math.random()*1000});
+    }
+
+    // Tether graphics (drawn each frame)
+    this.tetherGfx = this.add.graphics().setDepth(8);
+
+    // ── Physics bounds ─────────────────────
+    this.physics.world.setBounds(0, 0, W, H);
+
+    // ── Souls ──────────────────────────────
+    this.soulA = this.physics.add.image(W*0.3, H*0.5, 'charA').setScale(0.46);
+    this.soulA.setCollideWorldBounds(true);
+    this.soulA.body.setCircle(19, 5, 5); // forgiving ~20% smaller than 24 visual
+    this.soulA.setDepth(10);
+    this.soulA.hp = 3;
+
+    this.soulB = this.physics.add.image(W*0.7, H*0.5, 'charB').setScale(0.46);
+    this.soulB.setCollideWorldBounds(true);
+    this.soulB.body.setCircle(19, 5, 5);
+    this.soulB.setDepth(10);
+    this.soulB.hp = 3;
+
+    // Idle bob tweens
+    this.tweens.add({targets:this.soulA, y: this.soulA.y-8, duration:1200, yoyo:true, repeat:-1, ease:'Sine.easeInOut'});
+    this.tweens.add({targets:this.soulB, y: this.soulB.y-8, duration:1400, yoyo:true, repeat:-1, ease:'Sine.easeInOut', delay:300});
+
+    // Shield rings
+    this.shieldA = this.add.image(this.soulA.x, this.soulA.y, 'shieldRing').setAlpha(0).setDepth(9);
+    this.shieldB = this.add.image(this.soulB.x, this.soulB.y, 'shieldRing').setAlpha(0).setDepth(9);
+
+    // ── Enemy groups ───────────────────────
+    this.orbs    = this.physics.add.group();
+    this.drones  = this.physics.add.group();
+    this.mines   = this.physics.add.group();
+    this.crystals= this.physics.add.group();
+
+    // ── Particles ──────────────────────────
+    this.pfxHitA = this.add.particles(0,0,'dot',{
+      speed:{min:80,max:200}, lifespan:400, quantity:0,
+      scale:{start:0.55,end:0}, tint:[0x00ffff,0x44aaff,0xffffff], blendMode:'ADD', depth:18
+    });
+    this.pfxHitB = this.add.particles(0,0,'dot',{
+      speed:{min:80,max:200}, lifespan:400, quantity:0,
+      scale:{start:0.55,end:0}, tint:[0xff00ff,0xaa44ff,0xffffff], blendMode:'ADD', depth:18
+    });
+    this.pfxCollect = this.add.particles(0,0,'dot',{
+      speed:{min:100,max:220}, lifespan:380, quantity:0,
+      scale:{start:0.6,end:0}, tint:[0xffd700,0xffaa00,0xffffff], blendMode:'ADD', depth:18
+    });
+    this.pfxMine = this.add.particles(0,0,'dot',{
+      speed:{min:120,max:320}, lifespan:600, quantity:0,
+      scale:{start:0.7,end:0}, tint:[0xff6600,0xff3300,0xffffff], blendMode:'ADD', depth:18
+    });
+    this.pfxDeathA = this.add.particles(0,0,'dot',{
+      speed:{min:180,max:450}, lifespan:900, quantity:0,
+      scale:{start:0.9,end:0}, tint:[0x00ffff,0xffffff,0x0088ff], blendMode:'ADD', depth:28
+    });
+    this.pfxDeathB = this.add.particles(0,0,'dot',{
+      speed:{min:180,max:450}, lifespan:900, quantity:0,
+      scale:{start:0.9,end:0}, tint:[0xff00ff,0xffffff,0xaa00ff], blendMode:'ADD', depth:28
+    });
+    this.pfxAbsorb = this.add.particles(0,0,'dot',{
+      speed:{min:60,max:150}, lifespan:350, quantity:0,
+      scale:{start:0.45,end:0}, tint:[0x00ffff,0xff00ff,0xffffff], blendMode:'ADD', depth:18
+    });
+
+    // ── HUD ────────────────────────────────
+    this.hpTextA = this.add.text(16,16,'♥ ♥ ♥',{
+      fontFamily:'Orbitron', fontSize:'17px', fill:'#00ffff'
+    }).setDepth(20).setShadow(0,0,'#00ffff',8,true,true);
+
+    this.hpTextB = this.add.text(W-16,16,'♥ ♥ ♥',{
+      fontFamily:'Orbitron', fontSize:'17px', fill:'#ff00ff'
+    }).setOrigin(1,0).setDepth(20).setShadow(0,0,'#ff00ff',8,true,true);
+
+    this.add.text(16,38,'CYAN',{fontFamily:'Orbitron',fontSize:'9px',fill:'#00ffff'}).setDepth(20);
+    this.add.text(W-16,38,'MAGENTA',{fontFamily:'Orbitron',fontSize:'9px',fill:'#ff00ff'}).setOrigin(1,0).setDepth(20);
+
+    this.scoreTxt = this.add.text(W/2, 14,'SCORE: 0',{
+      fontFamily:'Orbitron', fontSize:'20px', fill:'#ffd700',
+      stroke:'#000', strokeThickness:4
+    }).setOrigin(0.5,0).setDepth(20);
+
+    // Tether label
+    this.tetherLbl = this.add.text(W/2, H-16,'⚡ TETHER SHIELD ⚡',{
+      fontFamily:'Orbitron', fontSize:'11px', fill:'#9b59b6'
+    }).setOrigin(0.5,1).setDepth(20).setAlpha(0);
+
+    // Touch hint (bottom corners)
+    this.add.text(20,H-18,'[WASD]',{fontFamily:'Orbitron',fontSize:'9px',fill:'#004455'}).setDepth(20);
+    this.add.text(W-20,H-18,'[←→↑↓]',{fontFamily:'Orbitron',fontSize:'9px',fill:'#440044'}).setOrigin(1,0).setDepth(20);
+
+    // ── Input ──────────────────────────────
+    this.keysA = this.input.keyboard.addKeys({up:'W',down:'S',left:'A',right:'D'});
+    this.keysB = this.input.keyboard.createCursorKeys();
+
+    // Touch (virtual joystick — split screen)
+    this.touchA = {active:false, id:null, sx:0, sy:0, cx:0, cy:0};
+    this.touchB = {active:false, id:null, sx:0, sy:0, cx:0, cy:0};
+
+    this.input.on('pointerdown', (p) => {
+      if (p.x < W/2 && !this.touchA.active) {
+        this.touchA = {active:true, id:p.id, sx:p.x, sy:p.y, cx:p.x, cy:p.y};
+      } else if (p.x >= W/2 && !this.touchB.active) {
+        this.touchB = {active:true, id:p.id, sx:p.x, sy:p.y, cx:p.x, cy:p.y};
+      }
+    });
+    this.input.on('pointermove', (p) => {
+      if (this.touchA.active && p.id === this.touchA.id) { this.touchA.cx=p.x; this.touchA.cy=p.y; }
+      if (this.touchB.active && p.id === this.touchB.id) { this.touchB.cx=p.x; this.touchB.cy=p.y; }
+    });
+    this.input.on('pointerup', (p) => {
+      if (this.touchA.active && p.id === this.touchA.id) { this.touchA.active=false; }
+      if (this.touchB.active && p.id === this.touchB.id) { this.touchB.active=false; }
+    });
+
+    // ── Spawn timers ──────────────────────
+    this.tOrb    = 0;
+    this.tDrone  = 0;
+    this.tMine   = 0;
+    this.tCrystal= 0;
+
+    // ── Collisions ────────────────────────
+    this.physics.add.overlap(this.soulA, this.orbs,    (_,o) => this.orbHit(o,'A'));
+    this.physics.add.overlap(this.soulB, this.orbs,    (_,o) => this.orbHit(o,'B'));
+    this.physics.add.overlap(this.soulA, this.drones,  (s,d) => this.droneHit(s,d,'A'));
+    this.physics.add.overlap(this.soulB, this.drones,  (s,d) => this.droneHit(s,d,'B'));
+    this.physics.add.overlap(this.soulA, this.crystals,(_,c) => this.collectCrystal(c));
+    this.physics.add.overlap(this.soulB, this.crystals,(_,c) => this.collectCrystal(c));
+    // Mines use manual range check in update
+  }
+
+  // ── Helpers ───────────────────────────────
+  tethered() {
+    return Phaser.Math.Distance.Between(
+      this.soulA.x, this.soulA.y, this.soulB.x, this.soulB.y
+    ) < 200;
+  }
+
+  refreshHP(who) {
+    const hp = (who==='A' ? this.soulA : this.soulB).hp;
+    const hearts = hp > 0 ? Array(hp).fill('♥').join(' ') : '💀';
+    if (who==='A') this.hpTextA.setText(hearts);
+    else           this.hpTextB.setText(hearts);
+  }
+
+  damageHit(who, reason) {
+    if (!this.gameRunning) return;
+    const soul = who==='A' ? this.soulA : this.soulB;
+    if ((who==='A' && this.invincA) || (who==='B' && this.invincB)) return;
+
+    sfxHit();
+    soul.hp--;
+    this.refreshHP(who);
+    if (who==='A') {
+      this.pfxHitA.emitParticleAt(soul.x, soul.y, 10);
+      this.cameras.main.flash(120, 0, 120, 255);
+      this.invincA = true;
+      soul.setTint(0xff4466);
+      this.time.delayedCall(900, () => { soul.clearTint(); this.invincA=false; });
+    } else {
+      this.pfxHitB.emitParticleAt(soul.x, soul.y, 10);
+      this.cameras.main.flash(120, 180, 0, 180);
+      this.invincB = true;
+      soul.setTint(0xff4466);
+      this.time.delayedCall(900, () => { soul.clearTint(); this.invincB=false; });
+    }
+    this.cameras.main.shake(110, 0.007);
+
+    if (soul.hp <= 0) {
+      this.triggerDeath(who==='A' ? 'CYAN SOUL SHATTERED' : 'MAGENTA SOUL SHATTERED', who);
+    }
+  }
+
+  orbHit(orb, who) {
+    if (!this.gameRunning) return;
+    if (this.tethered()) {
+      // Shield absorbs it!
+      orb.destroy();
+      sfxAbsorb();
+      const sx = (this.soulA.x + this.soulB.x)/2;
+      const sy = (this.soulA.y + this.soulB.y)/2;
+      this.pfxAbsorb.emitParticleAt(sx, sy, 12);
+      this.cameras.main.flash(80, 80, 80, 200);
+    } else {
+      orb.destroy();
+      this.damageHit(who);
+    }
+  }
+
+  droneHit(soul, drone, who) {
+    if (!this.gameRunning) return;
+    // Drones don't die — bounce off
+    const dx = soul.x - drone.x, dy = soul.y - drone.y;
+    const d  = Math.sqrt(dx*dx+dy*dy) || 1;
+    drone.body.setVelocity(drone.body.velocity.x + (dx/d)*200, drone.body.velocity.y + (dy/d)*200);
+    if (this.tethered()) {
+      sfxAbsorb();
+      this.pfxAbsorb.emitParticleAt(soul.x, soul.y, 6);
+    } else {
+      this.damageHit(who);
+    }
+  }
+
+  collectCrystal(crystal) {
+    if (!crystal.active) return;
+    crystal.destroy();
+    sfxCollect();
+    this.bonusPoints += 25;
+    this.pfxCollect.emitParticleAt(crystal.x, crystal.y, 12);
+    // Popup
+    const pop = this.add.text(crystal.x, crystal.y-10,'+25',{
+      fontFamily:'Orbitron', fontSize:'15px', fill:'#ffd700', stroke:'#000', strokeThickness:3
+    }).setOrigin(0.5).setDepth(22);
+    this.tweens.add({targets:pop, y:crystal.y-55, alpha:0, duration:750, ease:'Cubic.easeOut',
+      onComplete:()=>pop.destroy()});
+  }
+
+  // ── Spawners ─────────────────────────────
+  spawnOrb(diff) {
+    const W=this.W, H=this.H;
+    const sides = [[Phaser.Math.Between(0,W),-28],[Phaser.Math.Between(0,W),H+28],[-28,Phaser.Math.Between(0,H)],[W+28,Phaser.Math.Between(0,H)]];
+    const [x,y] = Phaser.Utils.Array.GetRandom(sides);
+    const orb = this.orbs.create(x,y,'orb').setScale(0.55);
+    orb.body.setCircle(16, 8, 8);
+    orb.target   = Math.random()<0.5 ? 'A' : 'B';
+    orb.speed    = this.lerp(90, 280, this.easeIn(diff));
+    orb.turnRate = this.lerp(0.025, 0.09, diff);
+    // Give initial velocity toward target
+    const tgt = orb.target==='A' ? this.soulA : this.soulB;
+    const ang  = Math.atan2(tgt.y-y, tgt.x-x);
+    orb.body.setVelocity(Math.cos(ang)*orb.speed, Math.sin(ang)*orb.speed);
+    orb.lastAngle = ang;
+  }
+
+  spawnDrone(diff) {
+    const maxDrones = Math.floor(this.lerp(1, 6, diff));
+    if (this.droneCount >= maxDrones) return;
+    const W=this.W, H=this.H;
+    const sides = [[Phaser.Math.Between(0,W),-40],[Phaser.Math.Between(0,W),H+40],[-40,Phaser.Math.Between(0,H)],[W+40,Phaser.Math.Between(0,H)]];
+    const [x,y] = Phaser.Utils.Array.GetRandom(sides);
+    const d = this.drones.create(x,y,'drone').setScale(0.65);
+    d.body.setSize(28,28,true);
+    d.setCollideWorldBounds(true);
+    d.setBounce(0.7);
+    d.target      = Math.random()<0.5 ? 'A' : 'B';
+    d.switchTimer = 0;
+    d.maxSpeed    = this.lerp(65, 200, this.easeIn(diff));
+    this.droneCount++;
+    d.on('destroy', () => { this.droneCount = Math.max(0, this.droneCount-1); });
+  }
+
+  spawnMine(diff) {
+    const W=this.W, H=this.H;
+    const margin = 80;
+    // Safe zone around both souls
+    let x, y, tries=0;
+    do {
+      x = Phaser.Math.Between(margin, W-margin);
+      y = Phaser.Math.Between(margin, H-margin);
+      tries++;
+    } while (tries < 15 && (
+      Phaser.Math.Distance.Between(x,y,this.soulA.x,this.soulA.y) < 150 ||
+      Phaser.Math.Distance.Between(x,y,this.soulB.x,this.soulB.y) < 150
+    ));
+    const mine = this.mines.create(x,y,'mine').setScale(0.7);
+    mine.body.setCircle(14,10,10);
+    mine.body.setImmovable(true);
+    mine.setDepth(5);
+    mine.timer = 0;
+    mine.blastRadius = this.lerp(80, 160, diff);
+    mine.warningTime = this.lerp(3500, 2000, diff); // ms before explosion
+    mine.exploded = false;
+    // Warning pulse tween
+    mine.pulseTween = this.tweens.add({targets:mine, scaleX:0.9, scaleY:0.9, duration:500, yoyo:true, repeat:-1, ease:'Sine.easeInOut'});
+  }
+
+  spawnCrystal() {
+    const W=this.W, H=this.H, m=90;
+    let x,y,tries=0;
+    do {
+      x = Phaser.Math.Between(m,W-m);
+      y = Phaser.Math.Between(m,H-m);
+      tries++;
+    } while (tries<12 && (
+      Phaser.Math.Distance.Between(x,y,this.soulA.x,this.soulA.y)<110 ||
+      Phaser.Math.Distance.Between(x,y,this.soulB.x,this.soulB.y)<110
+    ));
+    const c = this.crystals.create(x,y,'crystal').setScale(0.65);
+    c.body.setCircle(14,10,10);
+    c.setDepth(6);
+    this.tweens.add({targets:c, y:y-10, duration:1100, yoyo:true, repeat:-1, ease:'Sine.easeInOut'});
+    this.tweens.add({targets:c, angle:360, duration:2800, repeat:-1, ease:'Linear'});
+  }
+
+  triggerDeath(reason, who) {
+    if (!this.gameRunning) return;
+    this.gameRunning = false;
+
+    sfxDeath();
+    this.cameras.main.shake(320, 0.018);
+    this.cameras.main.flash(600, 255, 60, 120);
+
+    const da = who==='A' ? this.pfxDeathA : this.pfxDeathB;
+    const db = who==='A' ? this.pfxDeathB : this.pfxDeathA;
+    const dead  = who==='A' ? this.soulA : this.soulB;
+    const alive = who==='A' ? this.soulB : this.soulA;
+
+    da.emitParticleAt(dead.x,  dead.y,  40);
+    db.emitParticleAt(alive.x, alive.y, 20);
+
+    this.soulA.setVisible(false);
+    this.soulB.setVisible(false);
+
+    const finalScore = Math.floor(this.timeAlive * 10 + this.bonusPoints);
+    _finalScore = finalScore;
+
+    this.time.delayedCall(650, () => {
+      this.scene.pause();
+      showGameOver(finalScore, reason);
+    });
+  }
+
+  // ── Update ────────────────────────────────
+  update(time, delta) {
+    if (!this.gameRunning) return;
+
+    const dt   = delta / 16.667;
+    const diff = this.getDiff();
+    const elapsed = (time - this.gameStartTime) / 1000;
+    this.timeAlive = elapsed;
+
+    // Score
+    const score = Math.floor(this.timeAlive * 10 + this.bonusPoints);
+    this.scoreTxt.setText('SCORE: ' + score);
+
+    // ── Move Soul A (WASD + left touch) ──
+    const spd = this.lerp(150, 230, diff);
+    let axV=0, ayV=0;
+    if (this.keysA.left.isDown)  axV -= 1;
+    if (this.keysA.right.isDown) axV += 1;
+    if (this.keysA.up.isDown)    ayV -= 1;
+    if (this.keysA.down.isDown)  ayV += 1;
+    if (this.touchA.active) {
+      const ddx = this.touchA.cx - this.touchA.sx;
+      const ddy = this.touchA.cy - this.touchA.sy;
+      const dm = Math.sqrt(ddx*ddx+ddy*ddy);
+      if (dm > 8) { axV += ddx/dm; ayV += ddy/dm; }
+    }
+    const ma = Math.sqrt(axV*axV+ayV*ayV);
+    if (ma>0) { axV/=ma; ayV/=ma; }
+    this.soulA.setVelocity(axV*spd, ayV*spd);
+
+    // ── Move Soul B (Arrows + right touch) ──
+    let bxV=0, byV=0;
+    if (this.keysB.left.isDown)  bxV -= 1;
+    if (this.keysB.right.isDown) bxV += 1;
+    if (this.keysB.up.isDown)    byV -= 1;
+    if (this.keysB.down.isDown)  byV += 1;
+    if (this.touchB.active) {
+      const ddx = this.touchB.cx - this.touchB.sx;
+      const ddy = this.touchB.cy - this.touchB.sy;
+      const dm = Math.sqrt(ddx*ddx+ddy*ddy);
+      if (dm > 8) { bxV += ddx/dm; byV += ddy/dm; }
+    }
+    const mb = Math.sqrt(bxV*bxV+byV*byV);
+    if (mb>0) { bxV/=mb; byV/=mb; }
+    this.soulB.setVelocity(bxV*spd, byV*spd);
+
+    // ── Tether ─────────────────────────────
+    this.tetherGfx.clear();
+    const dist = Phaser.Math.Distance.Between(this.soulA.x,this.soulA.y,this.soulB.x,this.soulB.y);
+    const bonded = dist < 200;
+    const tAlpha = Math.max(0.08, Math.min(0.85, 1 - dist/350));
+    const tWidth = bonded ? 4 : 2;
+    this.tetherGfx.lineStyle(tWidth, 0x9b59b6, tAlpha);
+    this.tetherGfx.beginPath();
+    this.tetherGfx.moveTo(this.soulA.x, this.soulA.y);
+    this.tetherGfx.lineTo(this.soulB.x, this.soulB.y);
+    this.tetherGfx.strokePath();
+
+    // Shield visuals
+    const shAlpha = bonded ? Math.min(0.75, (200-dist)/200*0.9) : 0;
+    this.shieldA.setPosition(this.soulA.x, this.soulA.y).setAlpha(shAlpha);
+    this.shieldB.setPosition(this.soulB.x, this.soulB.y).setAlpha(shAlpha);
+    if (bonded) { this.shieldA.angle += 1.2; this.shieldB.angle -= 1.2; }
+
+    // Tether label
+    if (bonded) this.tetherLbl.setAlpha(Math.min(1, this.tetherLbl.alpha+0.06));
+    else        this.tetherLbl.setAlpha(Math.max(0, this.tetherLbl.alpha-0.04));
+
+    // Shield position
+    this.shieldA.setPosition(this.soulA.x, this.soulA.y);
+    this.shieldB.setPosition(this.soulB.x, this.soulB.y);
+
+    // ── Orb spawning ───────────────────────
+    const orbRate = this.lerp(3000, 550, this.ease(diff));
+    this.tOrb += delta;
+    if (this.tOrb >= orbRate) {
+      this.tOrb -= orbRate;
+      this.spawnOrb(diff);
+      if (diff > 0.35) this.spawnOrb(diff);
+      if (diff > 0.7)  this.spawnOrb(diff);
+    }
+
+    // ── Orb tracking ───────────────────────
+    this.orbs.children.each(orb => {
+      if (!orb || !orb.active) return;
+      const tgt = orb.target==='A' ? this.soulA : this.soulB;
+      const desiredAngle = Math.atan2(tgt.y-orb.y, tgt.x-orb.x);
+      const curAngle = orb.lastAngle || desiredAngle;
+      // Lerp angle for homing
+      let diff2 = desiredAngle - curAngle;
+      if (diff2 > Math.PI)  diff2 -= Math.PI*2;
+      if (diff2 < -Math.PI) diff2 += Math.PI*2;
+      const newAngle = curAngle + diff2 * orb.turnRate * dt;
+      orb.lastAngle  = newAngle;
+      orb.body.setVelocity(Math.cos(newAngle)*orb.speed, Math.sin(newAngle)*orb.speed);
+      orb.angle += 6;
+      // Switch target occasionally
+      if (Math.random() < 0.0008) orb.target = orb.target==='A' ? 'B' : 'A';
+      // Cull if way off-screen
+      if (orb.x < -200 || orb.x > this.W+200 || orb.y < -200 || orb.y > this.H+200) orb.destroy();
+    });
+
+    // ── Drone spawning ─────────────────────
+    const droneRate = this.lerp(7500, 1800, this.ease(diff));
+    this.tDrone += delta;
+    if (this.tDrone >= droneRate) { this.tDrone -= droneRate; this.spawnDrone(diff); }
+
+    // ── Drone tracking ─────────────────────
+    this.drones.children.each(d => {
+      if (!d || !d.active) return;
+      d.switchTimer += delta;
+      if (d.switchTimer > Phaser.Math.Between(2500,4500)) {
+        d.switchTimer = 0;
+        d.target = d.target==='A' ? 'B' : 'A';
+      }
+      const tgt = d.target==='A' ? this.soulA : this.soulB;
+      const ang  = Math.atan2(tgt.y-d.y, tgt.x-d.x);
+      const accel = d.maxSpeed * 0.04 * dt;
+      d.body.setVelocity(
+        d.body.velocity.x + Math.cos(ang)*accel,
+        d.body.velocity.y + Math.sin(ang)*accel
+      );
+      // Cap speed
+      const spd2 = Math.sqrt(d.body.velocity.x**2 + d.body.velocity.y**2);
+      if (spd2 > d.maxSpeed) {
+        d.body.setVelocity(
+          (d.body.velocity.x/spd2)*d.maxSpeed,
+          (d.body.velocity.y/spd2)*d.maxSpeed
+        );
+      }
+      // Rotate to face velocity
+      d.angle = Math.atan2(d.body.velocity.y, d.body.velocity.x) * 180/Math.PI + 90;
+    });
+
+    // ── Mine spawning ──────────────────────
+    const mineRate = this.lerp(8000, 2200, this.ease(diff));
+    this.tMine += delta;
+    if (this.tMine >= mineRate) {
+      this.tMine -= mineRate;
+      if (this.mines.countActive() < Math.floor(this.lerp(2,7,diff))) {
+        this.spawnMine(diff);
+      }
+    }
+
+    // ── Mine countdown + explosion ─────────
+    this.mines.children.each(mine => {
+      if (!mine || !mine.active || mine.exploded) return;
+      mine.timer += delta;
+      // Color shift as warning
+      const pct = mine.timer / mine.warningTime;
+      if (pct > 0.6) {
+        const blink = Math.floor(pct*12) % 2 === 0;
+        mine.setTint(blink ? 0xff3300 : 0xffffff);
+      }
+      if (mine.timer >= mine.warningTime) {
+        mine.exploded = true;
+        // Explosion effect
+        sfxMine();
+        this.pfxMine.emitParticleAt(mine.x, mine.y, 20);
+        const ring = this.add.image(mine.x, mine.y, 'mineRing').setScale(0.3).setDepth(15);
+        this.tweens.add({targets:ring, scaleX:mine.blastRadius/40, scaleY:mine.blastRadius/40, alpha:0,
+          duration:400, ease:'Cubic.easeOut', onComplete:()=>ring.destroy()});
+        // Damage check
+        const blast = mine.blastRadius;
+        if (Phaser.Math.Distance.Between(mine.x,mine.y,this.soulA.x,this.soulA.y) < blast) {
+          this.time.delayedCall(100, () => this.damageHit('A', 'mine'));
+        }
+        if (Phaser.Math.Distance.Between(mine.x,mine.y,this.soulB.x,this.soulB.y) < blast) {
+          this.time.delayedCall(100, () => this.damageHit('B', 'mine'));
+        }
+        if (mine.pulseTween) mine.pulseTween.stop();
+        mine.destroy();
+      }
+    });
+
+    // ── Crystal spawning ───────────────────
+    const crystalRate = this.lerp(4800, 2400, diff);
+    this.tCrystal += delta;
+    if (this.tCrystal >= crystalRate) {
+      this.tCrystal -= crystalRate;
+      if (this.crystals.countActive() < 4) this.spawnCrystal();
+    }
+
+    // ── Star twinkle ───────────────────────
+    if (Math.random() < 0.025) {
+      const s = Phaser.Utils.Array.GetRandom(this.stars);
+      if (s) this.tweens.add({targets:s.obj, alpha:Math.random()*0.6+0.1, duration:450});
+    }
+  }
+}
+
+// ═══════════════════════════════════════════
+// PHASER GAME CONFIG
+// ═══════════════════════════════════════════
+const config = {
+  type: Phaser.AUTO,
+  width: 800,
+  height: 600,
+  backgroundColor: '#050510',
+  physics: {
+    default: 'arcade',
+    arcade: { gravity:{y:0}, debug:false }
+  },
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
+  scene: [MenuScene, GameScene]
+};
+
+const game = new Phaser.Game(config);
+
+// ═══════════════════════════════════════════
+// GAME OVER UI
+// ═══════════════════════════════════════════
+function showGameOver(score, reason) {
+  _finalScore = score;
+  document.getElementById('final-score').textContent = score;
+  document.getElementById('overlay-cause').textContent = reason || '';
+  document.getElementById('ui-overlay').classList.add('visible');
+  document.getElementById('name-input').value = '';
+  document.getElementById('leaderboard').innerHTML = '';
+  document.getElementById('status-msg').textContent = '';
+  document.getElementById('submit-btn').disabled = false;
+  document.getElementById('submit-btn').textContent = 'Submit Score';
+  document.getElementById('replay-btn').style.display = 'none';
+  // Show current leaderboard
+  getLeaderboard(10).then(scores => renderLeaderboard(scores, null));
+}
+
+function renderLeaderboard(scores, myScore) {
+  if (!scores.length) {
+    document.getElementById('leaderboard').innerHTML = '<p style="color:#666;font-size:11px;margin:8px 0">No scores yet — be the first!</p>';
+    return;
+  }
+  let html = '<table><tr><th>#</th><th>Name</th><th>Score</th></tr>';
+  scores.forEach((s,i) => {
+    const hi = (myScore !== null && s.score === myScore) ? ' class="my-score"' : '';
+    html += `<tr${hi}><td>${i+1}</td><td>${s.playerName}</td><td>${s.score}</td></tr>`;
+  });
+  html += '</table>';
+  document.getElementById('leaderboard').innerHTML = html;
+}
+
+document.getElementById('submit-btn').addEventListener('click', async () => {
+  const name  = document.getElementById('name-input').value.trim() || 'Anonymous';
+  const score = _finalScore;
+  document.getElementById('submit-btn').disabled = true;
+  document.getElementById('submit-btn').textContent = 'Submitting...';
+  document.getElementById('status-msg').textContent = '';
+  const res = await submitScore(name, score);
+  document.getElementById('status-msg').textContent = res ? '✓ Score submitted!' : '(Offline — not saved)';
+  document.getElementById('submit-btn').textContent = 'Submitted ✓';
+  const scores = await getLeaderboard(10);
+  renderLeaderboard(scores, score);
+  document.getElementById('replay-btn').style.display = 'block';
+});
+
+document.getElementById('replay-btn').addEventListener('click', () => {
+  document.getElementById('ui-overlay').classList.remove('visible');
+  game.scene.stop('GameScene');
+  game.scene.start('GameScene');
+});
+</script>
+</body>
+</html>

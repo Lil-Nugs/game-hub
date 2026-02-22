@@ -383,5 +383,12 @@
     "description": "Neon cyberpunk auto-scrolling platformer — stomp enemies, collect star shards to unlock roguelite upgrades, combo for massive scores!",
     "creator": "lilnug",
     "date": "2026-02-22T09:26:40.972Z"
+  },
+  {
+    "slug": "twin-pulse-a7b3",
+    "title": "Twin Pulse",
+    "description": "Control two souls at once — WASD and Arrow Keys. Both must survive homing orbs, hunter drones, and pulse mines. Stay tethered for a shared shield!",
+    "creator": "vimgo",
+    "date": "2026-02-22T09:27:21.931Z"
   }
 ]
