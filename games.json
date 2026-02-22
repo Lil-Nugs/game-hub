@@ -390,5 +390,12 @@
     "description": "Control two souls at once — WASD and Arrow Keys. Both must survive homing orbs, hunter drones, and pulse mines. Stay tethered for a shared shield!",
     "creator": "vimgo",
     "date": "2026-02-22T09:27:21.931Z"
+  },
+  {
+    "slug": "zone-collapse-c7a4",
+    "title": "Zone Collapse",
+    "description": "Survive inside a shrinking arena! Dodge tracker drones and seeker missiles while the zone closes in. Collect gold orbs for bonus points and cyan orbs for a temporary shield.",
+    "creator": "vimgo",
+    "date": "2026-02-22T09:28:08.600Z"
   }
 ]

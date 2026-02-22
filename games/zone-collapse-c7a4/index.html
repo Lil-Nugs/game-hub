@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Zone Collapse</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #050510;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+    touch-action: none;
+  }
+  #ui-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    display: none; justify-content: center; align-items: center;
+    z-index: 10; background: rgba(2, 2, 20, 0.93);
+    font-family: 'Orbitron', sans-serif; color: #fff;
+    flex-direction: column; gap: 14px;
+  }
+  #ui-overlay h2 {
+    font-size: 2.4em; color: #9b59b6;
+    text-shadow: 0 0 30px #9b59b6, 0 0 60px #7d3c98;
+    letter-spacing: 4px;
+  }
+  .score-display { font-size: 1.4em; color: #e74c3c; letter-spacing: 2px; }
+  #ui-overlay input {
+    padding: 10px 20px; font-size: 0.9em; font-family: 'Orbitron', sans-serif;
+    background: #0d0d2b; color: #e0e0ff; border: 2px solid #9b59b6;
+    border-radius: 4px; outline: none; width: 260px; text-align: center;
+    transition: border-color 0.2s;
+  }
+  #ui-overlay input:focus { border-color: #e056fd; }
+  .btn {
+    padding: 11px 30px; font-size: 0.9em; font-family: 'Orbitron', sans-serif;
+    border: none; border-radius: 4px; cursor: pointer;
+    transition: transform 0.1s, opacity 0.2s; letter-spacing: 1px;
+  }
+  .btn:active { transform: scale(0.97); }
+  #submit-btn { background: #8e44ad; color: #fff; }
+  #submit-btn:hover { background: #a55fbf; }
+  #submit-btn:disabled { opacity: 0.5; cursor: default; }
+  #play-again-btn { background: #2980b9; color: #fff; }
+  #play-again-btn:hover { background: #3498db; }
+  #leaderboard { text-align: center; max-width: 320px; }
+  #leaderboard h3 { color: #9b59b6; margin-bottom: 8px; font-size: 0.9em; letter-spacing: 2px; }
+  #lb-list { list-style: none; padding: 0; }
+  #lb-list li {
+    display: flex; justify-content: space-between;
+    padding: 5px 12px; color: #ccc; font-size: 0.75em;
+    border-bottom: 1px solid #1a1a3a;
+  }
+  #lb-list li:first-child { color: #f1c40f; }
+  #lb-list li:nth-child(2) { color: #bdc3c7; }
+  #lb-list li:nth-child(3) { color: #cd853f; }
+</style>
+</head>
+<body>
+
+<div id="ui-overlay">
+  <h2>ZONE COLLAPSE</h2>
+  <div class="score-display">SCORE: <span id="final-score">0</span></div>
+  <div style="font-size:0.75em;color:#888;letter-spacing:1px;">ENTER YOUR CALLSIGN</div>
+  <input type="text" id="player-name" maxlength="18" placeholder="PILOT NAME" autocomplete="off" />
+  <button class="btn" id="submit-btn">SUBMIT SCORE</button>
+  <div id="leaderboard" style="display:none;">
+    <h3>⟁ LEADERBOARD</h3>
+    <ol id="lb-list"></ol>
+  </div>
+  <button class="btn" id="play-again-btn">↩ PLAY AGAIN</button>
+</div>
+
+<script>
+// ============================================================
+// DESIGN HEADER — Zone Collapse
+// Controls: WASD / Arrow keys (keyboard); tap/drag (touch, moves toward pointer)
+// Core Loop: Pilot a ship inside a shrinking circular arena. Survive as long as possible.
+// Death Conditions:
+//   1. Player center crosses arena boundary
+//   2. Player hit by Tracker Drone
+//   3. Player hit by Seeker Missile (without shield)
+// Hazards:
+//   1. Tracker Drones (red triangles) — slowly chase player; speed scales with difficulty
+//   2. Seeker Missiles (orange) — fast, straight-shot from arena edge toward player at spawn
+// Pickups:
+//   1. Score Orbs (gold) — +50 bonus pts, bob in place. Risk: may be near arena edge.
+//   2. Shield Orb (cyan) — 5s invincibility, bounces off boundary. Risk/Reward: rare; worth
+//      chasing into tight spaces during late game.
+// Scoring: score = floor(timeAlive * 10 + bonusPoints), strictly monotonic
+// Difficulty: easeIn ramp over 120s. Arena shrinks r:270→65. Drones faster & more frequent.
+//   Missile spawn rate doubles. Score orb spawn doubles.
+// Visual Theme: Cosmic/Space — deep starfield bg, pulsing purple/blue arena ring, neon cyan
+//   player ship, red drones, gold orbs.
+// Font: Orbitron (futuristic / arcade)
+// Audio: Procedural Web Audio — electronic, synth space sounds
+// ============================================================
+
+const GAME_ID = 'zone-collapse-c7a4';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+// ---- Web Audio ----
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playTone(type, freq, dur, vol, freqEnd) {
+  if (audioCtx.state === 'suspended') return;
+  try {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    if (freqEnd !== undefined)
+      osc.frequency.linearRampToValueAtTime(freqEnd, audioCtx.currentTime + dur);
+    gain.gain.setValueAtTime(Math.min(vol, 0.4), audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+    osc.start();
+    osc.stop(audioCtx.currentTime + dur);
+  } catch(e) {}
+}
+
+function sfxStart()   { playTone('sine',300,0.12,0.18,700); setTimeout(()=>playTone('sine',700,0.15,0.15,1000),80); }
+function sfxCollect() { playTone('sine',880,0.08,0.22,1300); playTone('triangle',1100,0.1,0.14); }
+function sfxShield()  { playTone('sine',440,0.18,0.22,220); playTone('square',660,0.1,0.08); }
+function sfxHit()     { playTone('sawtooth',220,0.14,0.22,90); playTone('square',100,0.18,0.18); }
+function sfxDeath()   { playTone('sawtooth',350,0.35,0.28,60); playTone('sawtooth',180,0.6,0.22,40); playTone('square',130,0.5,0.18); }
+function sfxMissile() { playTone('square',500,0.06,0.12,180); }
+function sfxWarn()    { playTone('sine',90,0.1,0.12,120); }
+
+// ---- Leaderboard ----
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch(e) { console.warn('Leaderboard submit failed:', e); return null; }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch(e) { console.warn('Leaderboard fetch failed:', e); return []; }
+}
+
+// ---- Helpers ----
+function lerp(a, b, t) { return a + (b - a) * t; }
+function easeIn(t)     { return t * t; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// ---- Menu Scene ----
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+    const cx = W/2, cy = H/2;
+
+    // Starfield
+    const sg = this.add.graphics();
+    for (let i = 0; i < 180; i++) {
+      const x = Phaser.Math.Between(0, W);
+      const y = Phaser.Math.Between(0, H);
+      const r = Phaser.Math.FloatBetween(0.5, 2.2);
+      const a = Phaser.Math.FloatBetween(0.25, 0.95);
+      sg.fillStyle(0xffffff, a);
+      sg.fillCircle(x, y, r);
+    }
+
+    // Nebula glow behind title
+    const ng = this.add.graphics();
+    ng.fillStyle(0x6c3483, 0.18);
+    ng.fillEllipse(cx, cy - 80, 400, 120);
+    ng.fillStyle(0x1f618d, 0.12);
+    ng.fillEllipse(cx, cy + 50, 350, 160);
+
+    // Animated arena ring
+    const ring = this.add.graphics();
+    const drawRing = (alpha) => {
+      ring.clear();
+      ring.lineStyle(14, 0x9b59b6, alpha * 0.25);
+      ring.strokeCircle(cx, cy + 20, 160);
+      ring.lineStyle(4, 0x9b59b6, alpha);
+      ring.strokeCircle(cx, cy + 20, 160);
+      ring.lineStyle(2, 0xe8c6f5, alpha * 0.7);
+      ring.strokeCircle(cx, cy + 20, 157);
+    };
+    drawRing(0.7);
+    this.tweens.add({
+      targets: { v: 0.7 }, v: 0.2, duration: 1100, yoyo: true, repeat: -1,
+      ease: 'Sine.easeInOut',
+      onUpdate: (tw, obj) => drawRing(obj.v)
+    });
+
+    // Small ship in center
+    const sg2 = this.add.graphics();
+    sg2.fillStyle(0x00bfff, 1); sg2.fillTriangle(cx, cy-30, cx-12, cy-10, cx+12, cy-10);
+    sg2.fillStyle(0xffffff, 0.55); sg2.fillTriangle(cx, cy-24, cx-7, cy-14, cx+7, cy-14);
+    sg2.fillStyle(0x9b59b6, 0.9); sg2.fillRect(cx-10, cy-11, 6, 5); sg2.fillRect(cx+4, cy-11, 6, 5);
+
+    // Title
+    this.add.text(cx, cy - 130, 'ZONE', {
+      fontFamily: 'Orbitron', fontStyle: 'bold',
+      fontSize: '62px', color: '#9b59b6',
+      stroke: '#3498db', strokeThickness: 2,
+      shadow: { blur: 30, color: '#9b59b6', fill: true }
+    }).setOrigin(0.5);
+    this.add.text(cx, cy - 68, 'COLLAPSE', {
+      fontFamily: 'Orbitron', fontStyle: '900',
+      fontSize: '38px', color: '#3498db',
+      stroke: '#9b59b6', strokeThickness: 1,
+      shadow: { blur: 20, color: '#3498db', fill: true }
+    }).setOrigin(0.5);
+
+    this.add.text(cx, cy - 28, 'THE ARENA SHRINKS. SURVIVE.', {
+      fontFamily: 'Orbitron', fontSize: '11px', color: '#8884aa', letterSpacing: 3
+    }).setOrigin(0.5);
+
+    // Instructions
+    const instLines = [
+      { t: '⬆⬇⬅➡  /  WASD  —  MOVE', c: '#aacce8' },
+      { t: '★  Gold orbs  +50 pts', c: '#f1c40f' },
+      { t: '◈  Cyan orbs  5s shield', c: '#00ffff' },
+      { t: '✕  Touch boundary  =  DEATH', c: '#e74c3c' },
+    ];
+    instLines.forEach((l, i) => {
+      this.add.text(cx, cy + 50 + i * 24, l.t, {
+        fontFamily: 'Orbitron', fontSize: '11px', color: l.c
+      }).setOrigin(0.5);
+    });
+
+    const startTxt = this.add.text(cx, cy + 170, '— TAP OR PRESS ANY KEY —', {
+      fontFamily: 'Orbitron', fontSize: '13px', color: '#f1c40f', letterSpacing: 2
+    }).setOrigin(0.5);
+    this.tweens.add({ targets: startTxt, alpha: 0.08, duration: 650, yoyo: true, repeat: -1 });
+
+    const doStart = () => {
+      audioCtx.resume().then(() => sfxStart());
+      this.scene.start('GameScene');
+    };
+    this.input.once('pointerdown', doStart);
+    this.input.keyboard.once('keydown', doStart);
+  }
+}
+
+// ---- Game Scene ----
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+    this.W = W; this.H = H;
+    this.cx = W / 2; this.cy = H / 2;
+
+    // State
+    this.bonusPoints = 0;
+    this.gameStartTime = this.time.now;
+    this.isDead = false;
+    this.shielded = false;
+    this.shieldEndTime = 0;
+    this.lastDroneSpawn = -9999;
+    this.lastMissileSpawn = -9999;
+    this.lastScoreOrbSpawn = -9999;
+    this.lastShieldOrbSpawn = -9999;
+    this.warnSoundTime = 0;
+
+    // Arena
+    this.arenaRadiusStart = 270;
+    this.arenaRadiusEnd = 65;
+    this.arenaRadius = this.arenaRadiusStart;
+
+    // ---- Procedural textures ----
+    this._makeTextures();
+
+    // ---- Background layers ----
+    this.add.rectangle(0, 0, W, H, 0x050510).setOrigin(0);
+
+    // Static starfield
+    this.starsGfx = this.add.graphics();
+    this._drawStars();
+
+    // Nebula blobs (static)
+    const nb = this.add.graphics();
+    nb.fillStyle(0x6c3483, 0.07); nb.fillEllipse(W*0.2, H*0.15, 200, 100);
+    nb.fillStyle(0x1a5276, 0.07); nb.fillEllipse(W*0.8, H*0.8, 180, 120);
+    nb.fillStyle(0x117a65, 0.05); nb.fillEllipse(W*0.75, H*0.2, 140, 80);
+
+    // Danger zone graphics (redrawn each frame)
+    this.dangerGfx = this.add.graphics();
+
+    // Arena ring graphics (redrawn each frame)
+    this.arenaGfx = this.add.graphics();
+
+    // ---- Player ----
+    this.player = this.physics.add.sprite(this.cx, this.cy, 'texPlayer');
+    this.player.setOrigin(0.5, 0.5);
+    this.player.body.setSize(28, 28); // forgiving hitbox
+
+    // Shield visual
+    this.shieldArc = this.add.graphics();
+
+    // ---- Input ----
+    this.cursors = this.input.keyboard.createCursorKeys();
+    this.wasd = this.input.keyboard.addKeys({
+      up: Phaser.Input.Keyboard.KeyCodes.W,
+      down: Phaser.Input.Keyboard.KeyCodes.S,
+      left: Phaser.Input.Keyboard.KeyCodes.A,
+      right: Phaser.Input.Keyboard.KeyCodes.D,
+    });
+    this.pointerActive = false;
+    this.pointerX = this.cx;
+    this.pointerY = this.cy;
+    this.input.on('pointerdown', p => { this.pointerActive = true; this.pointerX = p.x; this.pointerY = p.y; });
+    this.input.on('pointermove', p => { if (this.pointerActive) { this.pointerX = p.x; this.pointerY = p.y; } });
+    this.input.on('pointerup', () => { this.pointerActive = false; });
+
+    // ---- Groups ----
+    this.drones  = this.physics.add.group();
+    this.missiles = this.physics.add.group();
+    this.scoreOrbs = this.physics.add.group();
+    this.shieldOrbs = this.physics.add.group();
+
+    // ---- UI ----
+    this.scoreText = this.add.text(12, 10, 'SCORE: 0', {
+      fontFamily: 'Orbitron', fontSize: '18px', color: '#f1c40f',
+      stroke: '#000', strokeThickness: 3
+    }).setDepth(10);
+    this.timeText = this.add.text(12, 34, 'TIME: 0s', {
+      fontFamily: 'Orbitron', fontSize: '12px', color: '#9b8abb',
+      stroke: '#000', strokeThickness: 2
+    }).setDepth(10);
+    this.zoneText = this.add.text(W - 12, 10, 'ZONE: 100%', {
+      fontFamily: 'Orbitron', fontSize: '12px', color: '#9b59b6',
+      stroke: '#000', strokeThickness: 2
+    }).setOrigin(1, 0).setDepth(10);
+    this.shieldText = this.add.text(W/2, 10, '', {
+      fontFamily: 'Orbitron', fontSize: '13px', color: '#00ffff',
+      stroke: '#000', strokeThickness: 2
+    }).setOrigin(0.5, 0).setDepth(10);
+
+    // Danger flash overlay
+    this.dangerOverlay = this.add.rectangle(0, 0, W, H, 0xff0000, 0).setOrigin(0).setDepth(15);
+
+    audioCtx.resume();
+  }
+
+  _makeTextures() {
+    // Player ship (cyan triangle with cockpit)
+    const pg = this.make.graphics({ add: false });
+    // Engine glow
+    pg.fillStyle(0x7d3c98, 0.9); pg.fillEllipse(24, 50, 30, 12);
+    // Hull
+    pg.fillStyle(0x00bfff, 1); pg.fillTriangle(24, 2, 4, 46, 44, 46);
+    // Wing accents
+    pg.fillStyle(0x1a8fcb, 1); pg.fillTriangle(24, 16, 8, 46, 24, 38);
+    pg.fillStyle(0x1a8fcb, 1); pg.fillTriangle(24, 16, 40, 46, 24, 38);
+    // Cockpit
+    pg.fillStyle(0xe0f7ff, 0.8); pg.fillTriangle(24, 8, 16, 28, 32, 28);
+    pg.fillStyle(0xffffff, 0.45); pg.fillTriangle(24, 10, 18, 22, 24, 22);
+    // Engines
+    pg.fillStyle(0xe056fd, 1); pg.fillRect(10, 43, 8, 6);
+    pg.fillStyle(0xe056fd, 1); pg.fillRect(30, 43, 8, 6);
+    pg.generateTexture('texPlayer', 48, 52);
+    pg.destroy();
+
+    // Drone (red angular shape)
+    const dg = this.make.graphics({ add: false });
+    dg.fillStyle(0x922b21, 1); dg.fillTriangle(24, 2, 2, 46, 46, 46);
+    dg.fillStyle(0xe74c3c, 0.8); dg.fillTriangle(24, 10, 8, 38, 40, 38);
+    dg.fillStyle(0xff6b6b, 0.5); dg.fillCircle(24, 30, 7);
+    dg.fillStyle(0xff0000, 0.9); dg.fillCircle(24, 30, 4);
+    dg.lineStyle(2, 0xff4444, 0.7); dg.strokeTriangle(24, 2, 2, 46, 46, 46);
+    dg.generateTexture('texDrone', 48, 48);
+    dg.destroy();
+
+    // Missile (orange elongated)
+    const mg = this.make.graphics({ add: false });
+    mg.fillStyle(0xe67e22, 1); mg.fillRect(7, 8, 10, 22);
+    mg.fillStyle(0xe74c3c, 1); mg.fillTriangle(12, 0, 4, 10, 20, 10);
+    mg.fillStyle(0xffd700, 0.9); mg.fillRect(8, 28, 8, 5);
+    mg.fillStyle(0xf1c40f, 0.6); mg.fillEllipse(12, 33, 10, 8);
+    mg.generateTexture('texMissile', 24, 36);
+    mg.destroy();
+
+    // Score orb (gold glowing)
+    const so = this.make.graphics({ add: false });
+    so.fillStyle(0xf1c40f, 0.3); so.fillCircle(18, 18, 16);
+    so.fillStyle(0xf4d03f, 1);   so.fillCircle(18, 18, 11);
+    so.fillStyle(0xffe066, 1);   so.fillCircle(18, 18, 7);
+    so.fillStyle(0xffffff, 0.7); so.fillCircle(15, 15, 3);
+    so.lineStyle(2, 0xd4ac0d, 1); so.strokeCircle(18, 18, 11);
+    so.generateTexture('texScoreOrb', 36, 36);
+    so.destroy();
+
+    // Shield orb (cyan glowing)
+    const sho = this.make.graphics({ add: false });
+    sho.fillStyle(0x00e5ff, 0.25); sho.fillCircle(18, 18, 16);
+    sho.fillStyle(0x00bcd4, 0.9);  sho.fillCircle(18, 18, 11);
+    sho.fillStyle(0x80deea, 1);    sho.fillCircle(18, 18, 7);
+    sho.fillStyle(0xffffff, 0.8);  sho.fillCircle(15, 14, 3);
+    sho.lineStyle(2, 0x00e5ff, 1); sho.strokeCircle(18, 18, 11);
+    sho.generateTexture('texShieldOrb', 36, 36);
+    sho.destroy();
+  }
+
+  _drawStars() {
+    const W = this.W, H = this.H;
+    this.starsGfx.clear();
+    const rng = new Phaser.Math.RandomDataGenerator(['zonecollapse_stars']);
+    for (let i = 0; i < 160; i++) {
+      const x = rng.between(0, W);
+      const y = rng.between(0, H);
+      const r = rng.frac() < 0.15 ? 2 : rng.frac() < 0.5 ? 1.2 : 0.6;
+      const a = 0.25 + rng.frac() * 0.7;
+      this.starsGfx.fillStyle(0xffffff, a);
+      this.starsGfx.fillCircle(x, y, r);
+    }
+  }
+
+  _drawArena(t) {
+    const { arenaGfx: ag, dangerGfx: dg, cx, cy, arenaRadius: r } = this;
+    const pulse = 0.5 + 0.35 * Math.sin(t * 0.0028);
+
+    // Danger zone (outside arena) — subtle red haze
+    dg.clear();
+    dg.fillStyle(0x7b241c, 0.18);
+    dg.fillRect(0, 0, this.W, this.H);
+    // Erase safe zone
+    dg.fillStyle(0x050510, 0); // transparent — we need a circle cutout
+    // Use alpha approach: draw a very dark tinted fill everywhere, then clear the circle
+    // Since Phaser graphics can't truly erase, we use a thin opaque safe-zone circle:
+    dg.fillStyle(0x07071a, 0.82);
+    dg.fillCircle(cx, cy, r);
+
+    // Arena ring
+    ag.clear();
+    ag.lineStyle(16, 0x9b59b6, pulse * 0.2);
+    ag.strokeCircle(cx, cy, r);
+    ag.lineStyle(5, 0x9b59b6, pulse * 0.9);
+    ag.strokeCircle(cx, cy, r);
+    ag.lineStyle(2, 0xd7bde2, pulse * 0.7);
+    ag.strokeCircle(cx, cy, r - 3);
+
+    // Danger tick marks around ring when zone is tiny
+    const zoneRatio = (r - this.arenaRadiusEnd) / (this.arenaRadiusStart - this.arenaRadiusEnd);
+    if (zoneRatio < 0.3) {
+      const tickCount = 16;
+      ag.lineStyle(2, 0xff4444, (0.3 - zoneRatio) / 0.3 * 0.8);
+      for (let i = 0; i < tickCount; i++) {
+        const a = (i / tickCount) * Math.PI * 2;
+        const ox = Math.cos(a), oy = Math.sin(a);
+        ag.beginPath();
+        ag.moveTo(cx + ox * (r + 6), cy + oy * (r + 6));
+        ag.lineTo(cx + ox * (r + 14), cy + oy * (r + 14));
+        ag.strokePath();
+      }
+    }
+  }
+
+  _spawnDrone() {
+    const r = this.arenaRadius;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const a = Phaser.Math.FloatBetween(0, Math.PI * 2);
+      const d = Phaser.Math.FloatBetween(60, Math.max(60, r - 35));
+      const x = this.cx + Math.cos(a) * d;
+      const y = this.cy + Math.sin(a) * d;
+      const dx = x - this.player.x, dy = y - this.player.y;
+      if (Math.hypot(dx, dy) > 90) {
+        const drone = this.drones.create(x, y, 'texDrone');
+        drone.setOrigin(0.5);
+        drone.body.setSize(30, 30);
+        // Spawn flash
+        this.tweens.add({ targets: drone, alpha: { from: 0, to: 1 }, duration: 300 });
+        return drone;
+      }
+    }
+  }
+
+  _spawnMissile() {
+    const r = this.arenaRadius;
+    const a = Phaser.Math.FloatBetween(0, Math.PI * 2);
+    const x = this.cx + Math.cos(a) * (r - 25);
+    const y = this.cy + Math.sin(a) * (r - 25);
+    const missile = this.missiles.create(x, y, 'texMissile');
+    missile.setOrigin(0.5);
+    missile.body.setSize(12, 22);
+    const dx = this.player.x - x, dy = this.player.y - y;
+    const len = Math.hypot(dx, dy) || 1;
+    const speed = 195;
+    missile.body.setVelocity((dx/len)*speed, (dy/len)*speed);
+    missile.setRotation(Math.atan2(dy, dx) + Math.PI/2);
+    sfxMissile();
+  }
+
+  _spawnScoreOrb() {
+    const r = this.arenaRadius;
+    if (this.scoreOrbs.countActive(true) >= 5) return;
+    const a = Phaser.Math.FloatBetween(0, Math.PI * 2);
+    const d = Phaser.Math.FloatBetween(25, Math.max(25, r - 40));
+    const x = this.cx + Math.cos(a) * d;
+    const y = this.cy + Math.sin(a) * d;
+    const orb = this.scoreOrbs.create(x, y, 'texScoreOrb');
+    orb.setOrigin(0.5);
+    orb.body.setSize(22, 22);
+    orb.body.setImmovable(true); orb.body.setVelocity(0, 0);
+    // Bob animation
+    this.tweens.add({ targets: orb, y: y - 9, duration: 750+Phaser.Math.Between(0,200), yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+  }
+
+  _spawnShieldOrb() {
+    const r = this.arenaRadius;
+    if (this.shieldOrbs.countActive(true) >= 1) return;
+    const a = Phaser.Math.FloatBetween(0, Math.PI * 2);
+    const d = Phaser.Math.FloatBetween(25, Math.max(25, r - 40));
+    const x = this.cx + Math.cos(a) * d;
+    const y = this.cy + Math.sin(a) * d;
+    const orb = this.shieldOrbs.create(x, y, 'texShieldOrb');
+    orb.setOrigin(0.5);
+    orb.body.setSize(22, 22);
+    orb.body.setImmovable(true); orb.body.setVelocity(0, 0);
+    this.tweens.add({ targets: orb, scaleX: 1.25, scaleY: 1.25, duration: 550, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    this.tweens.add({ targets: orb, alpha: 0.5, duration: 800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut', delay: 100 });
+  }
+
+  _showPopup(x, y, text, color) {
+    const popup = this.add.text(x, y, text, {
+      fontFamily: 'Orbitron', fontSize: '15px', color,
+      stroke: '#000', strokeThickness: 2
+    }).setOrigin(0.5).setDepth(12);
+    this.tweens.add({ targets: popup, y: y - 44, alpha: 0, duration: 900, ease: 'Cubic.easeOut', onComplete: () => popup.destroy() });
+  }
+
+  _culledByArena(obj) {
+    const dx = obj.x - this.cx, dy = obj.y - this.cy;
+    return Math.hypot(dx, dy) > this.arenaRadius + 60;
+  }
+
+  update(time, delta) {
+    if (this.isDead) return;
+
+    const dt = delta / 16.667;
+    const elapsed = (time - this.gameStartTime) / 1000;
+    const rawT = clamp(elapsed / 120, 0, 1);
+    const difficulty = easeIn(rawT);
+
+    // Shrink arena
+    this.arenaRadius = lerp(this.arenaRadiusStart, this.arenaRadiusEnd, difficulty);
+
+    // Redraw arena visuals
+    this._drawArena(time);
+
+    // ---- Player movement ----
+    const speed = 230;
+    let vx = 0, vy = 0;
+    if (this.cursors.left.isDown  || this.wasd.left.isDown)  vx = -1;
+    else if (this.cursors.right.isDown || this.wasd.right.isDown) vx = 1;
+    if (this.cursors.up.isDown    || this.wasd.up.isDown)    vy = -1;
+    else if (this.cursors.down.isDown  || this.wasd.down.isDown) vy = 1;
+
+    if (this.pointerActive) {
+      const dx = this.pointerX - this.player.x, dy = this.pointerY - this.player.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 12) { vx = dx/d; vy = dy/d; }
+    }
+
+    const mag = Math.hypot(vx, vy);
+    if (mag > 0) { vx /= mag; vy /= mag; }
+    this.player.setVelocity(vx * speed, vy * speed);
+
+    if (mag > 0) {
+      this.player.setRotation(Math.atan2(vy, vx) + Math.PI/2);
+    }
+
+    // ---- Arena boundary death ----
+    const px = this.player.x - this.cx, py = this.player.y - this.cy;
+    const pDist = Math.hypot(px, py);
+    if (pDist > this.arenaRadius - 5) {
+      if (this.shielded) {
+        // Bounce back
+        const norm = 1 / pDist;
+        this.player.x = this.cx + px * norm * (this.arenaRadius - 18);
+        this.player.y = this.cy + py * norm * (this.arenaRadius - 18);
+        this.player.body.setVelocity(0, 0);
+        if (time - this.warnSoundTime > 400) { sfxWarn(); this.warnSoundTime = time; }
+      } else {
+        this._triggerDeath('ZONE BREACH');
+        return;
+      }
+    }
+
+    // Clamp near-boundary warning flash
+    const proximity = clamp((pDist - (this.arenaRadius * 0.75)) / (this.arenaRadius * 0.25), 0, 1);
+    this.dangerOverlay.setAlpha(proximity * 0.07);
+
+    // ---- Spawn logic ----
+    const droneInterval   = lerp(5500, 1400, difficulty);
+    const missileInterval = lerp(9000, 2800, elapsed > 12 ? difficulty : 0);
+    const scoreOrbIntv    = lerp(4500, 1800, difficulty);
+    const shieldOrbIntv   = lerp(16000, 7000, difficulty);
+
+    if (time - this.lastDroneSpawn > droneInterval) {
+      this._spawnDrone();
+      this.lastDroneSpawn = time;
+    }
+    if (elapsed > 12 && time - this.lastMissileSpawn > missileInterval) {
+      this._spawnMissile();
+      this.lastMissileSpawn = time;
+    }
+    if (time - this.lastScoreOrbSpawn > scoreOrbIntv) {
+      this._spawnScoreOrb();
+      this.lastScoreOrbSpawn = time;
+    }
+    if (time - this.lastShieldOrbSpawn > shieldOrbIntv) {
+      this._spawnShieldOrb();
+      this.lastShieldOrbSpawn = time;
+    }
+
+    // ---- Drone AI ----
+    const droneSpeed = lerp(55, 195, difficulty);
+    this.drones.getChildren().forEach(d => {
+      if (!d.active) return;
+      if (this._culledByArena(d)) { d.destroy(); return; }
+      // Push drone back inside arena
+      const ddx = d.x - this.cx, ddy = d.y - this.cy;
+      const dd = Math.hypot(ddx, ddy);
+      if (dd > this.arenaRadius - 22) {
+        const n = 1 / dd;
+        d.x = this.cx + ddx * n * (this.arenaRadius - 26);
+        d.y = this.cy + ddy * n * (this.arenaRadius - 26);
+      }
+      // Chase player
+      const tx = this.player.x - d.x, ty = this.player.y - d.y;
+      const tl = Math.hypot(tx, ty) || 1;
+      d.body.setVelocity((tx/tl)*droneSpeed, (ty/tl)*droneSpeed);
+      d.setRotation(Math.atan2(ty, tx) - Math.PI/2);
+    });
+
+    // ---- Missile cleanup ----
+    this.missiles.getChildren().forEach(m => {
+      if (m.active && this._culledByArena(m)) m.destroy();
+    });
+
+    // ---- Orb cleanup (if arena shrunk past them) ----
+    [...this.scoreOrbs.getChildren(), ...this.shieldOrbs.getChildren()].forEach(o => {
+      if (!o.active) return;
+      const odx = o.x - this.cx, ody = o.y - this.cy;
+      if (Math.hypot(odx, ody) > this.arenaRadius - 18) {
+        this.tweens.add({ targets: o, alpha: 0, scale: 0, duration: 300, onComplete: () => o.destroy() });
+      }
+    });
+
+    // ---- Collisions ----
+    this.physics.overlap(this.player, this.drones, () => {
+      if (!this.shielded && !this.isDead) this._triggerDeath('DRONE HIT');
+    });
+    this.physics.overlap(this.player, this.missiles, (_, missile) => {
+      if (!this.isDead) {
+        missile.destroy();
+        if (!this.shielded) this._triggerDeath('MISSILE HIT');
+        else { sfxHit(); this.cameras.main.shake(80, 0.006); }
+      }
+    });
+    this.physics.overlap(this.player, this.scoreOrbs, (_, orb) => {
+      if (!orb.active) return;
+      orb.destroy();
+      this.bonusPoints += 50;
+      sfxCollect();
+      this._showPopup(orb.x, orb.y - 10, '+50', '#f1c40f');
+    });
+    this.physics.overlap(this.player, this.shieldOrbs, (_, orb) => {
+      if (!orb.active) return;
+      orb.destroy();
+      this.shielded = true;
+      this.shieldEndTime = time + 5000;
+      sfxShield();
+      this._showPopup(orb.x, orb.y - 10, 'SHIELD!', '#00ffff');
+    });
+
+    // ---- Shield timer & visual ----
+    if (this.shielded && time > this.shieldEndTime) {
+      this.shielded = false;
+      this.shieldText.setText('');
+    }
+    this.shieldArc.clear();
+    if (this.shielded) {
+      const remaining = (this.shieldEndTime - time) / 1000;
+      const shieldR = 30 + 3 * Math.sin(time * 0.008);
+      const shieldAlpha = 0.18 + 0.1 * Math.sin(time * 0.012);
+      this.shieldArc.fillStyle(0x00ffff, shieldAlpha);
+      this.shieldArc.fillCircle(this.player.x, this.player.y, shieldR);
+      this.shieldArc.lineStyle(2, 0x00e5ff, 0.7 + 0.3 * Math.sin(time * 0.01));
+      this.shieldArc.strokeCircle(this.player.x, this.player.y, shieldR);
+      this.shieldText.setText(`◈ ${remaining.toFixed(1)}s`);
+    }
+
+    // ---- Zone size indicator flicker on <25% ----
+    const zoneRatio = (this.arenaRadius - this.arenaRadiusEnd) / (this.arenaRadiusStart - this.arenaRadiusEnd);
+    if (zoneRatio < 0.25) {
+      const flicker = 0.04 + 0.04 * Math.sin(time * 0.014);
+      this.dangerOverlay.setAlpha(Math.max(this.dangerOverlay.alpha, flicker));
+    }
+
+    // ---- Score & HUD ----
+    const score = Math.floor(elapsed * 10 + this.bonusPoints);
+    this.scoreText.setText(`SCORE: ${score}`);
+    this.timeText.setText(`TIME: ${Math.floor(elapsed)}s`);
+    const pct = Math.max(0, Math.floor(zoneRatio * 100));
+    const zoneColor = pct > 50 ? '#9b59b6' : pct > 25 ? '#e67e22' : '#e74c3c';
+    this.zoneText.setText(`ZONE: ${pct}%`).setColor(zoneColor);
+  }
+
+  _triggerDeath(reason) {
+    if (this.isDead) return;
+    this.isDead = true;
+
+    sfxDeath();
+    this.cameras.main.shake(280, 0.018);
+    this.cameras.main.flash(300, 255, 30, 30);
+
+    // Explosion burst
+    const px = this.player.x, py = this.player.y;
+    const colors = [0x00bfff, 0x9b59b6, 0xe056fd, 0xffffff, 0x3498db];
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2 + Phaser.Math.FloatBetween(-0.2, 0.2);
+      const dist = Phaser.Math.Between(30, 110);
+      const size = Phaser.Math.Between(3, 7);
+      const part = this.add.circle(px, py, size, Phaser.Utils.Array.GetRandom(colors), 1).setDepth(20);
+      this.tweens.add({
+        targets: part,
+        x: px + Math.cos(a) * dist,
+        y: py + Math.sin(a) * dist,
+        alpha: 0, scale: 0.1,
+        duration: Phaser.Math.Between(350, 850),
+        ease: 'Cubic.easeOut',
+        onComplete: () => part.destroy()
+      });
+    }
+    // Ring shockwave
+    const ring = this.add.graphics().setDepth(20);
+    this.tweens.add({
+      targets: { r: 5, a: 1 }, r: 80, a: 0, duration: 500, ease: 'Cubic.easeOut',
+      onUpdate: (tw, obj) => {
+        ring.clear();
+        ring.lineStyle(3, 0x00bfff, obj.a);
+        ring.strokeCircle(px, py, obj.r);
+      },
+      onComplete: () => ring.destroy()
+    });
+
+    this.player.setVisible(false);
+
+    // Death reason text
+    const dr = this.add.text(this.W/2, this.H/2, reason, {
+      fontFamily: 'Orbitron', fontStyle: 'bold',
+      fontSize: '28px', color: '#e74c3c',
+      stroke: '#000', strokeThickness: 4
+    }).setOrigin(0.5).setDepth(25).setAlpha(0);
+    this.tweens.add({ targets: dr, alpha: 1, duration: 250, ease: 'Cubic.easeOut' });
+    this.tweens.add({ targets: dr, alpha: 0, duration: 300, delay: 600, ease: 'Cubic.easeIn' });
+
+    const elapsed = (this.time.now - this.gameStartTime) / 1000;
+    const finalScore = Math.floor(elapsed * 10 + this.bonusPoints);
+
+    this.time.delayedCall(900, () => {
+      this.scene.pause();
+      showGameOverUI(finalScore);
+    });
+  }
+}
+
+// ---- Phaser Config ----
+const config = {
+  type: Phaser.AUTO,
+  width: 800,
+  height: 600,
+  backgroundColor: '#050510',
+  physics: {
+    default: 'arcade',
+    arcade: { gravity: { y: 0 }, debug: false }
+  },
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
+  scene: [MenuScene, GameScene]
+};
+
+const game = new Phaser.Game(config);
+
+// ---- Game Over UI Logic ----
+function showGameOverUI(finalScore) {
+  document.getElementById('final-score').textContent = finalScore;
+  document.getElementById('player-name').value = '';
+  document.getElementById('leaderboard').style.display = 'none';
+  document.getElementById('submit-btn').textContent = 'SUBMIT SCORE';
+  document.getElementById('submit-btn').disabled = false;
+  document.getElementById('ui-overlay').style.display = 'flex';
+  setTimeout(() => document.getElementById('player-name').focus(), 50);
+}
+
+document.getElementById('submit-btn').addEventListener('click', async () => {
+  const nameEl = document.getElementById('player-name');
+  const name = nameEl.value.trim() || 'PILOT';
+  const score = parseInt(document.getElementById('final-score').textContent, 10);
+  const btn = document.getElementById('submit-btn');
+  btn.textContent = 'SUBMITTING…'; btn.disabled = true;
+
+  await submitScore(name, score);
+  const scores = await getLeaderboard(10);
+
+  const lbDiv = document.getElementById('leaderboard');
+  const lbList = document.getElementById('lb-list');
+  lbList.innerHTML = '';
+
+  if (!scores || scores.length === 0) {
+    lbList.innerHTML = '<li style="justify-content:center;color:#888;">No scores yet — you\'re the first!</li>';
+  } else {
+    const medals = ['🥇', '🥈', '🥉'];
+    scores.forEach((s, i) => {
+      const li = document.createElement('li');
+      const pName = s.playerName || s.player_name || '???';
+      li.innerHTML = `<span>${medals[i] || (i+1)+'.'} ${pName}</span><span>${s.score}</span>`;
+      lbList.appendChild(li);
+    });
+  }
+
+  lbDiv.style.display = 'block';
+  btn.textContent = 'SUBMITTED ✓';
+});
+
+document.getElementById('play-again-btn').addEventListener('click', () => {
+  document.getElementById('ui-overlay').style.display = 'none';
+  game.scene.stop('GameScene');
+  game.scene.start('GameScene');
+});
+</script>
+</body>
+</html>
