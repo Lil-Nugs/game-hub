@@ -89,7 +89,7 @@
     "title": "Linear MCP Integration Plan (v1)",
     "date": "2026-02-21",
     "author": "Codex Gamehub",
-    "summary": "MCP-native Linear integration for Discord-driven long-running work, agent routing lanes, and GameHub architecture planning with open governance questions for lil nug + vim.",
+    "summary": "MCP-native Linear integration for Discord-driven long-running work using a single-team-first model, label-based routing, and GameHub architecture planning with clear scale-up triggers.",
     "tags": [
       "linear",
       "mcp",
@@ -104,15 +104,15 @@
       },
       {
         "heading": "Captured Decisions",
-        "body": "• Start with one Linear workspace.\n• Explicit Discord requests can create tasks immediately (no second approval).\n• If agent wants to create tasks without explicit request, ask first.\n• Routing uses both team/project context and explicit labels.\n• Agents should manage most status movement.\n• No dedicated intake triage at v1."
+        "body": "• Start with one Linear workspace.\n• Start with a single Linear team for now (same two operators + spawned workers).\n• Explicit Discord requests can create tasks immediately (no second approval).\n• If agent wants to create tasks without explicit request, ask first.\n• Routing uses labels + project/epic context (team split deferred).\n• Agents should manage most status movement.\n• No dedicated intake triage at v1."
       },
       {
         "heading": "Workspace Schema (v1)",
-        "body": "Teams: GH-GEN (game generation), GH-CORE (architecture/platform), GH-OPS (automation/reliability).\n\nLabels:\n• source:discord | source:planning | source:automation\n• exec:agent | exec:human | exec:hybrid\n• agent:gamegen | agent:core | agent:ops\n• kind:epic | kind:task | kind:bug | kind:research\n\nIssue conventions: owner target, acceptance criteria, priority (P0-P3), automation allowed (yes/no)."
+        "body": "Team: GH (single team for v1).\n\nLabels:\n• source:discord | source:planning | source:automation\n• exec:agent | exec:human | exec:hybrid\n• agent:gamegen | agent:core | agent:ops\n• lane:gamegen | lane:core | lane:ops\n• kind:epic | kind:task | kind:bug | kind:research\n\nStructure:\n• Use Projects/Epics for strategic grouping and architecture tracks.\n• Use labels for routing/ownership lanes.\n• Keep one shared status model across all work.\n\nIssue conventions: owner target, acceptance criteria, priority (P0-P3), automation allowed (yes/no)."
       },
       {
         "heading": "Execution Flow",
-        "body": "Discord mention/request -> intake agent drafts structured issue -> Linear issue created via MCP -> confirmation message returns with link + route summary. Long-running work defaults to issue creation; one-shot chat help does not."
+        "body": "Discord mention/request -> intake agent drafts structured issue -> Linear issue created via MCP -> confirmation message returns with link + route summary. Long-running work defaults to issue creation; one-shot chat help does not. Route workers by lane labels within the single team."
       },
       {
         "heading": "MCP/Skill Operating Pattern",
@@ -120,7 +120,7 @@
       },
       {
         "heading": "Further Discussion Needed (lil nug + vim)",
-        "body": "1) Should any issue types/labels require human signoff before Done?\n2) What exact status names should automation use in your workspace?\n3) At what volume should we introduce a dedicated triage queue/project?\n4) Autonomous task creation boundaries outside explicit asks."
+        "body": "1) Which issue types/labels (if any) require human signoff before Done?\n2) What exact status names should automation use in your workspace?\n3) What objective trigger should move us from one team to multiple teams (e.g., backlog size, workflow divergence, reporting needs)?\n4) Autonomous task creation boundaries outside explicit asks."
       },
       {
         "heading": "Initial Success Metrics",
