@@ -16,10 +16,7 @@
       transition: border-color .15s, background .15s;
       color: inherit;
     }
-    .plan-card:hover {
-      border-color: var(--accent);
-      background: var(--surface2);
-    }
+    .plan-card:hover { border-color: var(--accent); background: var(--surface2); }
     .plan-card-header {
       display: flex;
       justify-content: space-between;
@@ -27,53 +24,30 @@
       gap: 1rem;
       margin-bottom: .5rem;
     }
-    .plan-title {
-      font-size: 1.05rem;
+    .plan-title { font-size: 1.05rem; font-weight: 700; color: #fff; }
+    .plan-date { font-size: .75rem; color: var(--text-dim); white-space: nowrap; flex-shrink: 0; }
+    .plan-author { font-size: .78rem; color: var(--text-dim); margin-bottom: .55rem; }
+    .plan-summary { font-size: .87rem; color: var(--text-muted); line-height: 1.55; margin-bottom: .75rem; }
+    .plan-tags { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .55rem; }
+    .plan-tag { font-size: .68rem; padding: .15rem .5rem; border-radius: 999px; background: var(--accent-bg); color: var(--accent-lt); border: 1px solid rgba(108,92,231,.15); }
+    .status-row { display: flex; gap: .45rem; flex-wrap: wrap; margin-bottom: .45rem; }
+    .status-pill {
+      font-size: .66rem;
       font-weight: 700;
-      color: #fff;
-    }
-    .plan-date {
-      font-size: .75rem;
-      color: var(--text-dim);
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-    .plan-author {
-      font-size: .78rem;
-      color: var(--text-dim);
-      margin-bottom: .55rem;
-    }
-    .plan-summary {
-      font-size: .87rem;
-      color: var(--text-muted);
-      line-height: 1.55;
-      margin-bottom: .75rem;
-    }
-    .plan-tags {
-      display: flex;
-      flex-wrap: wrap;
-      gap: .35rem;
-    }
-    .plan-tag {
-      font-size: .68rem;
-      padding: .15rem .5rem;
+      letter-spacing: .04em;
+      text-transform: uppercase;
       border-radius: 999px;
-      background: var(--accent-bg);
-      color: var(--accent-lt);
-      border: 1px solid rgba(108,92,231,.15);
+      padding: .16rem .56rem;
+      border: 1px solid transparent;
     }
-    .plans-list {
-      display: flex;
-      flex-direction: column;
-      gap: .9rem;
-    }
-    .empty-state {
-      text-align: center;
-      color: var(--text-dim);
-      padding: 4rem 1rem;
-      font-size: .9rem;
-      line-height: 1.8;
-    }
+    .status-not-started { background: rgba(136,136,136,.12); color: var(--text-muted); border-color: rgba(136,136,136,.2); }
+    .status-in-progress { background: var(--yellow-bg); color: var(--yellow); border-color: rgba(245,158,11,.3); }
+    .status-implemented { background: var(--green-bg); color: var(--green); border-color: rgba(16,185,129,.35); }
+    .tracker-not-converted { background: var(--blue-bg); color: var(--blue); border-color: rgba(59,130,246,.25); }
+    .tracker-converted { background: var(--green-bg); color: var(--green); border-color: rgba(16,185,129,.35); }
+
+    .plans-list { display: flex; flex-direction: column; gap: .9rem; }
+    .empty-state { text-align: center; color: var(--text-dim); padding: 4rem 1rem; font-size: .9rem; line-height: 1.8; }
     .intro {
       color: var(--text-muted);
       font-size: .88rem;
@@ -82,9 +56,34 @@
       border: 1px solid var(--border2);
       border-radius: 10px;
       padding: 1rem 1.3rem;
-      margin-bottom: 1.8rem;
+      margin-bottom: 1.1rem;
     }
     .intro strong { color: var(--text); }
+    .filter-wrap {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .7rem 1.2rem;
+      margin-bottom: 1.4rem;
+      padding: .8rem 1rem;
+      border: 1px solid var(--border2);
+      border-radius: 10px;
+      background: var(--surface);
+    }
+    .filter-group { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
+    .filter-label { font-size: .74rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: .05em; margin-right: .1rem; }
+    .filter-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--text-muted);
+      font-size: .75rem;
+      padding: .25rem .7rem;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .filter-btn:hover { border-color: var(--accent); color: var(--text); }
+    .filter-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .results-meta { font-size: .78rem; color: var(--text-dim); margin-bottom: .65rem; }
   </style>
 </head>
 <body>
@@ -98,9 +97,20 @@
   </div>
 
   <div class="intro">
-    <strong>What goes here:</strong> Plans, proposals, and decisions worth preserving — not daily tasks.
-    When we figure something out in Discord, we summarize it and save it here so it doesn't get lost.
+    <strong>What goes here:</strong> plans, proposals, and decisions worth preserving — not daily execution tasks.
+    <br>This board tracks <strong>human planning status</strong> and whether a plan has been converted into an external task tracker later.
   </div>
+
+  <div class="filter-wrap">
+    <div class="filter-group" id="status-filters">
+      <span class="filter-label">Implementation</span>
+    </div>
+    <div class="filter-group" id="tracker-filters">
+      <span class="filter-label">Task conversion</span>
+    </div>
+  </div>
+
+  <div class="results-meta" id="results-meta"></div>
 
   <div class="plans-list" id="plans-list">
     <div class="empty-state">Loading plans…</div>
@@ -118,27 +128,100 @@
     plans = await res.json();
   } catch (_) {}
 
-  const el = document.getElementById('plans-list');
+  const listEl = document.getElementById('plans-list');
+  const resultsMetaEl = document.getElementById('results-meta');
 
   if (!plans.length) {
-    el.innerHTML = `<div class="empty-state">No plans saved yet.<br>Add entries to <code>data/planning/plans.json</code> to get started.</div>`;
+    listEl.innerHTML = `<div class="empty-state">No plans saved yet.<br>Add entries to <code>data/planning/plans.json</code> to get started.</div>`;
     return;
   }
 
-  // Sort newest first
-  plans.sort((a, b) => b.date.localeCompare(a.date));
+  const implementationStates = [
+    { key: 'all', label: 'All' },
+    { key: 'not-started', label: 'Not started' },
+    { key: 'in-progress', label: 'In progress' },
+    { key: 'implemented', label: 'Implemented' }
+  ];
 
-  el.innerHTML = plans.map(p => `
-    <a class="plan-card" href="plan.html?id=${encodeURIComponent(p.id)}">
-      <div class="plan-card-header">
-        <div class="plan-title">${esc(p.title)}</div>
-        <div class="plan-date">${esc(p.date)}</div>
-      </div>
-      <div class="plan-author">by ${esc(p.author)}</div>
-      <div class="plan-summary">${esc(p.summary)}</div>
-      ${p.tags?.length ? `<div class="plan-tags">${p.tags.map(t => `<span class="plan-tag">${esc(t)}</span>`).join('')}</div>` : ''}
-    </a>
-  `).join('');
+  const trackerStates = [
+    { key: 'all', label: 'All' },
+    { key: 'not-converted', label: 'Not in tracker' },
+    { key: 'converted', label: 'Converted' }
+  ];
+
+  const filters = { implementationStatus: 'all', taskTrackerStatus: 'all' };
+
+  buildFilterGroup('status-filters', implementationStates, 'implementationStatus');
+  buildFilterGroup('tracker-filters', trackerStates, 'taskTrackerStatus');
+
+  function buildFilterGroup(containerId, options, filterKey) {
+    const container = document.getElementById(containerId);
+    for (const option of options) {
+      const btn = document.createElement('button');
+      btn.className = `filter-btn ${option.key === 'all' ? 'active' : ''}`;
+      btn.textContent = option.label;
+      btn.type = 'button';
+      btn.dataset.key = option.key;
+      btn.addEventListener('click', () => {
+        filters[filterKey] = option.key;
+        [...container.querySelectorAll('.filter-btn')].forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        render();
+      });
+      container.appendChild(btn);
+    }
+  }
+
+  function normalizePlan(plan) {
+    return {
+      ...plan,
+      implementationStatus: plan.implementationStatus || 'not-started',
+      taskTrackerStatus: plan.taskTrackerStatus || 'not-converted'
+    };
+  }
+
+  function labelForImplementation(value) {
+    if (value === 'implemented') return 'Implemented';
+    if (value === 'in-progress') return 'In progress';
+    return 'Not started';
+  }
+
+  function labelForTracker(value) {
+    return value === 'converted' ? 'Converted to tracker' : 'Not in tracker';
+  }
+
+  function render() {
+    const normalized = plans.map(normalizePlan);
+    const filtered = normalized
+      .filter(p => filters.implementationStatus === 'all' || p.implementationStatus === filters.implementationStatus)
+      .filter(p => filters.taskTrackerStatus === 'all' || p.taskTrackerStatus === filters.taskTrackerStatus)
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    resultsMetaEl.textContent = `${filtered.length} of ${normalized.length} plans shown`;
+
+    if (!filtered.length) {
+      listEl.innerHTML = `<div class="empty-state">No plans match current filters.</div>`;
+      return;
+    }
+
+    listEl.innerHTML = filtered.map(p => `
+      <a class="plan-card" href="plan.html?id=${encodeURIComponent(p.id)}">
+        <div class="plan-card-header">
+          <div class="plan-title">${esc(p.title)}</div>
+          <div class="plan-date">${esc(p.date)}</div>
+        </div>
+        <div class="plan-author">by ${esc(p.author)}</div>
+        <div class="status-row">
+          <span class="status-pill status-${esc(p.implementationStatus)}">${esc(labelForImplementation(p.implementationStatus))}</span>
+          <span class="status-pill tracker-${esc(p.taskTrackerStatus)}">${esc(labelForTracker(p.taskTrackerStatus))}</span>
+        </div>
+        <div class="plan-summary">${esc(p.summary)}</div>
+        ${p.tags?.length ? `<div class="plan-tags">${p.tags.map(t => `<span class="plan-tag">${esc(t)}</span>`).join('')}</div>` : ''}
+      </a>
+    `).join('');
+  }
+
+  render();
 })();
 </script>
 </body>

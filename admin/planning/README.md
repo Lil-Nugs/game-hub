@@ -22,6 +22,7 @@ All data lives in `data/planning/` at the repo root. Edit the JSON files and com
 ```
 data/planning/
   meta.json          # lastUpdated, planningOwner, currentFocus
+  plans.json         # archived plans/proposals with implementation + task-conversion status
   roadmap.json       # milestones with lane, status, owner
   decisions.json     # decision log entries
   human-backlog.json # human strategic initiatives
@@ -53,6 +54,24 @@ If you're an agent reading this — this planning area is not for you. Use Linea
   "planningOwner": "username",
   "currentFocus": "Description of current strategic focus"
 }
+```
+
+### `plans.json` (array)
+```json
+[{
+  "id": "plan-1",
+  "title": "Plan title",
+  "date": "YYYY-MM-DD",
+  "author": "username",
+  "summary": "Short summary",
+  "tags": ["backend", "quality"],
+  "implementationStatus": "not-started | in-progress | implemented",
+  "taskTrackerStatus": "not-converted | converted",
+  "sections": [
+    { "heading": "Context", "body": "..." },
+    { "heading": "Next actions", "body": "..." }
+  ]
+}]
 ```
 
 ### `roadmap.json` (array)

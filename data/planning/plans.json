@@ -5,7 +5,11 @@
     "date": "2026-02-21",
     "author": "Codex Gamehub",
     "summary": "Quality gates, playtest rubric, skill refactor, and rating system — the full roadmap for making generated games reliably good.",
-    "tags": ["skill", "quality-gates", "roadmap"],
+    "tags": [
+      "skill",
+      "quality-gates",
+      "roadmap"
+    ],
     "sections": [
       {
         "heading": "Context",
@@ -39,7 +43,9 @@
         "heading": "Recommended First Milestone",
         "body": "Ship just this to start:\n\n1. validate_game.js (hard gate)\n2. Soft playtest rubric (agent reviewer)\n3. generator → reviewer → repair loop (max 1 repair)\n\nThis is low risk, high value, and gives measurable quality control right away without complex orchestration."
       }
-    ]
+    ],
+    "implementationStatus": "in-progress",
+    "taskTrackerStatus": "not-converted"
   },
   {
     "id": "backend-migration-supabase-v1",
@@ -47,7 +53,12 @@
     "date": "2026-02-22",
     "author": "Codex Gamehub",
     "summary": "Decision: switch to client → Supabase direct for leaderboard/ratings to maximize prototyping speed and simplify growth. No legacy score migration.",
-    "tags": ["backend", "supabase", "leaderboards", "ratings"],
+    "tags": [
+      "backend",
+      "supabase",
+      "leaderboards",
+      "ratings"
+    ],
     "sections": [
       {
         "heading": "What we discussed",
@@ -69,6 +80,8 @@
         "heading": "Next actions",
         "body": "• Create Supabase project + env config\n• Implement minimal tables + indexes\n• Update game template integration\n• Validate leaderboard/rating flows in production\n• Remove Worker persistence dependency from templates"
       }
-    ]
+    ],
+    "implementationStatus": "not-started",
+    "taskTrackerStatus": "not-converted"
   }
 ]
