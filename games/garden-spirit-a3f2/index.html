@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Garden Spirit 🌸</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #e8d5f5;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+    touch-action: none;
+    font-family: 'Fredoka One', cursive;
+  }
+  #ui-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    display: none; justify-content: center; align-items: center;
+    z-index: 10;
+    background: rgba(220, 190, 245, 0.82);
+    backdrop-filter: blur(10px);
+  }
+  #game-over-box {
+    background: linear-gradient(145deg, #fff5fc, #f0fff8);
+    border-radius: 28px;
+    padding: 32px 36px;
+    text-align: center;
+    max-width: 420px;
+    width: 90%;
+    box-shadow: 0 10px 40px rgba(180, 100, 220, 0.25);
+    border: 3px solid #f0c0e8;
+  }
+  #game-over-title {
+    font-size: 1.9rem;
+    color: #c060b0;
+    margin-bottom: 6px;
+  }
+  #game-over-sub {
+    font-size: 0.95rem;
+    color: #a080b0;
+    margin-bottom: 18px;
+  }
+  #final-score-display {
+    font-size: 1.5rem;
+    color: #8060a8;
+    margin-bottom: 20px;
+    background: rgba(200,160,240,0.15);
+    border-radius: 14px;
+    padding: 10px 16px;
+  }
+  #name-input {
+    font-family: 'Fredoka One', cursive;
+    padding: 10px 16px;
+    font-size: 1rem;
+    border: 2px solid #d0a8e8;
+    border-radius: 14px;
+    width: 100%;
+    background: #fef8ff;
+    color: #6040a0;
+    outline: none;
+    margin-bottom: 12px;
+  }
+  #name-input:focus { border-color: #b870d8; box-shadow: 0 0 0 3px rgba(184,112,216,0.2); }
+  #submit-btn, #play-again-btn {
+    font-family: 'Fredoka One', cursive;
+    padding: 11px 24px;
+    font-size: 1rem;
+    border: none;
+    border-radius: 14px;
+    cursor: pointer;
+    width: 100%;
+    margin-bottom: 10px;
+    transition: transform 0.12s, box-shadow 0.12s;
+    letter-spacing: 0.3px;
+  }
+  #submit-btn { background: linear-gradient(135deg, #d878e8, #a060c8); color: #fff; }
+  #submit-btn:hover { transform: scale(1.03); box-shadow: 0 4px 18px rgba(180,80,220,0.35); }
+  #submit-btn:disabled { opacity: 0.65; cursor: default; transform: none; }
+  #play-again-btn { background: linear-gradient(135deg, #70d8b8, #48b890); color: #fff; }
+  #play-again-btn:hover { transform: scale(1.03); box-shadow: 0 4px 18px rgba(70,200,160,0.35); }
+  #leaderboard-section { margin-top: 16px; display: none; }
+  #leaderboard-section h3 { color: #c060b0; margin-bottom: 10px; font-size: 1rem; }
+  #leaderboard-list {
+    list-style: none;
+    font-size: 0.88rem;
+    color: #6040a0;
+    max-height: 170px;
+    overflow-y: auto;
+    border-radius: 10px;
+    background: rgba(200,160,240,0.08);
+    padding: 6px;
+  }
+  #leaderboard-list li {
+    padding: 5px 10px;
+    border-radius: 8px;
+    margin-bottom: 3px;
+    display: flex;
+    justify-content: space-between;
+    background: rgba(220,180,250,0.12);
+  }
+  #leaderboard-list li:first-child { background: rgba(255,210,80,0.22); }
+  #leaderboard-list li:nth-child(2) { background: rgba(200,200,220,0.22); }
+  #leaderboard-list li:nth-child(3) { background: rgba(230,150,80,0.15); }
+</style>
+</head>
+<body>
+<div id="ui-overlay">
+  <div id="game-over-box">
+    <div id="game-over-title">🌸 Spirit Rests 🌸</div>
+    <div id="game-over-sub">Your garden journey has ended...</div>
+    <div id="final-score-display">✨ Score: <span id="score-value">0</span></div>
+    <input type="text" id="name-input" placeholder="Your cozy name..." maxlength="24" />
+    <button id="submit-btn">🌟 Submit to Leaderboard</button>
+    <div id="leaderboard-section">
+      <h3>🏆 Garden Champions 🏆</h3>
+      <ul id="leaderboard-list"></ul>
+    </div>
+    <button id="play-again-btn">🌷 Wander Again</button>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// DESIGN HEADER
+// Game: Garden Spirit — cozy pastel survival
+// Controls: WASD / Arrow keys; touch/click-drag to move spirit
+// Core Loop: Float through enchanted garden as a glowing pastel spirit
+// Death Condition: 3 hits from hazards → petal hearts depleted → spirit fades
+// Hazards:
+//   1. Sleepy Bees — sine-wave drifters from edges, speed scales with time
+//   2. Thorn Wisps — spinning star-shapes that cross the screen
+//   3. Shadow Blossoms — appear after 45s, slow bouncers with wider hitbox
+// Pickups:
+//   1. Dewdrops (blue) — restore 1 heart; spawn near hazards (risk/reward)
+//   2. Sunbeams (gold) — +50 bonus points
+//   3. Rainbow Stars — rare (+200pts + 5s invincibility), spawn every 45s
+// Scoring: Math.floor(timeAlive * 10 + bonusPoints) — always monotonic
+// Difficulty: easeIn curve over 120s (gentle start, intensifies late)
+// Visual: Candy/Pastel — lavender-to-mint gradient BG, pink spirit, soft petals
+// Font: Fredoka One (playful, rounded)
+// Audio: Soft sine/triangle chimes; gentle thud on hit; dissolve on death
+// ============================================================
+
+const GAME_ID = 'garden-spirit-a3f2';
+const LEADERBOARD_API = 'https://game-leaderboard.mattgames.workers.dev';
+
+// ============================================================
+// WEB AUDIO
+// ============================================================
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playTone(type, freq, dur, vol, freqEnd) {
+  if (audioCtx.state === 'suspended') return;
+  try {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    if (freqEnd != null) osc.frequency.linearRampToValueAtTime(freqEnd, audioCtx.currentTime + dur);
+    gain.gain.setValueAtTime(vol || 0.2, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+    osc.start();
+    osc.stop(audioCtx.currentTime + dur + 0.01);
+  } catch(e) {}
+}
+
+function sfxCollectDew()  { playTone('sine',880,0.12,0.18); setTimeout(()=>playTone('sine',1320,0.1,0.13),60); }
+function sfxCollectSun()  { playTone('triangle',660,0.1,0.2); setTimeout(()=>playTone('triangle',990,0.12,0.17),55); setTimeout(()=>playTone('triangle',1320,0.1,0.14),110); }
+function sfxCollectStar() { [0,1,2,3,4].forEach(i=>setTimeout(()=>playTone('sine',550+i*220,0.18,0.2-i*0.02),i*55)); }
+function sfxHit()         { playTone('triangle',320,0.22,0.22,200); }
+function sfxDeath()       { playTone('sine',440,0.35,0.22,200); setTimeout(()=>playTone('sine',280,0.55,0.18,140),180); setTimeout(()=>playTone('sine',180,0.75,0.13,80),420); }
+function sfxStart()       { [440,660,880].forEach((f,i)=>setTimeout(()=>playTone('sine',f,0.18,0.22),i*110)); }
+
+// ============================================================
+// LEADERBOARD
+// ============================================================
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch(e) { console.warn('Leaderboard submit failed:', e); return null; }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch(e) { console.warn('Leaderboard fetch failed:', e); return []; }
+}
+
+// ============================================================
+// GAME OVER UI LOGIC
+// ============================================================
+let currentFinalScore = 0;
+let activeGameScene = null;
+
+function showGameOverUI(finalScore) {
+  currentFinalScore = finalScore;
+  document.getElementById('score-value').textContent = finalScore;
+  document.getElementById('leaderboard-section').style.display = 'none';
+  document.getElementById('submit-btn').disabled = false;
+  document.getElementById('submit-btn').textContent = '🌟 Submit to Leaderboard';
+  document.getElementById('name-input').value = '';
+  document.getElementById('ui-overlay').style.display = 'flex';
+}
+
+document.getElementById('submit-btn').addEventListener('click', async () => {
+  const name = (document.getElementById('name-input').value.trim()) || 'Cozy Spirit';
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.textContent = '✨ Floating upward...';
+  await submitScore(name, currentFinalScore);
+  const scores = await getLeaderboard(10);
+  const list = document.getElementById('leaderboard-list');
+  list.innerHTML = '';
+  if (scores.length === 0) {
+    list.innerHTML = '<li style="justify-content:center;color:#b090c8">No scores yet — be the first! 🌸</li>';
+  } else {
+    scores.forEach((s, i) => {
+      const li = document.createElement('li');
+      const medal = ['🥇','🥈','🥉'][i] || `${i+1}.`;
+      li.innerHTML = `<span>${medal} ${s.playerName}</span><span>${s.score}</span>`;
+      list.appendChild(li);
+    });
+  }
+  document.getElementById('leaderboard-section').style.display = 'block';
+  btn.textContent = '✅ Submitted!';
+});
+
+document.getElementById('play-again-btn').addEventListener('click', () => {
+  document.getElementById('ui-overlay').style.display = 'none';
+  if (activeGameScene) {
+    activeGameScene.scene.restart();
+  }
+});
+
+// ============================================================
+// UTILITY
+// ============================================================
+function lerp(a, b, t) { return a + (b - a) * t; }
+function easeIn(t) { return t * t; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function starPoints(cx, cy, numPts, outerR, innerR) {
+  const pts = [];
+  for (let i = 0; i < numPts * 2; i++) {
+    const angle = (i / (numPts * 2)) * Math.PI * 2 - Math.PI / 2;
+    const r = (i % 2 === 0) ? outerR : innerR;
+    pts.push({ x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r });
+  }
+  return pts;
+}
+
+// ============================================================
+// MENU SCENE
+// ============================================================
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+
+  create() {
+    const W = this.scale.width, H = this.scale.height;
+    this._W = W; this._H = H;
+
+    // Gradient background
+    this._bgGfx = this.add.graphics();
+    this._drawBg(this._bgGfx, W, H);
+
+    // Floating ambient petals
+    this._petals = [];
+    for (let i = 0; i < 22; i++) this._spawnPetal(true);
+
+    // Spirit illustration (decorative)
+    const spiritGfx = this.add.graphics();
+    spiritGfx.fillStyle(0xffb8e0, 0.25);
+    spiritGfx.fillCircle(W/2, H*0.175, 55);
+    spiritGfx.fillStyle(0xff98d0, 0.5);
+    spiritGfx.fillCircle(W/2, H*0.175, 38);
+    spiritGfx.fillStyle(0xffdded, 1);
+    spiritGfx.fillCircle(W/2, H*0.175, 26);
+    spiritGfx.fillStyle(0xffffff, 0.85);
+    spiritGfx.fillCircle(W/2 - 9, H*0.175 - 7, 8);
+    spiritGfx.fillStyle(0xc060b0);
+    spiritGfx.fillCircle(W/2 - 7, H*0.175, 3.5);
+    spiritGfx.fillCircle(W/2 + 7, H*0.175, 3.5);
+    spiritGfx.lineStyle(2, 0xc060b0, 1);
+    spiritGfx.beginPath();
+    spiritGfx.arc(W/2, H*0.175 + 4, 5, 0, Math.PI, false);
+    spiritGfx.strokePath();
+    this.tweens.add({ targets: spiritGfx, y: -8, duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+
+    // Title
+    this.add.text(W/2, H*0.33, 'Garden Spirit', {
+      fontFamily: "'Fredoka One', cursive",
+      fontSize: clamp(W * 0.095, 28, 54) + 'px',
+      color: '#c060b0',
+      stroke: '#ffffff',
+      strokeThickness: 5,
+    }).setOrigin(0.5);
+
+    this.add.text(W/2, H*0.43, '🌸  A Soft Cozy Survival  🌸', {
+      fontFamily: "'Fredoka One', cursive",
+      fontSize: clamp(W * 0.042, 14, 22) + 'px',
+      color: '#a070c8',
+    }).setOrigin(0.5);
+
+    this.add.text(W/2, H*0.57,
+      'You are a garden spirit drifting through\na dreamy pastel meadow 🌼\n\nDodge hazards • Collect dewdrops & sunbeams\nSurvive as long as you can!\n\n🌟 WASD / Arrow Keys  •  Tap to move', {
+      fontFamily: "'Fredoka One', cursive",
+      fontSize: clamp(W * 0.035, 12, 18) + 'px',
+      color: '#9070b8',
+      align: 'center',
+      lineSpacing: 6,
+    }).setOrigin(0.5);
+
+    const startTxt = this.add.text(W/2, H*0.84, '✨  Tap anywhere to begin  ✨', {
+      fontFamily: "'Fredoka One', cursive",
+      fontSize: clamp(W * 0.048, 16, 26) + 'px',
+      color: '#d060d8',
+    }).setOrigin(0.5);
+    this.tweens.add({ targets: startTxt, alpha: 0.25, duration: 850, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+
+    this.input.once('pointerdown', () => this._begin());
+    this.input.keyboard.once('keydown', () => this._begin());
+  }
+
+  _drawBg(gfx, W, H) {
+    gfx.clear();
+    for (let y = 0; y <= H; y += 4) {
+      const t = y / H;
+      const r = Math.round(lerp(0xe8, 0xd4, t));
+      const g = Math.round(lerp(0xd4, 0xf2, t));
+      const b = Math.round(lerp(0xf5, 0xe8, t));
+      gfx.fillStyle((r << 16) | (g << 8) | b, 1);
+      gfx.fillRect(0, y, W, 5);
+    }
+  }
+
+  _spawnPetal(anyY = false) {
+    const W = this._W, H = this._H;
+    const colors = [0xffb8e0, 0xdbb8ff, 0xb8d8ff, 0xffddb8, 0xb8ffd4, 0xfff0b8];
+    const c = colors[Math.floor(Math.random() * colors.length)];
+    const sz = 5 + Math.random() * 12;
+    const g = this.add.graphics();
+    g.fillStyle(c, 0.6);
+    g.fillCircle(sz/2, sz/2, sz/2);
+    g.x = Math.random() * W;
+    g.y = anyY ? Math.random() * H : -16;
+    g.alpha = 0.35 + Math.random() * 0.5;
+    g.setData('spd', 0.25 + Math.random() * 0.55);
+    g.setData('wobble', Math.random() * Math.PI * 2);
+    g.setData('wobbleSpd', 0.008 + Math.random() * 0.015);
+    this._petals.push(g);
+  }
+
+  _begin() {
+    audioCtx.resume().then(() => {
+      sfxStart();
+      this.cameras.main.fadeOut(380, 220, 180, 245);
+      this.time.delayedCall(380, () => this.scene.start('GameScene'));
+    });
+  }
+
+  update(_, delta) {
+    const dt = delta / 16.667;
+    const W = this._W, H = this._H;
+    for (let i = this._petals.length - 1; i >= 0; i--) {
+      const p = this._petals[i];
+      p.setData('wobble', p.getData('wobble') + p.getData('wobbleSpd') * dt);
+      p.x += Math.sin(p.getData('wobble')) * 0.7 * dt;
+      p.y += p.getData('spd') * dt;
+      if (p.y > H + 20) {
+        p.destroy();
+        this._petals.splice(i, 1);
+        this._spawnPetal(false);
+      }
+    }
+  }
+}
+
+// ============================================================
+// GAME SCENE
+// ============================================================
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  create() {
+    activeGameScene = this;
+    const W = this.scale.width, H = this.scale.height;
+    this.W = W; this.H = H;
+    audioCtx.resume();
+
+    // --- State ---
+    this.score = 0;
+    this.bonusPoints = 0;
+    this.hp = 3;
+    this.invincible = false;
+    this.invTimer = 0;
+    this.hitCooldown = 0;
+    this.startTime = this.time.now;
+    this.isDead = false;
+
+    // --- Background ---
+    this.bgGfx = this.add.graphics();
+    this._drawBg();
+
+    // --- Ambient petals ---
+    this.ambientPetals = [];
+    this._initPetals();
+
+    // --- Generate all textures ---
+    this._genTextures();
+
+    // --- Player ---
+    this.player = this.physics.add.sprite(W / 2, H / 2, 'tex_player');
+    this.player.setCollideWorldBounds(true);
+    this.player.body.setCircle(16, 15, 15); // ~80% of 46px sprite → forgiving hitbox
+
+    // Soft breathing scale pulse
+    this.tweens.add({
+      targets: this.player,
+      scaleX: 1.07, scaleY: 0.94,
+      duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+
+    // Sparkle trail emitter
+    this.trailEmitter = this.add.particles(0, 0, 'tex_spark', {
+      follow: this.player,
+      lifespan: 380, scale: { start: 0.7, end: 0 },
+      alpha: { start: 0.55, end: 0 },
+      speed: { min: 8, max: 36 },
+      angle: { min: 0, max: 360 },
+      tint: [0xffb8e0, 0xdbb8ff, 0xffd8b8, 0xb8f0d0],
+      frequency: 55,
+    });
+
+    // --- Input ---
+    this.cursors = this.input.keyboard.createCursorKeys();
+    this.wasd = this.input.keyboard.addKeys({ up:'W', down:'S', left:'A', right:'D' });
+    this.touchPos = null;
+    this.input.on('pointerdown', p => { this.touchPos = { x: p.x, y: p.y }; });
+    this.input.on('pointermove', p => { if (p.isDown) this.touchPos = { x: p.x, y: p.y }; });
+    this.input.on('pointerup', () => { this.touchPos = null; });
+
+    // --- Physics groups ---
+    this.grpBees    = this.physics.add.group();
+    this.grpThorns  = this.physics.add.group();
+    this.grpShadow  = this.physics.add.group();
+    this.grpDew     = this.physics.add.group();
+    this.grpSun     = this.physics.add.group();
+    this.grpStar    = this.physics.add.group();
+
+    // --- Spawn schedule (elapsed ms) ---
+    this.nextBee    = 2500;
+    this.nextThorn  = 4000;
+    this.nextShadow = 45000;
+    this.nextDew    = 7000;
+    this.nextSun    = 11000;
+    this.nextStar   = 45000;
+
+    // --- Colliders ---
+    this.physics.add.overlap(this.player, this.grpBees,   this._onHit,        null, this);
+    this.physics.add.overlap(this.player, this.grpThorns, this._onHit,        null, this);
+    this.physics.add.overlap(this.player, this.grpShadow, this._onHit,        null, this);
+    this.physics.add.overlap(this.player, this.grpDew,    this._onCollectDew, null, this);
+    this.physics.add.overlap(this.player, this.grpSun,    this._onCollectSun, null, this);
+    this.physics.add.overlap(this.player, this.grpStar,   this._onCollectStar,null, this);
+
+    // --- HUD ---
+    this._buildHUD();
+
+    // Fade in
+    this.cameras.main.fadeIn(380, 220, 180, 245);
+  }
+
+  // ---------- BACKGROUND ----------
+  _drawBg() {
+    const W = this.W, H = this.H;
+    this.bgGfx.clear();
+    for (let y = 0; y <= H; y += 4) {
+      const t = y / H;
+      const r = Math.round(lerp(0xe8, 0xd4, t));
+      const g = Math.round(lerp(0xd4, 0xf2, t));
+      const b = Math.round(lerp(0xf5, 0xe8, t));
+      this.bgGfx.fillStyle((r << 16) | (g << 8) | b, 1);
+      this.bgGfx.fillRect(0, y, W, 5);
+    }
+    // Soft grass hint at bottom
+    this.bgGfx.fillStyle(0xc0ecd0, 0.28);
+    this.bgGfx.fillRect(0, H - 36, W, 36);
+  }
+
+  _initPetals() {
+    const W = this.W, H = this.H;
+    const cols = [0xffb8e0, 0xdbb8ff, 0xb8d8ff, 0xffddb8, 0xb8ffd4];
+    for (let i = 0; i < 18; i++) {
+      const c = cols[i % cols.length];
+      const sz = 4 + Math.random() * 11;
+      const g = this.add.graphics();
+      g.fillStyle(c, 0.5);
+      g.fillCircle(sz / 2, sz / 2, sz / 2);
+      g.x = Math.random() * W;
+      g.y = Math.random() * H;
+      g.alpha = 0.3 + Math.random() * 0.45;
+      g.setData('spd', 0.2 + Math.random() * 0.5);
+      g.setData('wobble', Math.random() * Math.PI * 2);
+      g.setData('wobbleSpd', 0.007 + Math.random() * 0.013);
+      this.ambientPetals.push(g);
+    }
+  }
+
+  // ---------- TEXTURE GENERATION ----------
+  _genTextures() {
+    // Helper
+    const mk = (key, w, h, fn) => {
+      const g = this.add.graphics();
+      fn(g);
+      g.generateTexture(key, w, h);
+      g.destroy();
+    };
+
+    // --- Player: glowing pink spirit ---
+    mk('tex_player', 46, 46, g => {
+      g.fillStyle(0xffb8e0, 0.22); g.fillCircle(23, 23, 22);  // outer glow
+      g.fillStyle(0xff98d0, 0.45); g.fillCircle(23, 23, 17);  // mid
+      g.fillStyle(0xffdded, 1);    g.fillCircle(23, 23, 13);  // core
+      g.fillStyle(0xffffff, 0.8);  g.fillCircle(17, 16, 5);   // highlight
+      g.fillStyle(0xc060b0);
+      g.fillCircle(20, 21, 2.2); g.fillCircle(26, 21, 2.2);  // eyes
+      g.lineStyle(2, 0xc060b0, 1);
+      g.beginPath(); g.arc(23, 23, 4, 0, Math.PI, false); g.strokePath(); // smile
+    });
+
+    // --- Sparkle particle ---
+    mk('tex_spark', 10, 10, g => {
+      g.fillStyle(0xffffff, 0.9); g.fillCircle(5, 5, 4);
+    });
+
+    // --- Bee: soft peach/yellow drifter ---
+    mk('tex_bee', 40, 40, g => {
+      // Wings (back, rendered first)
+      g.fillStyle(0xd4eeff, 0.6); g.fillEllipse(20, 10, 28, 14);
+      // Body
+      g.fillStyle(0xffe0a8, 1); g.fillEllipse(20, 22, 28, 20);
+      g.lineStyle(2.5, 0xe8a860, 1); g.strokeEllipse(20, 22, 28, 20);
+      // Stripes
+      g.lineStyle(2, 0xd89040, 0.9);
+      g.beginPath(); g.moveTo(12, 22); g.lineTo(28, 22); g.strokePath();
+      g.beginPath(); g.moveTo(10, 26); g.lineTo(30, 26); g.strokePath();
+      // Face
+      g.fillStyle(0x6a3c10, 1); g.fillCircle(25, 19, 2); // eye
+      g.fillStyle(0xff9898, 1); g.fillCircle(22, 29, 3);  // cute blush
+    });
+
+    // --- Thorn Wisp: soft lavender spinning star ---
+    mk('tex_thorn', 34, 34, g => {
+      const pts = starPoints(17, 17, 5, 15, 6);
+      g.fillStyle(0xc8a0f0, 0.88); g.fillPoints(pts, true);
+      g.lineStyle(2, 0xa878d8, 0.9); g.strokePoints(pts, true);
+      g.fillStyle(0xe8d0ff, 0.9); g.fillCircle(17, 17, 5);
+    });
+
+    // --- Shadow Blossom: bigger pink flower with soft shadow ---
+    mk('tex_shadow', 52, 52, g => {
+      // 5 soft petals
+      g.fillStyle(0xf0a0cc, 0.8);
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2 - Math.PI / 2;
+        g.fillEllipse(26 + Math.cos(a) * 14, 26 + Math.sin(a) * 14, 18, 14);
+      }
+      // Center
+      g.fillStyle(0xd868a8, 1); g.fillCircle(26, 26, 9);
+      g.fillStyle(0xffffff, 0.6); g.fillCircle(22, 22, 4);
+    });
+
+    // --- Dewdrop: soft blue teardrop ---
+    mk('tex_dew', 26, 26, g => {
+      g.fillStyle(0x88ccff, 0.92); g.fillCircle(13, 13, 11);
+      g.fillStyle(0xffffff, 0.75); g.fillCircle(10, 9, 4.5);
+      g.lineStyle(1.5, 0x60aaee, 0.8); g.strokeCircle(13, 13, 11);
+    });
+
+    // --- Sunbeam: warm golden star ---
+    mk('tex_sun', 34, 34, g => {
+      const outer = starPoints(17, 17, 6, 15, 7);
+      g.fillStyle(0xffe840, 1); g.fillPoints(outer, true);
+      g.lineStyle(2, 0xf0b820, 1); g.strokePoints(outer, true);
+      g.fillStyle(0xfff0a0, 1); g.fillCircle(17, 17, 7);
+      g.fillStyle(0xffffff, 0.8); g.fillCircle(13, 13, 3.5);
+    });
+
+    // --- Rainbow Star: multi-point sparkle ---
+    mk('tex_star', 44, 44, g => {
+      const outer = starPoints(22, 22, 6, 20, 9);
+      g.fillStyle(0xff98f0, 1); g.fillPoints(outer, true);
+      g.lineStyle(2.5, 0xffffff, 0.95); g.strokePoints(outer, true);
+      g.fillStyle(0xffffff, 0.9); g.fillCircle(22, 22, 8);
+      g.fillStyle(0xffe8ff, 1); g.fillCircle(18, 17, 4);
+    });
+
+    // --- Heart (filled) ---
+    mk('tex_heart', 26, 26, g => {
+      g.fillStyle(0xff88cc, 1);
+      g.fillCircle(8, 8, 7); g.fillCircle(18, 8, 7);
+      g.fillTriangle(1, 11, 25, 11, 13, 24);
+      g.fillStyle(0xffffff, 0.55); g.fillCircle(6, 5, 3);
+    });
+
+    // --- Heart (empty) ---
+    mk('tex_heart_empty', 26, 26, g => {
+      g.lineStyle(2, 0xeeaad4, 0.9);
+      g.strokeCircle(8, 8, 7); g.strokeCircle(18, 8, 7);
+      g.strokeTriangle(1, 11, 25, 11, 13, 24);
+    });
+  }
+
+  // ---------- HUD ----------
+  _buildHUD() {
+    const W = this.W;
+    this.scoreTxt = this.add.text(W - 14, 12, '✨ 0', {
+      fontFamily: "'Fredoka One', cursive",
+      fontSize: '22px',
+      color: '#c060b0',
+      stroke: '#ffffff',
+      strokeThickness: 3,
+    }).setOrigin(1, 0).setScrollFactor(0).setDepth(200);
+
+    this.hearts = [];
+    for (let i = 0; i < 3; i++) {
+      const h = this.add.image(14 + i * 31, 13, 'tex_heart')
+        .setOrigin(0, 0).setScrollFactor(0).setDepth(200).setScale(1.0);
+      this.hearts.push(h);
+    }
+
+    this.invTxt = this.add.text(W / 2, 12, '⭐ Star Power! ⭐', {
+      fontFamily: "'Fredoka One', cursive",
+      fontSize: '17px',
+      color: '#ffd040',
+      stroke: '#c07000',
+      strokeThickness: 3,
+    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(200).setAlpha(0);
+  }
+
+  _updateHUD() {
+    const elapsedSec = (this.time.now - this.startTime) / 1000;
+    this.score = Math.floor(elapsedSec * 10 + this.bonusPoints);
+    this.scoreTxt.setText('✨ ' + this.score);
+    for (let i = 0; i < 3; i++) {
+      this.hearts[i].setTexture(i < this.hp ? 'tex_heart' : 'tex_heart_empty');
+    }
+    this.invTxt.setAlpha(this.invincible ? 1 : 0);
+  }
+
+  // ---------- DIFFICULTY ----------
+  _getDiff() {
+    const t = Math.min((this.time.now - this.startTime) / 120000, 1);
+    return easeIn(t);
+  }
+
+  // ---------- MAIN UPDATE ----------
+  update(time, delta) {
+    if (this.isDead) return;
+    const dt = delta / 16.667;
+
+    this._updateAmbientPetals(dt);
+    this._handleInput(dt);
+
+    if (this.invincible) {
+      this.invTimer -= delta;
+      if (this.invTimer <= 0) {
+        this.invincible = false;
+        this.player.clearTint();
+        this.player.setAlpha(1);
+      } else {
+        const phase = (time * 0.015) % (Math.PI * 2);
+        this.player.setAlpha(0.65 + Math.sin(phase) * 0.35);
+        // Rainbow tint cycling
+        const hue = ((time * 0.0008) % 1);
+        const col = Phaser.Display.Color.HSVToRGB(hue, 0.55, 1);
+        this.player.setTint(col.color);
+      }
+    }
+
+    if (this.hitCooldown > 0) this.hitCooldown -= delta;
+
+    this._spawnLogic(time, delta);
+    this._updateBees(time, dt);
+    this._updateThorns(dt);
+    this._updateShadow(dt);
+    this._updatePickups(time);
+    this._updateHUD();
+  }
+
+  _handleInput(dt) {
+    const speed = 215;
+    let vx = 0, vy = 0;
+
+    if (this.cursors.left.isDown  || this.wasd.left.isDown)  vx = -speed;
+    else if (this.cursors.right.isDown || this.wasd.right.isDown) vx = speed;
+    if (this.cursors.up.isDown    || this.wasd.up.isDown)    vy = -speed;
+    else if (this.cursors.down.isDown  || this.wasd.down.isDown)  vy = speed;
+
+    // Touch: move toward tap
+    if (this.touchPos) {
+      const dx = this.touchPos.x - this.player.x;
+      const dy = this.touchPos.y - this.player.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      if (dist > 10) { vx = (dx/dist)*speed; vy = (dy/dist)*speed; }
+      else this.touchPos = null;
+    }
+
+    this.player.setVelocity(vx, vy);
+
+    // Squash/stretch on movement
+    const moving = Math.abs(vx) > 1 || Math.abs(vy) > 1;
+    if (moving) {
+      const a = Math.atan2(vy, vx);
+      this.player.setScale(1 + Math.abs(Math.cos(a)) * 0.07, 1 + Math.abs(Math.sin(a)) * 0.07);
+    }
+  }
+
+  // ---------- SPAWNING ----------
+  _spawnLogic(time, delta) {
+    const elapsed = time - this.startTime;
+    const d = this._getDiff();
+
+    if (elapsed > this.nextBee) {
+      this._spawnBee();
+      this.nextBee = elapsed + lerp(3200, 750, d);
+    }
+    if (elapsed > this.nextThorn) {
+      this._spawnThorn();
+      this.nextThorn = elapsed + lerp(3800, 650, d);
+    }
+    if (elapsed > 45000 && elapsed > this.nextShadow) {
+      this._spawnShadow();
+      this.nextShadow = elapsed + lerp(6000, 2000, d);
+    }
+    if (elapsed > this.nextDew) {
+      this._spawnDew();
+      this.nextDew = elapsed + lerp(9000, 5500, d);
+    }
+    if (elapsed > this.nextSun) {
+      this._spawnSun();
+      this.nextSun = elapsed + lerp(11000, 6500, d);
+    }
+    if (elapsed > this.nextStar) {
+      this._spawnStar();
+      this.nextStar = elapsed + 45000;
+    }
+  }
+
+  _edgeSpawn() {
+    const W = this.W, H = this.H;
+    const side = Math.floor(Math.random() * 4);
+    if (side === 0) return { x: Math.random() * W, y: -32 };
+    if (side === 1) return { x: W + 32, y: Math.random() * H };
+    if (side === 2) return { x: Math.random() * W, y: H + 32 };
+    return { x: -32, y: Math.random() * H };
+  }
+
+  _spawnBee() {
+    const d = this._getDiff();
+    const spd = lerp(55, 170, d);
+    const { x, y } = this._edgeSpawn();
+    const bee = this.physics.add.sprite(x, y, 'tex_bee');
+    bee.body.setCircle(13, 7, 7);
+    // Move toward a random screen zone (NOT directly at player early on)
+    const tx = 80 + Math.random() * (this.W - 160);
+    const ty = 80 + Math.random() * (this.H - 160);
+    const a = Math.atan2(ty - y, tx - x);
+    const bvx = Math.cos(a) * spd, bvy = Math.sin(a) * spd;
+    bee.setVelocity(bvx, bvy);
+    bee.setData({ wobble: Math.random()*Math.PI*2, wobSpd: 0.025+Math.random()*0.02+d*0.02,
+                  wAmp: 18+Math.random()*28, bvx, bvy, spd, life: 0 });
+    this.grpBees.add(bee);
+  }
+
+  _spawnThorn() {
+    const d = this._getDiff();
+    const spd = lerp(45, 195, d);
+    const { x, y } = this._edgeSpawn();
+    const thorn = this.physics.add.sprite(x, y, 'tex_thorn');
+    thorn.body.setCircle(10, 7, 7);
+    const a = Math.atan2((this.H/2 - y) + (Math.random()-0.5)*200,
+                         (this.W/2 - x) + (Math.random()-0.5)*200);
+    thorn.setVelocity(Math.cos(a)*spd, Math.sin(a)*spd);
+    thorn.setAngularVelocity(90 + Math.random()*80);
+    thorn.setData({ life: 0 });
+    this.grpThorns.add(thorn);
+  }
+
+  _spawnShadow() {
+    const d = this._getDiff();
+    const spd = lerp(28, 95, d);
+    const x = 80 + Math.random() * (this.W - 160);
+    const y = 80 + Math.random() * (this.H - 160);
+    const shadow = this.physics.add.sprite(x, y, 'tex_shadow');
+    shadow.body.setCircle(18, 8, 8);
+    const a = Math.random() * Math.PI * 2;
+    shadow.setVelocity(Math.cos(a)*spd, Math.sin(a)*spd);
+    shadow.setAngularVelocity(35);
+    shadow.setScale(0);
+    this.tweens.add({ targets: shadow, scale: 1, duration: 700, ease: 'Back.Out' });
+    this.grpShadow.add(shadow);
+  }
+
+  _spawnDew() {
+    const W = this.W, H = this.H;
+    let x, y;
+    const all = [...this.grpBees.getChildren(), ...this.grpThorns.getChildren()];
+    if (all.length > 0 && Math.random() < 0.6) {
+      const ref = all[Math.floor(Math.random() * all.length)];
+      x = clamp(ref.x + (Math.random()-0.5)*120, 30, W-30);
+      y = clamp(ref.y + (Math.random()-0.5)*120, 30, H-30);
+    } else {
+      x = 40 + Math.random() * (W - 80);
+      y = 40 + Math.random() * (H - 80);
+    }
+    const dew = this.physics.add.sprite(x, y, 'tex_dew');
+    dew.setVelocity(0, 0);
+    dew.body.setCircle(10, 3, 3);
+    this.tweens.add({ targets: dew, alpha: 0.45, duration: 700, yoyo: true, repeat: -1 });
+    this.tweens.add({ targets: dew, scaleX: 1.15, scaleY: 0.88, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    this.grpDew.add(dew);
+    this.time.delayedCall(14000, () => { if (dew?.active) dew.destroy(); });
+  }
+
+  _spawnSun() {
+    const W = this.W, H = this.H;
+    const x = 50 + Math.random() * (W - 100);
+    const y = 50 + Math.random() * (H - 100);
+    const sun = this.physics.add.sprite(x, y, 'tex_sun');
+    sun.setVelocity(0, 0);
+    sun.body.setCircle(13, 4, 4);
+    sun.setData({ initTime: this.time.now });
+    this.tweens.add({ targets: sun, scale: 1.2, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    this.grpSun.add(sun);
+    this.time.delayedCall(12000, () => { if (sun?.active) sun.destroy(); });
+  }
+
+  _spawnStar() {
+    const W = this.W, H = this.H;
+    const x = W/2 + (Math.random()-0.5)*220;
+    const y = H/2 + (Math.random()-0.5)*120;
+    const star = this.physics.add.sprite(x, y, 'tex_star');
+    star.setVelocity(0, 0);
+    star.body.setCircle(16, 6, 6);
+    this.tweens.add({ targets: star, scale: 1.35, duration: 600, yoyo: true, repeat: -1 });
+    this.grpStar.add(star);
+    this.time.delayedCall(9000, () => { if (star?.active) star.destroy(); });
+  }
+
+  // ---------- HAZARD UPDATES ----------
+  _updateBees(time, dt) {
+    this.grpBees.getChildren().forEach(bee => {
+      const life = bee.getData('life') + dt * 16.667;
+      bee.setData('life', life);
+      const wobble = bee.getData('wobble') + bee.getData('wobSpd') * dt;
+      bee.setData('wobble', wobble);
+      const bvx = bee.getData('bvx'), bvy = bee.getData('bvy');
+      const spd = bee.getData('spd');
+      const perpX = -bvy / spd, perpY = bvx / spd;
+      const wAmp = bee.getData('wAmp');
+      bee.setVelocity(bvx + Math.sin(wobble) * wAmp, bvy + Math.cos(wobble) * wAmp);
+      // Gentle rotation to face movement direction
+      bee.setAngle(Phaser.Math.RadToDeg(Math.atan2(bvy, bvx)));
+      const W = this.W, H = this.H;
+      if (life > 9000 || bee.x < -90 || bee.x > W+90 || bee.y < -90 || bee.y > H+90) bee.destroy();
+    });
+  }
+
+  _updateThorns(dt) {
+    const W = this.W, H = this.H;
+    this.grpThorns.getChildren().forEach(t => {
+      const life = t.getData('life') + dt * 16.667;
+      t.setData('life', life);
+      if (life > 10000 || t.x < -70 || t.x > W+70 || t.y < -70 || t.y > H+70) t.destroy();
+    });
+  }
+
+  _updateShadow(dt) {
+    const W = this.W, H = this.H;
+    this.grpShadow.getChildren().forEach(s => {
+      if (s.x < 44 || s.x > W-44) s.setVelocityX(-s.body.velocity.x);
+      if (s.y < 44 || s.y > H-44) s.setVelocityY(-s.body.velocity.y);
+    });
+  }
+
+  _updatePickups(time) {
+    const hue = ((time * 0.0006) % 1);
+    this.grpStar.getChildren().forEach(s => {
+      if (s.active) {
+        const col = Phaser.Display.Color.HSVToRGB(hue, 0.7, 1);
+        s.setTint(col.color);
+        s.setAngle(s.angle + 1.5);
+      }
+    });
+    this.grpSun.getChildren().forEach(s => {
+      if (s.active) s.setAngle(s.angle + 0.8);
+    });
+  }
+
+  _updateAmbientPetals(dt) {
+    const W = this.W, H = this.H;
+    this.ambientPetals.forEach(p => {
+      p.setData('wobble', p.getData('wobble') + p.getData('wobbleSpd') * dt);
+      p.x += Math.sin(p.getData('wobble')) * 0.55 * dt;
+      p.y += p.getData('spd') * dt;
+      if (p.y > H + 18) { p.y = -18; p.x = Math.random() * W; }
+    });
+  }
+
+  // ---------- COLLISION HANDLERS ----------
+  _onHit(player, hazard) {
+    if (this.invincible || this.hitCooldown > 0 || this.isDead) return;
+    this.hp--;
+    sfxHit();
+    this.hitCooldown = 1600;
+    this.cameras.main.flash(180, 255, 190, 220, true);
+    this.player.setTint(0xff9999);
+    this.time.delayedCall(280, () => { if (!this.invincible && !this.isDead) this.player.clearTint(); });
+    // Brief knockback
+    const dx = this.player.x - hazard.x, dy = this.player.y - hazard.y;
+    const dist = Math.sqrt(dx*dx+dy*dy) || 1;
+    this.player.setVelocity((dx/dist)*120, (dy/dist)*120);
+    if (this.hp <= 0) this._triggerDeath();
+  }
+
+  _onCollectDew(player, dew) {
+    if (!dew?.active) return;
+    dew.destroy();
+    sfxCollectDew();
+    if (this.hp < 3) {
+      this.hp++;
+      this._floatText(player.x, player.y - 28, '💖 +♥', '#ff88cc');
+    } else {
+      this.bonusPoints += 15;
+      this._floatText(player.x, player.y - 28, '+15', '#88ccff');
+    }
+    this._burst(dew.x, dew.y, 0x88ccff, 7);
+  }
+
+  _onCollectSun(player, sun) {
+    if (!sun?.active) return;
+    sun.destroy();
+    sfxCollectSun();
+    this.bonusPoints += 50;
+    this._floatText(player.x, player.y - 28, '+50 ☀️', '#ffe840');
+    this._burst(sun.x, sun.y, 0xffe840, 9);
+  }
+
+  _onCollectStar(player, star) {
+    if (!star?.active) return;
+    star.destroy();
+    sfxCollectStar();
+    this.bonusPoints += 200;
+    this.invincible = true;
+    this.invTimer = 5000;
+    this._floatText(player.x, player.y - 38, '⭐ +200  Star Power!', '#ffd040');
+    this._burst(star.x, star.y, 0xffffff, 14);
+    this.cameras.main.flash(260, 255, 220, 255, true);
+  }
+
+  // ---------- HELPERS ----------
+  _floatText(x, y, msg, color) {
+    const txt = this.add.text(x, y, msg, {
+      fontFamily: "'Fredoka One', cursive",
+      fontSize: '19px',
+      color,
+      stroke: '#ffffff',
+      strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(300);
+    this.tweens.add({ targets: txt, y: y - 52, alpha: 0, duration: 950,
+      ease: 'Power2', onComplete: () => txt.destroy() });
+  }
+
+  _burst(x, y, color, count) {
+    for (let i = 0; i < count; i++) {
+      const g = this.add.graphics();
+      g.fillStyle(color, 0.85);
+      g.fillCircle(0, 0, 3 + Math.random() * 4);
+      g.x = x; g.y = y;
+      const a = (i / count) * Math.PI * 2 + Math.random() * 0.4;
+      const spd = 50 + Math.random() * 90;
+      this.tweens.add({
+        targets: g, x: x + Math.cos(a)*spd, y: y + Math.sin(a)*spd,
+        alpha: 0, duration: 550 + Math.random()*280, ease: 'Power2',
+        onComplete: () => g.destroy()
+      });
+    }
+  }
+
+  // ---------- DEATH ----------
+  _triggerDeath() {
+    this.isDead = true;
+    this.player.setVelocity(0, 0);
+    sfxDeath();
+    this.cameras.main.shake(380, 0.009);
+    this.cameras.main.flash(450, 255, 200, 240, true);
+
+    // Spirit dissolves — expand + fade
+    this.tweens.add({
+      targets: this.player,
+      scaleX: 3.5, scaleY: 3.5, alpha: 0,
+      duration: 750, ease: 'Power2'
+    });
+
+    // Big particle burst
+    const cols = [0xffb8e0, 0xdbb8ff, 0xffd8b8, 0xb8f0d0, 0xffffff];
+    for (let i = 0; i < 22; i++) {
+      const a = (i / 22) * Math.PI * 2;
+      const g = this.add.graphics();
+      g.fillStyle(cols[i % cols.length], 0.9);
+      g.fillCircle(0, 0, 4 + Math.random() * 7);
+      g.x = this.player.x; g.y = this.player.y;
+      const spd = 70 + Math.random() * 140;
+      this.tweens.add({
+        targets: g, x: g.x + Math.cos(a)*spd, y: g.y + Math.sin(a)*spd,
+        alpha: 0, duration: 750 + Math.random()*350, ease: 'Power2',
+        onComplete: () => g.destroy()
+      });
+    }
+
+    const finalScore = Math.floor((this.time.now - this.startTime) / 100 + this.bonusPoints);
+    this.time.delayedCall(750, () => {
+      this.scene.pause();
+      showGameOverUI(finalScore);
+    });
+  }
+}
+
+// ============================================================
+// PHASER CONFIG
+// ============================================================
+const config = {
+  type: Phaser.AUTO,
+  width: 800,
+  height: 600,
+  backgroundColor: '#e8d5f5',
+  physics: {
+    default: 'arcade',
+    arcade: { gravity: { y: 0 }, debug: false }
+  },
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
+  scene: [MenuScene, GameScene]
+};
+
+const game = new Phaser.Game(config);
+</script>
+</body>
+</html>
