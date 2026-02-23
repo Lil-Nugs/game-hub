@@ -1,0 +1,9 @@
+{
+  "plans": [
+    {
+      "planId": "janitor-sync-v1",
+      "linearIssueIdentifiers": ["GAM-33", "GAM-34", "GAM-35", "GAM-36", "GAM-37"],
+      "converted": true
+    }
+  ]
+}
