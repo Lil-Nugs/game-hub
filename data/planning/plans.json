@@ -44,6 +44,10 @@
       {
         "heading": "Task Breakdown",
         "body": "Implementation tasks are tracked in Linear under Long-Term Planning / GAM-7 epic."
+      },
+      {
+        "heading": "Reporting Channel Constraint",
+        "body": "All janitor user-facing summaries and escalation reports must post only to Discord channel `1475309759300239380`. No fallback to triggering/current channel. Full machine logs remain local/artifacted; channel output should be concise operational summaries."
       }
     ],
     "implementationStatus": "in-progress",
