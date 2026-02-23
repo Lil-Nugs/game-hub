@@ -2,7 +2,26 @@
   "plans": [
     {
       "planId": "janitor-sync-v1",
-      "linearIssueIdentifiers": ["GAM-33", "GAM-34", "GAM-35", "GAM-36", "GAM-37"],
+      "linearIssueIdentifiers": [
+        "GAM-33",
+        "GAM-34",
+        "GAM-35",
+        "GAM-36",
+        "GAM-37"
+      ],
+      "converted": true
+    },
+    {
+      "planId": "game-ratings-rollout-v1",
+      "linearIssueIdentifiers": [
+        "GAM-40",
+        "GAM-41",
+        "GAM-42",
+        "GAM-43",
+        "GAM-44",
+        "GAM-45",
+        "GAM-46"
+      ],
       "converted": true
     }
   ]

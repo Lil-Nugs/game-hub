@@ -151,15 +151,15 @@
       },
       {
         "heading": "Execution Mapping (Linear)",
-        "body": "Map this plan to existing/next tasks:\n• Completed foundation: GAM-14 (schema), GAM-15 (RLS), GAM-16 (template migration)\n• New work items to create: ratings widget implementation, existing-games retrofit, hub aggregate display, rating QA harness, generation-template contract update."
+        "body": "Policy check applied before Linear mutations: GAM-23, GAM-24, GAM-25, GAM-26.\n\nEpic (GameHub Infra):\n• GAM-40 — EPIC: Ratings rollout for existing games + hub surfacing\n\nTask breakout with codex assignment + dependencies (blocker -> blocked):\n• GAM-41 (dep:ready, dep:critical-path) — Shared widget primitives + UX contract [owner: codex via agent:core/exec:hybrid]\n• GAM-41 -> GAM-42 (dep:blocked, dep:critical-path) — Representative-game pilot integration\n• GAM-42 -> GAM-43 (dep:blocked, dep:critical-path) — Scale retrofit to all active games\n• GAM-41 -> GAM-44 (dep:blocked, dep:critical-path) — Hub aggregate avg/count surfacing\n• GAM-43 -> GAM-45 and GAM-44 -> GAM-45 (dep:blocked, dep:critical-path) — QA harness + security/RLS validation\n• GAM-41 -> GAM-46 (dep:blocked) — Generation template contract update for default ratings hooks\n\nScheduling semantics:\n• In-degree 0 frontier at creation time: GAM-41 only.\n• All other tasks were created in Backlog with dep:blocked labels and explicit blocked-by relations."
       },
       {
         "heading": "Recommended Next Move",
-        "body": "Start with Phase 1+2 in one PR to prove end-to-end rating flow on 3 representative games, then scale patch across all active games with a scripted codemod approach."
+        "body": "Execute GAM-41 first (single in-degree=0 task). After completion, run GAM-42 and GAM-44 as dependency frontier tasks, then GAM-43, GAM-46, and finally GAM-45 for full rollout closure evidence."
       }
     ],
     "implementationStatus": "in-progress",
-    "taskTrackerStatus": "not-converted"
+    "taskTrackerStatus": "in-progress"
   },
   {
     "id": "game-skill-improvement-v1",
