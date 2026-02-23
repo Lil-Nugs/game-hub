@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const REQUIRED_NAMESPACES = ['source', 'lane', 'kind', 'exec'];
+const DEP_LABELS = ['dep:ready', 'dep:blocked'];
 
 const DEFAULTS_BY_LANE = {
   ops: { source: 'source:automation', agent: 'agent:ops' },
@@ -12,13 +13,17 @@ const DEFAULTS_BY_LANE = {
 
 function parseArgs(argv) {
   const out = {
-    input: 'scripts/janitor/fixtures/linear-issues.sample.json',
+    input: null,
+    teamKey: 'GAM',
+    credentials: '/home/mattc/.openclaw/credentials/linear.json',
     fixSafe: false,
     writeFixed: null
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--input') out.input = argv[++i];
+    else if (arg === '--team-key') out.teamKey = argv[++i];
+    else if (arg === '--credentials') out.credentials = argv[++i];
     else if (arg === '--fix-safe') out.fixSafe = true;
     else if (arg === '--write-fixed') out.writeFixed = argv[++i];
     else if (arg === '--help' || arg === '-h') {
@@ -33,13 +38,16 @@ function printHelp() {
   console.log(`Usage: node scripts/janitor/check-linear-drift.mjs [options]
 
 Options:
-  --input <path>       Input fixture/payload JSON file (default: scripts/janitor/fixtures/linear-issues.sample.json)
-  --fix-safe           Apply deterministic safe fixes in-memory
-  --write-fixed <path> Write fixed payload to file (requires --fix-safe)
+  --input <path>       Optional fixture/payload JSON file (if omitted, fetches live from Linear)
+  --team-key <key>     Linear team key for live mode (default: GAM)
+  --credentials <path> Linear credential JSON path (apiKey field)
+  --fix-safe           Apply deterministic safe fixes
+  --write-fixed <path> Write fixed payload snapshot to file (requires --fix-safe)
   -h, --help           Show help
 
 Notes:
   - Dry-run is default.
+  - Live mode is default to prevent fixture-only false reports.
   - Outputs machine-readable JSON report to stdout.
   - Outputs concise human summary to stderr.
 `);
@@ -67,11 +75,6 @@ function applyParentState(issue, next) {
   };
 }
 
-function findChildren(parent, issuesById) {
-  const childIds = parent.childIds || [];
-  return childIds.map((id) => issuesById.get(id)).filter(Boolean);
-}
-
 function hasActiveChildren(children) {
   return children.some((c) => ['started', 'unstarted', 'backlog'].includes(issueStateType(c)));
 }
@@ -80,13 +83,11 @@ function allChildrenDone(children) {
   return children.length > 0 && children.every((c) => issueStateType(c) === 'completed');
 }
 
-function checkParentChild(issues, issuesById, fixSafe, fixes) {
+function checkParentChild(issues, fixSafe, fixes) {
   const results = [];
 
   for (const issue of issues) {
-    if (!issue.childIds?.length) continue;
-
-    const children = findChildren(issue, issuesById);
+    const children = issue.children || [];
     if (!children.length) continue;
 
     const parentType = issueStateType(issue);
@@ -163,6 +164,72 @@ function checkParentChild(issues, issuesById, fixSafe, fixes) {
   return results;
 }
 
+function unresolvedBlockerCount(issue) {
+  const incoming = issue.inverseRelations || [];
+  const blockers = incoming
+    .filter((r) => r.type === 'blocks')
+    .map((r) => r.issue)
+    .filter(Boolean)
+    .filter((i) => !['completed', 'canceled'].includes(i.state?.type || 'unknown'));
+  return { count: blockers.length, blockers };
+}
+
+function checkDependencyFrontier(issues, fixSafe, fixes) {
+  const results = [];
+
+  for (const issue of issues) {
+    const labels = issue.labels || [];
+    const depLabels = labels.filter((l) => DEP_LABELS.includes(l));
+    const { count, blockers } = unresolvedBlockerCount(issue);
+    const expected = count === 0 ? 'dep:ready' : 'dep:blocked';
+
+    if (depLabels.length > 1) {
+      results.push({
+        checkId: 'dependency_label_conflict',
+        reasonCode: 'CONFLICTING_DEPENDENCY_LABELS',
+        severity: 'blocker',
+        status: 'escalated',
+        target: { issueIdentifier: issue.identifier, issueId: issue.id },
+        message: `${issue.identifier} has conflicting dependency labels`,
+        evidence: depLabels
+      });
+      continue;
+    }
+
+    if (depLabels[0] !== expected) {
+      const result = {
+        checkId: 'dependency_frontier_label',
+        reasonCode: 'DEPENDENCY_LABEL_MISMATCH',
+        severity: 'warn',
+        status: 'drift',
+        target: { issueIdentifier: issue.identifier, issueId: issue.id },
+        message: `${issue.identifier} expected ${expected} from blocked-by in-degree=${count}`,
+        evidence: blockers.map((b) => `${b.identifier}:${b.state?.name || b.state?.type || 'unknown'}`)
+      };
+
+      if (fixSafe) {
+        const before = [...labels];
+        const withoutDep = labels.filter((l) => !DEP_LABELS.includes(l));
+        issue.labels = Array.from(new Set([...withoutDep, expected]));
+        result.status = 'fixed';
+        result.fix = {
+          applied: true,
+          action: 'set_dependency_label_by_indegree',
+          before,
+          after: issue.labels,
+          indegree: count,
+          expected
+        };
+        fixes.push(result.fix);
+      }
+
+      results.push(result);
+    }
+  }
+
+  return results;
+}
+
 function checkRequiredLabels(issues, fixSafe, fixes) {
   const results = [];
 
@@ -170,7 +237,6 @@ function checkRequiredLabels(issues, fixSafe, fixes) {
     const labels = issue.labels || [];
     const groups = toLabelGroups(labels);
 
-    // Conflicts in required namespaces
     for (const ns of [...REQUIRED_NAMESPACES, 'agent']) {
       const vals = groups.get(ns) || [];
       if (vals.length > 1) {
@@ -186,7 +252,6 @@ function checkRequiredLabels(issues, fixSafe, fixes) {
       }
     }
 
-    // Missing required namespaces
     const missing = REQUIRED_NAMESPACES.filter((ns) => !(groups.get(ns) || []).length);
     const execLabels = groups.get('exec') || [];
     const needsAgent = execLabels.some((x) => x === 'exec:agent' || x === 'exec:hybrid');
@@ -214,8 +279,6 @@ function checkRequiredLabels(issues, fixSafe, fixes) {
         if (ns === 'source' && defaults.source) add.push(defaults.source);
         else if (ns === 'agent' && defaults.agent) add.push(defaults.agent);
       }
-
-      // do not fabricate kind/exec/lane defaults here; only deterministic approved defaults
       if (add.length) {
         issue.labels = Array.from(new Set([...labels, ...add]));
         result.status = 'fixed';
@@ -257,17 +320,72 @@ function makeSummary(results) {
   };
 }
 
+function normalizeIssue(node) {
+  return {
+    id: node.id,
+    identifier: node.identifier,
+    title: node.title,
+    url: node.url,
+    state: node.state,
+    labels: (node.labels?.nodes || []).map((l) => l.name),
+    parentId: node.parent?.id || null,
+    childIds: (node.children?.nodes || []).map((c) => c.id),
+    children: node.children?.nodes || [],
+    relations: (node.relations?.nodes || []).map((r) => ({ type: r.type, relatedIssue: r.relatedIssue })),
+    inverseRelations: (node.inverseRelations?.nodes || []).map((r) => ({ type: r.type, issue: r.issue }))
+  };
+}
+
+async function fetchLiveIssues(teamKey, credentialsPath) {
+  const cred = JSON.parse(await fs.readFile(credentialsPath, 'utf8'));
+  const token = cred.apiKey;
+  if (!token) throw new Error('Missing apiKey in credentials file');
+
+  const query = `query($teamKey:String!){
+    issues(filter:{team:{key:{eq:$teamKey}}, state:{type:{nin:[\"completed\",\"canceled\"]}}}, first:250){
+      nodes {
+        id
+        identifier
+        title
+        url
+        state { name type }
+        labels(first:100) { nodes { id name } }
+        parent { id identifier }
+        children(first:50) { nodes { id identifier state { name type } } }
+        relations(first:100) { nodes { type relatedIssue { id identifier state { name type } } } }
+        inverseRelations(first:100) { nodes { type issue { id identifier state { name type } } } }
+      }
+    }
+  }`;
+
+  const res = await fetch('https://api.linear.app/graphql', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: token },
+    body: JSON.stringify({ query, variables: { teamKey } })
+  });
+  const body = await res.json();
+  if (body.errors?.length) throw new Error(body.errors[0].message);
+  return (body.data?.issues?.nodes || []).map(normalizeIssue);
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
-  const inputPath = path.resolve(process.cwd(), args.input);
-  const payload = JSON.parse(await fs.readFile(inputPath, 'utf8'));
+  let payload;
+  if (args.input) {
+    const inputPath = path.resolve(process.cwd(), args.input);
+    payload = JSON.parse(await fs.readFile(inputPath, 'utf8'));
+  } else {
+    const liveIssues = await fetchLiveIssues(args.teamKey, args.credentials);
+    payload = { source: 'linear-api', teamKey: args.teamKey, issues: liveIssues };
+  }
+
   const issues = payload.issues || [];
-  const issuesById = new Map(issues.map((i) => [i.id, i]));
 
   const fixes = [];
   const results = [
-    ...checkParentChild(issues, issuesById, args.fixSafe, fixes),
+    ...checkParentChild(issues, args.fixSafe, fixes),
+    ...checkDependencyFrontier(issues, args.fixSafe, fixes),
     ...checkRequiredLabels(issues, args.fixSafe, fixes)
   ];
 
@@ -275,7 +393,8 @@ async function main() {
     runId: `janitor-linear-${Date.now()}`,
     timestamp: new Date().toISOString(),
     mode: args.fixSafe ? 'fix-safe' : 'dry-run',
-    input: args.input,
+    input: args.input || 'linear-api',
+    teamKey: args.teamKey,
     summary: makeSummary(results),
     results
   };
@@ -286,13 +405,10 @@ async function main() {
     await fs.writeFile(outPath, JSON.stringify(payload, null, 2) + '\n', 'utf8');
   }
 
-  // concise human summary
-  console.error(
-    `[check-linear-drift] mode=${report.mode} findings=${report.summary.totalFindings} ` +
-    `warn=${report.summary.warns} blocker=${report.summary.blockers} fixed=${report.summary.autoFixesApplied}`
+  process.stderr.write(
+    `[check-linear-drift] source=${args.input ? 'fixture' : 'linear-api'} mode=${report.mode} findings=${report.summary.totalFindings} ` +
+    `warn=${report.summary.warns} blocker=${report.summary.blockers} fixed=${report.summary.autoFixesApplied}\n`
   );
-
-  // machine-readable output
   process.stdout.write(JSON.stringify(report, null, 2) + '\n');
 }
 

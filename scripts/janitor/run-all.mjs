@@ -11,7 +11,8 @@ function parseArgs(argv) {
     writePlans: false,
     quiet: false,
     injectFailStep: false,
-    escalateWrite: false
+    escalateWrite: false,
+    writeDependencies: false
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -22,6 +23,7 @@ function parseArgs(argv) {
     else if (a === '--quiet') out.quiet = true;
     else if (a === '--inject-fail-step') out.injectFailStep = true;
     else if (a === '--escalate-write') out.escalateWrite = true;
+    else if (a === '--write-dependencies') out.writeDependencies = true;
     else if (a === '-h' || a === '--help') {
       help();
       process.exit(0);
@@ -41,6 +43,7 @@ Options:
   --quiet                 Suppress per-step stdout forwarding
   --inject-fail-step      Add an intentional failing step (for failure-path validation)
   --escalate-write        Allow escalation hook to create/update Linear issue on blockers
+  --write-dependencies    Persist dependency backfill + dep label updates to Linear
 `);
 }
 
@@ -103,6 +106,11 @@ async function main() {
       id: 'check-linear-drift',
       script: 'scripts/janitor/check-linear-drift.mjs',
       scriptArgs: [...(args.fixSafe ? ['--fix-safe'] : [])]
+    },
+    {
+      id: 'backfill-dependencies',
+      script: 'scripts/janitor/backfill-dependencies.mjs',
+      scriptArgs: [...(args.writeDependencies ? ['--write'] : [])]
     },
     {
       id: 'reconcile-plans-status',

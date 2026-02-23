@@ -13,3 +13,6 @@ worker/wrangler.toml
 
 # OS / editor
 .DS_Store
+
+# Janitor runtime outputs (local operational artifacts)
+logs/janitor/
