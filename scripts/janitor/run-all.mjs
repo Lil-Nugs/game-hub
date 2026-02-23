@@ -10,7 +10,8 @@ function parseArgs(argv) {
     fixSafe: false,
     writePlans: false,
     quiet: false,
-    injectFailStep: false
+    injectFailStep: false,
+    escalateWrite: false
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -20,6 +21,7 @@ function parseArgs(argv) {
     else if (a === '--write-plans') out.writePlans = true;
     else if (a === '--quiet') out.quiet = true;
     else if (a === '--inject-fail-step') out.injectFailStep = true;
+    else if (a === '--escalate-write') out.escalateWrite = true;
     else if (a === '-h' || a === '--help') {
       help();
       process.exit(0);
@@ -38,6 +40,7 @@ Options:
   --artifacts-dir <path>  Artifact directory (default: logs/janitor/artifacts)
   --quiet                 Suppress per-step stdout forwarding
   --inject-fail-step      Add an intentional failing step (for failure-path validation)
+  --escalate-write        Allow escalation hook to create/update Linear issue on blockers
 `);
 }
 
@@ -93,6 +96,8 @@ async function main() {
   await fs.mkdir(logsDir, { recursive: true });
   await fs.mkdir(artifactsDir, { recursive: true });
 
+  const currentRunPath = path.join(logsDir, '_current-run.json');
+
   const steps = [
     {
       id: 'check-linear-drift',
@@ -103,6 +108,16 @@ async function main() {
       id: 'reconcile-plans-status',
       script: 'scripts/janitor/reconcile-plans-status.mjs',
       scriptArgs: [...(args.writePlans ? ['--write'] : [])]
+    },
+    {
+      id: 'render-drift-report',
+      script: 'scripts/janitor/render-drift-report.mjs',
+      scriptArgs: ['--run-log', 'logs/janitor/_current-run.json', '--output', 'logs/janitor/drift-report.json']
+    },
+    {
+      id: 'escalate-drift-to-linear',
+      script: 'scripts/janitor/escalate-drift-to-linear.mjs',
+      scriptArgs: ['--report', 'logs/janitor/drift-report.json', ...(args.escalateWrite ? ['--write'] : ['--dry-run'])]
     },
     ...(args.injectFailStep
       ? [
@@ -133,6 +148,8 @@ async function main() {
     durationMs: 0,
     status: 'ok'
   };
+
+  await fs.writeFile(currentRunPath, JSON.stringify(runLog, null, 2) + '\n', 'utf8');
 
   for (const step of steps) {
     const result = await runNodeScript(step.script, step.scriptArgs, { cwd, quiet: args.quiet });
@@ -168,6 +185,8 @@ async function main() {
       runLog.summary.stepFailures += 1;
       runLog.status = 'failed';
     }
+
+    await fs.writeFile(currentRunPath, JSON.stringify(runLog, null, 2) + '\n', 'utf8');
   }
 
   runLog.durationMs = Date.now() - start;
@@ -176,6 +195,7 @@ async function main() {
   const lastRunPath = path.join(logsDir, 'last-run.json');
   await fs.writeFile(runLogPath, JSON.stringify(runLog, null, 2) + '\n', 'utf8');
   await fs.writeFile(lastRunPath, JSON.stringify(runLog, null, 2) + '\n', 'utf8');
+  await fs.rm(currentRunPath, { force: true });
 
   // retention: keep most recent 50 run logs
   const entries = (await fs.readdir(logsDir))
