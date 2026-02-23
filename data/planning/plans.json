@@ -31,7 +31,7 @@
       },
       {
         "heading": "Guardrails (Required)",
-        "body": "• Never start a task already in-progress by another worker.\n• In sequential mode, if any batch issue is in-progress, do not start another.\n• Require commit/check evidence before Done.\n• Enforce required label schema before pickup (`source:*`, `lane:*`, `kind:*`, `exec:*`, `agent:*` as applicable).\n• If ambiguous state/conflict, escalate instead of mutating.\n• Scheduler must compute dependency in-degree from Linear relations and only start nodes with in-degree=0."
+        "body": "\u2022 Never start a task already in-progress by another worker.\n\u2022 In sequential mode, if any batch issue is in-progress, do not start another.\n\u2022 Require commit/check evidence before Done.\n\u2022 Enforce required label schema before pickup (`source:*`, `lane:*`, `kind:*`, `exec:*`, `agent:*` as applicable).\n\u2022 If ambiguous state/conflict, escalate instead of mutating.\n\u2022 Scheduler must compute dependency in-degree from Linear relations and only start nodes with in-degree=0."
       },
       {
         "heading": "Retry + Escalation Policy",
@@ -89,7 +89,7 @@
       },
       {
         "heading": "Cadence",
-        "body": "Run janitor cron every 30–60 minutes. Generate one concise drift report artifact each run: no-op (clean) or actionable mismatches grouped by severity."
+        "body": "Run janitor cron every 30\u201360 minutes. Generate one concise drift report artifact each run: no-op (clean) or actionable mismatches grouped by severity."
       },
       {
         "heading": "Observability",
@@ -97,7 +97,7 @@
       },
       {
         "heading": "Acceptance Criteria",
-        "body": "• Zero parent/child mismatch older than 24h\n• Zero completed implementation left in Backlog for >24h\n• Plan status fields never stale beyond one janitor interval\n• 100% of new operational issues contain required labels"
+        "body": "\u2022 Zero parent/child mismatch older than 24h\n\u2022 Zero completed implementation left in Backlog for >24h\n\u2022 Plan status fields never stale beyond one janitor interval\n\u2022 100% of new operational issues contain required labels"
       },
       {
         "heading": "Task Breakdown",
@@ -131,7 +131,7 @@
       },
       {
         "heading": "Requirements (confirmed)",
-        "body": "• Rating scale: integer 1-5\n• Identity model: anonymous client fingerprint, one rating per game per user, latest rating wins\n• Keep GitHub Pages static architecture\n• Use Supabase direct client path (no Worker dependency)\n• Use existing games first (retrofit), then apply to new games by default"
+        "body": "\u2022 Rating scale: integer 1-5\n\u2022 Identity model: anonymous client fingerprint, one rating per game per user, latest rating wins\n\u2022 Keep GitHub Pages static architecture\n\u2022 Use Supabase direct client path (no Worker dependency)\n\u2022 Use existing games first (retrofit), then apply to new games by default"
       },
       {
         "heading": "Architecture Approach",
@@ -139,23 +139,23 @@
       },
       {
         "heading": "Implementation Plan (phased)",
-        "body": "Phase 1 — Shared UI primitives\n1) Add reusable rating widget helper script under `shared/` for stars/buttons, loading state, submit state, and summary rendering.\n2) Define consistent UX copy and edge-case behavior (no rating yet, submit failed, retry).\n\nPhase 2 — Existing game integration\n3) Patch active game pages to include rating widget and call Supabase rating APIs.\n4) Ensure game slug binding is correct per page.\n5) Ensure latest-rating overwrite behavior is reflected in UI (replace previous vote).\n\nPhase 3 — Hub surfacing\n6) Update `index.html` cards to display `avg_rating` and `rating_count`.\n7) Optionally add sortable filter: Top Rated / Most Rated.\n\nPhase 4 — Validation + hardening\n8) Add smoke checklist script: submit rating, change rating, verify aggregate updates.\n9) Verify no secret exposure in client artifacts.\n10) Validate RLS behavior for anonymous writes and reads.\n\nPhase 5 — Operationalization\n11) Add default requirement to generation templates: include rating widget hooks.\n12) Track adoption metric: % active games with working rating UI."
+        "body": "Phase 1 \u2014 Shared UI primitives\n1) Add reusable rating widget helper script under `shared/` for stars/buttons, loading state, submit state, and summary rendering.\n2) Define consistent UX copy and edge-case behavior (no rating yet, submit failed, retry).\n\nPhase 2 \u2014 Existing game integration\n3) Patch active game pages to include rating widget and call Supabase rating APIs.\n4) Ensure game slug binding is correct per page.\n5) Ensure latest-rating overwrite behavior is reflected in UI (replace previous vote).\n\nPhase 3 \u2014 Hub surfacing\n6) Update `index.html` cards to display `avg_rating` and `rating_count`.\n7) Optionally add sortable filter: Top Rated / Most Rated.\n\nPhase 4 \u2014 Validation + hardening\n8) Add smoke checklist script: submit rating, change rating, verify aggregate updates.\n9) Verify no secret exposure in client artifacts.\n10) Validate RLS behavior for anonymous writes and reads.\n\nPhase 5 \u2014 Operationalization\n11) Add default requirement to generation templates: include rating widget hooks.\n12) Track adoption metric: % active games with working rating UI."
       },
       {
         "heading": "QA / Acceptance Criteria",
-        "body": "A rollout is complete when:\n• A user can rate any active game 1-5\n• Re-rating the same game updates (not duplicates) that user’s latest value\n• Aggregate avg/count updates and is visible both in game UI and hub cards\n• Failure states are non-blocking and user-visible\n• No `secretKey` appears in shipped frontend files"
+        "body": "A rollout is complete when:\n\u2022 A user can rate any active game 1-5\n\u2022 Re-rating the same game updates (not duplicates) that user\u2019s latest value\n\u2022 Aggregate avg/count updates and is visible both in game UI and hub cards\n\u2022 Failure states are non-blocking and user-visible\n\u2022 No `secretKey` appears in shipped frontend files"
       },
       {
         "heading": "Risks + Mitigations",
-        "body": "• Inconsistent game HTML structures -> use minimal, inject-safe widget API and batch patch strategy.\n• Performance impact from per-card fetches -> add batched summary RPC if needed.\n• Anonymous abuse/noise -> acceptable for v1; later add throttling/signals if abuse appears.\n• Drift between generated new games and retrofitted old games -> make rating hooks part of generation contract."
+        "body": "\u2022 Legacy/non-shared game pages in active set (e.g., inline Supabase clients) can break one-size-fits-all widget rollout -> add compatibility mode in shared widget + force pilot coverage on at least one legacy page before scale rollout.\n\u2022 Ambiguous active scope can cause partial retrofit -> define rollout scope explicitly as games.json entries with `archived !== true`, and require an inventory checklist before GAM-43 completion.\n\u2022 Hub aggregate fetch fanout can degrade load UX if done per-card -> require batched summary path (or enforced request budget) in GAM-44 before done.\n\u2022 QA evidence drift (manual-only verification) can let regressions slip -> require reproducible smoke command/checklist artifact in GAM-45 completion evidence.\n\u2022 Generation template contract can drift from real integration behavior -> gate GAM-46 on GAM-42 pilot evidence so default hooks match validated API."
       },
       {
         "heading": "Execution Mapping (Linear)",
-        "body": "Policy check applied before Linear mutations: GAM-23, GAM-24, GAM-25, GAM-26.\n\nEpic (GameHub Infra):\n• GAM-40 — EPIC: Ratings rollout for existing games + hub surfacing\n\nTask breakout with codex assignment + dependencies (blocker -> blocked):\n• GAM-41 (dep:ready, dep:critical-path) — Shared widget primitives + UX contract [owner: codex via agent:core/exec:hybrid]\n• GAM-41 -> GAM-42 (dep:blocked, dep:critical-path) — Representative-game pilot integration\n• GAM-42 -> GAM-43 (dep:blocked, dep:critical-path) — Scale retrofit to all active games\n• GAM-41 -> GAM-44 (dep:blocked, dep:critical-path) — Hub aggregate avg/count surfacing\n• GAM-43 -> GAM-45 and GAM-44 -> GAM-45 (dep:blocked, dep:critical-path) — QA harness + security/RLS validation\n• GAM-41 -> GAM-46 (dep:blocked) — Generation template contract update for default ratings hooks\n\nScheduling semantics:\n• In-degree 0 frontier at creation time: GAM-41 only.\n• All other tasks were created in Backlog with dep:blocked labels and explicit blocked-by relations."
+        "body": "Policy check applied before Linear mutations: GAM-23, GAM-24, GAM-25, GAM-26.\n\nEpic (GameHub Infra):\n\u2022 GAM-40 \u2014 EPIC: Ratings rollout for existing games + hub surfacing\n\nTask breakout with codex assignment + dependencies (blocker -> blocked):\n\u2022 GAM-41 (dep:ready, dep:critical-path) \u2014 Shared widget primitives + UX contract [owner: codex via agent:core/exec:hybrid]\n\u2022 GAM-41 -> GAM-42 (dep:blocked, dep:critical-path) \u2014 Representative-game pilot integration (must include at least one legacy/non-shared page)\n\u2022 GAM-42 -> GAM-43 (dep:blocked, dep:critical-path) \u2014 Scale retrofit to all active games (`archived !== true`)\n\u2022 GAM-41 -> GAM-44 (dep:blocked, dep:critical-path) \u2014 Hub aggregate avg/count surfacing with request-budget guardrail\n\u2022 GAM-43 -> GAM-45 and GAM-44 -> GAM-45 (dep:blocked, dep:critical-path) \u2014 QA harness + security/RLS validation\n\u2022 GAM-41 -> GAM-46 and GAM-42 -> GAM-46 (dep:blocked) \u2014 Generation template contract update after pilot validation\n\nScheduling semantics:\n\u2022 In-degree 0 frontier at creation time: GAM-41 only.\n\u2022 All other tasks are Backlog with dep:blocked labels and explicit blocked-by relations until dependencies clear."
       },
       {
         "heading": "Recommended Next Move",
-        "body": "Execute GAM-41 first (single in-degree=0 task). After completion, run GAM-42 and GAM-44 as dependency frontier tasks, then GAM-43, GAM-46, and finally GAM-45 for full rollout closure evidence."
+        "body": "Execute GAM-41 first (single in-degree=0 task). After completion, run GAM-42 and GAM-44 as dependency frontier tasks, then GAM-43, then GAM-46 (after GAM-42 evidence), and finally GAM-45 for full rollout closure evidence."
       }
     ],
     "implementationStatus": "in-progress",
@@ -166,7 +166,7 @@
     "title": "Game Skill Improvement Plan",
     "date": "2026-02-21",
     "author": "Codex Gamehub",
-    "summary": "Quality gates, playtest rubric, skill refactor, and rating system — the full roadmap for making generated games reliably good.",
+    "summary": "Quality gates, playtest rubric, skill refactor, and rating system \u2014 the full roadmap for making generated games reliably good.",
     "tags": [
       "skill",
       "quality-gates",
@@ -175,31 +175,31 @@
     "sections": [
       {
         "heading": "Context",
-        "body": "Codex reviewed the game-generator skill and proposed an improvement plan focused on: deterministic hard gates, a soft playtest rubric, skill structure refactoring, and a rating system. The recommended immediate milestone is shipping validate_game.js + soft rubric + a generator → reviewer → repair loop."
+        "body": "Codex reviewed the game-generator skill and proposed an improvement plan focused on: deterministic hard gates, a soft playtest rubric, skill structure refactoring, and a rating system. The recommended immediate milestone is shipping validate_game.js + soft rubric + a generator \u2192 reviewer \u2192 repair loop."
       },
       {
         "heading": "1. Define Gate Policy",
-        "body": "This unlocks everything else. Two layers:\n\n• Hard fail checks — binary pass/fail. Game must pass all of these or it does not publish.\n• Soft rubric thresholds — subjective quality. Can trigger a repair attempt rather than a hard block.\n\nDo this before writing any code — the policy drives the validator logic."
+        "body": "This unlocks everything else. Two layers:\n\n\u2022 Hard fail checks \u2014 binary pass/fail. Game must pass all of these or it does not publish.\n\u2022 Soft rubric thresholds \u2014 subjective quality. Can trigger a repair attempt rather than a hard block.\n\nDo this before writing any code \u2014 the policy drives the validator logic."
       },
       {
         "heading": "2. Implement validate_game.js (Hard Gate)",
-        "body": "A deterministic Node.js script that checks:\n\n• Required constants, functions, and Phaser scenes are present\n• Score is monotonic (never decreases)\n• Game has an overlay, a submit score flow, and a replay button\n• Slug matches the entry in games.json\n• games.json contract fields are all present and valid\n\nIf any check fails → block publish. No exceptions."
+        "body": "A deterministic Node.js script that checks:\n\n\u2022 Required constants, functions, and Phaser scenes are present\n\u2022 Score is monotonic (never decreases)\n\u2022 Game has an overlay, a submit score flow, and a replay button\n\u2022 Slug matches the entry in games.json\n\u2022 games.json contract fields are all present and valid\n\nIf any check fails \u2192 block publish. No exceptions."
       },
       {
         "heading": "3. Playtest Agent Rubric (Soft Gate)",
-        "body": "A separate agent reviews the generated game on 5 categories, each scored 1–5:\n\n• Visuals — does it look good?\n• Gameplay — is the core loop fun?\n• Clarity — can you tell what to do?\n• Stability — does it run without errors?\n• Originality — is it doing something interesting?\n\nFail conditions: any category < 3, OR average < 3.6, OR stability < 4.\n\nA failed rubric auto-generates a targeted repair prompt for the generator. Max 1 repair loop to keep it fast."
+        "body": "A separate agent reviews the generated game on 5 categories, each scored 1\u20135:\n\n\u2022 Visuals \u2014 does it look good?\n\u2022 Gameplay \u2014 is the core loop fun?\n\u2022 Clarity \u2014 can you tell what to do?\n\u2022 Stability \u2014 does it run without errors?\n\u2022 Originality \u2014 is it doing something interesting?\n\nFail conditions: any category < 3, OR average < 3.6, OR stability < 4.\n\nA failed rubric auto-generates a targeted repair prompt for the generator. Max 1 repair loop to keep it fast."
       },
       {
         "heading": "4. Refactor Skill Structure",
-        "body": "No behavior changes — just organization. Split the monolithic SKILL.md into:\n\n• SKILL.md → slim orchestrator/router instructions only\n• references/ → design philosophy, visual themes, difficulty curve, scoring rules\n• scripts/ → validate_game.js and other tooling\n\nGoal: agents can load only the parts they need. Reduces prompt bloat and makes the skill easier to maintain."
+        "body": "No behavior changes \u2014 just organization. Split the monolithic SKILL.md into:\n\n\u2022 SKILL.md \u2192 slim orchestrator/router instructions only\n\u2022 references/ \u2192 design philosophy, visual themes, difficulty curve, scoring rules\n\u2022 scripts/ \u2192 validate_game.js and other tooling\n\nGoal: agents can load only the parts they need. Reduces prompt bloat and makes the skill easier to maintain."
       },
       {
         "heading": "5. Rating UI + Worker Endpoints",
-        "body": "Let humans rate games after playing:\n\n• Per-category rating (1–5) + optional comment\n• Submit via Cloudflare Worker\n• Display aggregate ratings on game cards and the game hub\n• Anti-spam / rate limiting on the Worker side\n\nThis gives real feedback to complement the agent rubric."
+        "body": "Let humans rate games after playing:\n\n\u2022 Per-category rating (1\u20135) + optional comment\n\u2022 Submit via Cloudflare Worker\n\u2022 Display aggregate ratings on game cards and the game hub\n\u2022 Anti-spam / rate limiting on the Worker side\n\nThis gives real feedback to complement the agent rubric."
       },
       {
         "heading": "6. Rating Export Into Repo",
-        "body": "Persist ratings so they survive Worker deploys:\n\n• Snapshot JSON committed on a daily schedule\n• Dated history files for trend analysis\n• Summary markdown for quick human review\n\nKeeps the data version-controlled and auditable."
+        "body": "Persist ratings so they survive Worker deploys:\n\n\u2022 Snapshot JSON committed on a daily schedule\n\u2022 Dated history files for trend analysis\n\u2022 Summary markdown for quick human review\n\nKeeps the data version-controlled and auditable."
       },
       {
         "heading": "Priority Update (2026-02-22)",
@@ -214,7 +214,7 @@
     "title": "Backend Direction: Move from Worker Persistence to Supabase",
     "date": "2026-02-22",
     "author": "Codex Gamehub",
-    "summary": "Decision: switch to client → Supabase direct for leaderboard/ratings to maximize prototyping speed and simplify growth. No legacy score migration.",
+    "summary": "Decision: switch to client \u2192 Supabase direct for leaderboard/ratings to maximize prototyping speed and simplify growth. No legacy score migration.",
     "tags": [
       "backend",
       "supabase",
@@ -228,11 +228,11 @@
       },
       {
         "heading": "Tradeoffs",
-        "body": "Cloudflare Worker persistence:\n• Pros: already deployed\n• Cons: free-tier write constraints and weaker long-term fit for richer persistence\n\nFirestore:\n• Pros: solid managed platform\n• Cons: less natural for SQL-style leaderboard/rating analytics\n\nSupabase:\n• Pros: rapid prototyping, straightforward relational model, SQL for rankings/aggregates, easy future auth path\n• Cons: requires clean RLS setup"
+        "body": "Cloudflare Worker persistence:\n\u2022 Pros: already deployed\n\u2022 Cons: free-tier write constraints and weaker long-term fit for richer persistence\n\nFirestore:\n\u2022 Pros: solid managed platform\n\u2022 Cons: less natural for SQL-style leaderboard/rating analytics\n\nSupabase:\n\u2022 Pros: rapid prototyping, straightforward relational model, SQL for rankings/aggregates, easy future auth path\n\u2022 Cons: requires clean RLS setup"
       },
       {
         "heading": "Decision",
-        "body": "Choose Supabase now.\n\nArchitecture: start with direct client → Supabase access (with RLS), and add a custom API later only if anti-cheat/business logic needs it.\n\nWe will not migrate old Worker scores; start fresh."
+        "body": "Choose Supabase now.\n\nArchitecture: start with direct client \u2192 Supabase access (with RLS), and add a custom API later only if anti-cheat/business logic needs it.\n\nWe will not migrate old Worker scores; start fresh."
       },
       {
         "heading": "Concise migration plan",
@@ -240,7 +240,7 @@
       },
       {
         "heading": "Next actions",
-        "body": "• Create Supabase project + env config\n• Implement minimal tables + indexes\n• Update game template integration\n• Validate leaderboard/rating flows in production\n• Remove Worker persistence dependency from templates"
+        "body": "\u2022 Create Supabase project + env config\n\u2022 Implement minimal tables + indexes\n\u2022 Update game template integration\n\u2022 Validate leaderboard/rating flows in production\n\u2022 Remove Worker persistence dependency from templates"
       }
     ],
     "implementationStatus": "not-started",
@@ -266,11 +266,11 @@
       },
       {
         "heading": "Captured Decisions",
-        "body": "• Start with one Linear workspace.\n• Start with a single Linear team for now (same two operators + spawned workers).\n• Explicit Discord requests can create tasks immediately (no second approval).\n• If agent wants to create tasks without explicit request, ask first.\n• Routing uses labels + project/epic context (team split deferred).\n• Agents should manage most status movement.\n• No dedicated intake triage at v1."
+        "body": "\u2022 Start with one Linear workspace.\n\u2022 Start with a single Linear team for now (same two operators + spawned workers).\n\u2022 Explicit Discord requests can create tasks immediately (no second approval).\n\u2022 If agent wants to create tasks without explicit request, ask first.\n\u2022 Routing uses labels + project/epic context (team split deferred).\n\u2022 Agents should manage most status movement.\n\u2022 No dedicated intake triage at v1."
       },
       {
         "heading": "Workspace Schema (v1)",
-        "body": "Team: GH (single team for v1).\n\nLabels:\n• source:discord | source:planning | source:automation\n• exec:agent | exec:human | exec:hybrid\n• agent:gamegen | agent:core | agent:ops\n• lane:gamegen | lane:core | lane:ops\n• kind:epic | kind:task | kind:bug | kind:research\n\nStructure:\n• Use Projects/Epics for strategic grouping and architecture tracks.\n• Use labels for routing/ownership lanes.\n• Keep one shared status model across all work.\n\nIssue conventions: owner target, acceptance criteria, priority (P0-P3), automation allowed (yes/no)."
+        "body": "Team: GH (single team for v1).\n\nLabels:\n\u2022 source:discord | source:planning | source:automation\n\u2022 exec:agent | exec:human | exec:hybrid\n\u2022 agent:gamegen | agent:core | agent:ops\n\u2022 lane:gamegen | lane:core | lane:ops\n\u2022 kind:epic | kind:task | kind:bug | kind:research\n\nStructure:\n\u2022 Use Projects/Epics for strategic grouping and architecture tracks.\n\u2022 Use labels for routing/ownership lanes.\n\u2022 Keep one shared status model across all work.\n\nIssue conventions: owner target, acceptance criteria, priority (P0-P3), automation allowed (yes/no)."
       },
       {
         "heading": "Execution Flow",
@@ -290,6 +290,77 @@
       }
     ],
     "implementationStatus": "not-started",
+    "taskTrackerStatus": "not-converted"
+  },
+  {
+    "id": "morning-standup-capture-and-post-v1",
+    "title": "Morning Standup Updates: 6AM Capture + 7AM Messenger (Low-Token, Deterministic)",
+    "date": "2026-02-23",
+    "author": "Codex Gamehub",
+    "summary": "Replace flaky fan-out orchestration with deterministic two-phase cron design: section capture jobs at 6:00/6:10/6:20 with idempotent success checks, then a 7:00 messenger job that reads artifacts and posts one formatted Discord update.",
+    "tags": [
+      "operations",
+      "cron",
+      "standup",
+      "discord",
+      "linear",
+      "reliability"
+    ],
+    "sections": [
+      {
+        "heading": "Goal",
+        "body": "Publish one reliable, concise morning update in #morning-standup while minimizing token use and avoiding non-deterministic inter-session handoff behavior."
+      },
+      {
+        "heading": "Design Principles",
+        "body": "1) Deterministic over clever: each job has one purpose and clear inputs/outputs.\n2) Idempotent capture: if a section already succeeded for the day, skip rework.\n3) Low-token by default: retrieve only latest needed data and summarize tersely.\n4) Fail-soft posting: messenger always posts at 7:00 with explicit missing-section notes."
+      },
+      {
+        "heading": "Data Sources (fixed)",
+        "body": "\u2022 Janitor summary source: Discord channel `1475309759300239380` (latest relevant messages only).\n\u2022 Bug scanner source: Discord channel `1475384413801021542` (latest relevant messages only).\n\u2022 Work planning source: live Linear state for completed-yesterday + recommended-next + stale/blocked >3d."
+      },
+      {
+        "heading": "Execution Model",
+        "body": "Phase A (Capture): three isolated section jobs run at 6:00, 6:10, 6:20 AM PT.\nPhase B (Publish): one messenger job runs at 7:00 AM PT, reads section artifacts, and posts one formatted digest to #morning-standup (`1475524028080066640`).\nNo extra orchestrator layer is required."
+      },
+      {
+        "heading": "Capture Jobs (6:00 / 6:10 / 6:20)",
+        "body": "Use either one generic capture job with a section argument or three section-specific jobs; each run must:\n1) Compute PT date key (YYYY-MM-DD).\n2) Check section artifact status first; if already `success`, exit with NO_REPLY.\n3) Retrieve section data from its source.\n4) Write compact JSON artifact with status + payload + attempt metadata.\n5) On retrieval/parsing error, write `failed` with reason code and leave next retry window available."
+      },
+      {
+        "heading": "Retry Strategy (lazy + deterministic)",
+        "body": "\u2022 Retry schedule is time-based, not model-driven: attempts at 6:00, 6:10, 6:20.\n\u2022 Retry only sections not already marked success for the day.\n\u2022 Hard cap: max 3 attempts per section/day.\n\u2022 Reason codes (minimal set): `source_read_error`, `parse_error`, `timeout`, `empty_result`."
+      },
+      {
+        "heading": "Artifact Contract",
+        "body": "Artifact dir: `/home/mattc/.openclaw/workspace-codex-gamehub/.openclaw/morning-digest/`\nFiles (per PT day):\n- `YYYY-MM-DD-janitor.json`\n- `YYYY-MM-DD-bugscanner.json`\n- `YYYY-MM-DD-linear.json`\nSuggested JSON schema: `{ section, dateKey, status, attemptCount, lastAttemptAt, reasonCode, summary, bullets[] }`\nOnly the messenger reads these files for publication."
+      },
+      {
+        "heading": "Messenger Job (7:00)",
+        "body": "At 7:00 AM PT:\n1) Read the three artifacts for current date key.\n2) Build one Discord-ready message with fixed section order.\n3) If any section missing/failed, include concise fallback line (e.g., `Bug scanner: unavailable (timeout after 3 attempts)`).\n4) Post exactly once to channel `1475524028080066640`.\n5) No secondary channel posting."
+      },
+      {
+        "heading": "Discord Output Format",
+        "body": "**GameHub Morning Update \u2014 YYYY-MM-DD**\n\u2022 **Janitor / Criticals:** <1-line summary>\n  - <0-3 bullets>\n\u2022 **Bug Scanner:** <1-line summary>\n  - <0-3 bullets>\n\u2022 **Yesterday Completed (Linear):** <count + short bullets>\n\u2022 **Today Focus:**\n  1) <priority task>\n  2) <priority task>\n  3) <priority task>\n\u2022 **Stale/Blocked (>3d):** <short bullets or `none`>"
+      },
+      {
+        "heading": "Token Minimization Tactics",
+        "body": "\u2022 Read bounded message counts from janitor/bug channels (latest N only).\n\u2022 Prefer short bullet extraction over narrative generation.\n\u2022 Avoid cross-session chatter and polling loops.\n\u2022 Skip successful sections in retry windows.\n\u2022 Keep messenger formatting logic static with lightweight substitutions."
+      },
+      {
+        "heading": "Reliability and Determinism Notes",
+        "body": "\u2022 Determinism comes from artifact gating + fixed schedule, not agent memory.\n\u2022 Publish job is independent from capture execution path and always runs.\n\u2022 A missing section cannot block the final morning update."
+      },
+      {
+        "heading": "Rollout Plan (safe)",
+        "body": "1) Implement artifact schema + write paths.\n2) Implement one section end-to-end (janitor) and test retries.\n3) Add bug scanner + linear sections.\n4) Implement messenger formatting/posting.\n5) Run one dry day with manual triggers; then enable scheduled runs."
+      },
+      {
+        "heading": "Task Decomposition Guidance",
+        "body": "Suggested future subagent tasks:\nA) Artifact library + date-key helper\nB) Janitor capture job\nC) Bug scanner capture job\nD) Linear capture job (yesterday done + today next + stale)\nE) Messenger formatter/poster\nF) Cron wiring + smoke checklist"
+      }
+    ],
+    "implementationStatus": "draft",
     "taskTrackerStatus": "not-converted"
   }
 ]
