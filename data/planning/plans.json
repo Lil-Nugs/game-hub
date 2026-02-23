@@ -1,5 +1,59 @@
 [
   {
+    "id": "batch-sequencer-skill-v1",
+    "title": "Batch Sequencer Skill (General Subagent Orchestration) - Draft",
+    "date": "2026-02-22",
+    "author": "Codex Gamehub",
+    "summary": "General-purpose skill spec for executing user-requested batches of Linear tasks via subagents with sequential/windowed modes, guardrails, retries, and evidence-based completion.",
+    "tags": [
+      "skills",
+      "orchestration",
+      "subagents",
+      "linear",
+      "automation"
+    ],
+    "sections": [
+      {
+        "heading": "Goal",
+        "body": "Create a reusable skill that can run a user-specified set of tasks as a controlled batch, using subagents while preventing concurrency drift and state desync."
+      },
+      {
+        "heading": "Inputs",
+        "body": "Required: project/repo path, task set (explicit IDs or range), execution mode (`sequential` or `windowed`), max concurrency, acceptance checklist, and reporting channel. Optional: allowed labels/lane filter, retry policy, blocked timeout, model overrides."
+      },
+      {
+        "heading": "Execution Modes",
+        "body": "Sequential mode (default): exactly one task active at a time.\nWindowed mode: up to N active tasks, where N is explicit and bounded.\nBoth modes must enforce issue-lock checks before spawn."
+      },
+      {
+        "heading": "Core Workflow",
+        "body": "1) Resolve candidate tasks from input set.\n2) Validate each task is eligible (state + required labels + ownership lane).\n3) For each selected task: spawn one subagent (`sessions_spawn`) with bounded instructions.\n4) Wait for completion signal; collect evidence (commit/hash/check output).\n5) Update Linear notes/state only if acceptance criteria pass.\n6) Continue until batch complete or blocked threshold reached."
+      },
+      {
+        "heading": "Guardrails (Required)",
+        "body": "• Never start a task already in-progress by another worker.\n• In sequential mode, if any batch issue is in-progress, do not start another.\n• Require commit/check evidence before Done.\n• Enforce required label schema before pickup (`source:*`, `lane:*`, `kind:*`, `exec:*`, `agent:*` as applicable).\n• If ambiguous state/conflict, escalate instead of mutating."
+      },
+      {
+        "heading": "Retry + Escalation Policy",
+        "body": "Per-task retry budget (default 1-2 repair attempts). On failure after retries: set Blocked/comment blocker reason and continue or halt based on user mode. Escalate hard blockers to designated channel with actionable next step."
+      },
+      {
+        "heading": "Output Contract",
+        "body": "Each run produces:\n1) machine-readable run artifact (`batch-run-report.json`)\n2) concise channel summary (started/completed/blocked)\n3) Linear evidence updates per touched issue.\nSummary includes task IDs, outcomes, commit links, and unresolved blockers."
+      },
+      {
+        "heading": "Minimal v1 Deliverables",
+        "body": "1) Skill spec + trigger guidance.\n2) Standardized orchestrator prompt template.\n3) Reusable subagent task prompt template.\n4) Example command patterns for sequential and windowed batches.\n5) Checklist for safe adoption in new projects."
+      },
+      {
+        "heading": "Open Decisions",
+        "body": "1) Default halt behavior on first blocker (halt vs continue).\n2) Whether windowed mode is allowed by default or opt-in only.\n3) Whether reporting channel is per-run input or fixed project config.\n4) Whether parent epic auto-close is enabled by default."
+      }
+    ],
+    "implementationStatus": "draft",
+    "taskTrackerStatus": "not-converted"
+  },
+  {
     "id": "janitor-sync-v1",
     "title": "Janitor Sync Architecture (Cron-First + Heartbeat Assist)",
     "date": "2026-02-22",
