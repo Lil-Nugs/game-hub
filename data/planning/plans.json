@@ -31,7 +31,7 @@
       },
       {
         "heading": "Guardrails (Required)",
-        "body": "• Never start a task already in-progress by another worker.\n• In sequential mode, if any batch issue is in-progress, do not start another.\n• Require commit/check evidence before Done.\n• Enforce required label schema before pickup (`source:*`, `lane:*`, `kind:*`, `exec:*`, `agent:*` as applicable).\n• If ambiguous state/conflict, escalate instead of mutating."
+        "body": "• Never start a task already in-progress by another worker.\n• In sequential mode, if any batch issue is in-progress, do not start another.\n• Require commit/check evidence before Done.\n• Enforce required label schema before pickup (`source:*`, `lane:*`, `kind:*`, `exec:*`, `agent:*` as applicable).\n• If ambiguous state/conflict, escalate instead of mutating.\n• Scheduler must compute dependency in-degree from Linear relations and only start nodes with in-degree=0."
       },
       {
         "heading": "Retry + Escalation Policy",
@@ -48,6 +48,10 @@
       {
         "heading": "Open Decisions",
         "body": "1) Default halt behavior on first blocker (halt vs continue).\n2) Whether windowed mode is allowed by default or opt-in only.\n3) Whether reporting channel is per-run input or fixed project config.\n4) Whether parent epic auto-close is enabled by default."
+      },
+      {
+        "heading": "Dependency Scheduling Rule (DAG)",
+        "body": "Task selection must use dependency graph in-degree: only pick tasks with unresolved blocker count (in-degree) = 0. Use Linear `blocked by` relations as graph edges. Tasks with in-degree > 0 are blocked and cannot be started. In windowed mode, schedule from the in-degree=0 frontier only."
       }
     ],
     "implementationStatus": "draft",

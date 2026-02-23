@@ -72,6 +72,20 @@ Severity is attached per check result, not per run.
 
 ---
 
+## Dependency Graph Scheduling Rule (Required)
+
+Treat task dependencies as a DAG over Linear issue relations (`blocked by` edges into a node).
+
+- **in-degree** for an issue = count of unresolved blockers (`blocked by` issues not in completed state).
+- A task is **schedulable** only when:
+  1) `in-degree = 0`, and
+  2) dependency label is `dep:ready` (or no dependency label exists yet and rule-based inference marks it ready).
+- If `in-degree > 0`, task must be labeled `dep:blocked` and must not move to In Progress.
+- Optional `dep:critical-path` can prioritize among multiple `in-degree=0` tasks.
+
+Reconciliation requirement:
+- Janitor must compute `in-degree` from current Linear relations each run and correct label drift (`dep:ready`/`dep:blocked`) when deterministic.
+
 ## Required Label Policy (Required)
 
 ### Required schema (operational issues)
