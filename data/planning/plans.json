@@ -321,15 +321,15 @@
       },
       {
         "heading": "Execution Model",
-        "body": "Phase A (Capture): three isolated section jobs run at 6:00, 6:10, 6:20 AM PT.\nPhase B (Publish): one messenger job runs at 7:00 AM PT, reads section artifacts, and posts one formatted digest to #morning-standup (`1475524028080066640`).\nNo extra orchestrator layer is required."
+        "body": "Phase A (Capture): exactly THREE isolated capture agents/jobs (one per section) run on the retry windows at 6:00, 6:10, 6:20 AM PT.\n- Agent 1: Janitor capture\n- Agent 2: Bug scanner capture\n- Agent 3: Linear capture\nEach agent owns only its section artifact and never writes others.\nPhase B (Publish): one messenger job runs at 7:00 AM PT, reads the three artifacts, and posts one formatted digest to #morning-standup (`1475524028080066640`).\nNo additional orchestrator layer."
       },
       {
         "heading": "Capture Jobs (6:00 / 6:10 / 6:20)",
-        "body": "Use either one generic capture job with a section argument or three section-specific jobs; each run must:\n1) Compute PT date key (YYYY-MM-DD).\n2) Check section artifact status first; if already `success`, exit with NO_REPLY.\n3) Retrieve section data from its source.\n4) Write compact JSON artifact with status + payload + attempt metadata.\n5) On retrieval/parsing error, write `failed` with reason code and leave next retry window available."
+        "body": "Use THREE section-specific capture jobs (not one generic job):\n\u2022 janitor-capture job\n\u2022 bugscanner-capture job\n\u2022 linear-capture job\nEach job runs at 6:00, 6:10, and 6:20 AM PT and must:\n1) Compute PT date key (YYYY-MM-DD).\n2) Check its own section artifact first; if already `success`, exit with NO_REPLY.\n3) Retrieve only its scoped data source.\n4) Write compact JSON artifact with status + payload + attempt metadata.\n5) On retrieval/parsing error, write `failed` with reason code and allow next retry window."
       },
       {
         "heading": "Retry Strategy (lazy + deterministic)",
-        "body": "\u2022 Retry schedule is time-based, not model-driven: attempts at 6:00, 6:10, 6:20.\n\u2022 Retry only sections not already marked success for the day.\n\u2022 Hard cap: max 3 attempts per section/day.\n\u2022 Reason codes (minimal set): `source_read_error`, `parse_error`, `timeout`, `empty_result`."
+        "body": "\u2022 Retry schedule is time-based and deterministic: each of the 3 capture jobs runs at 6:00, 6:10, 6:20.\n\u2022 Jobs retry only if their own section is not already `success` for the day.\n\u2022 Hard cap: max 3 attempts per section/day.\n\u2022 Reason codes (minimal set): `source_read_error`, `parse_error`, `timeout`, `empty_result`."
       },
       {
         "heading": "Artifact Contract",
