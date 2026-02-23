@@ -1,0 +1,68 @@
+{
+  "issues": [
+    {
+      "id": "I-100",
+      "identifier": "GAM-100",
+      "state": { "name": "In Progress", "type": "started" },
+      "labels": ["source:automation", "lane:ops", "kind:task", "exec:agent", "agent:ops"],
+      "childIds": ["I-101", "I-102"]
+    },
+    {
+      "id": "I-101",
+      "identifier": "GAM-101",
+      "state": { "name": "Done", "type": "completed" },
+      "labels": ["source:automation", "lane:ops", "kind:task", "exec:agent", "agent:ops"]
+    },
+    {
+      "id": "I-102",
+      "identifier": "GAM-102",
+      "state": { "name": "Done", "type": "completed" },
+      "labels": ["source:automation", "lane:ops", "kind:task", "exec:agent", "agent:ops"]
+    },
+    {
+      "id": "I-110",
+      "identifier": "GAM-110",
+      "state": { "name": "Done", "type": "completed" },
+      "labels": ["source:automation", "lane:ops", "kind:task", "exec:agent", "agent:ops"],
+      "childIds": ["I-111", "I-112"]
+    },
+    {
+      "id": "I-111",
+      "identifier": "GAM-111",
+      "state": { "name": "In Progress", "type": "started" },
+      "labels": ["source:automation", "lane:ops", "kind:task", "exec:agent", "agent:ops"]
+    },
+    {
+      "id": "I-112",
+      "identifier": "GAM-112",
+      "state": { "name": "Backlog", "type": "backlog" },
+      "labels": ["source:automation", "lane:ops", "kind:task", "exec:agent", "agent:ops"]
+    },
+    {
+      "id": "I-120",
+      "identifier": "GAM-120",
+      "state": { "name": "Backlog", "type": "backlog" },
+      "labels": ["lane:ops", "kind:task", "exec:agent"],
+      "childIds": ["I-121"]
+    },
+    {
+      "id": "I-121",
+      "identifier": "GAM-121",
+      "state": { "name": "In Progress", "type": "started" },
+      "labels": ["source:automation", "lane:ops", "kind:task", "exec:agent", "agent:ops"]
+    },
+    {
+      "id": "I-130",
+      "identifier": "GAM-130",
+      "state": { "name": "Todo", "type": "unstarted" },
+      "labels": ["source:automation", "lane:ops", "lane:core", "kind:task", "exec:hybrid", "agent:ops"]
+    },
+    {
+      "id": "I-140",
+      "identifier": "GAM-140",
+      "state": { "name": "Todo", "type": "unstarted" },
+      "labels": ["source:automation", "lane:ops", "kind:task"],
+      "childIds": []
+    }
+  ]
+}
