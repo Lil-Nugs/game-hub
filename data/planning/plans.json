@@ -316,8 +316,12 @@
         "body": "1) Deterministic over clever: each job has one purpose and clear inputs/outputs.\n2) Idempotent capture: if a section already succeeded for the day, skip rework.\n3) Low-token by default: retrieve only latest needed data and summarize tersely.\n4) Fail-soft posting: messenger always posts at 7:00 with explicit missing-section notes."
       },
       {
+        "heading": "Locked Acceptance Gates",
+        "body": "1) Artifact schema locked to required fields + enums defined in Artifact Contract.\n2) Linear query bounds locked: yesterday completed = Done transitions in previous PT day; stale = >72h since update.\n3) Discord read bound locked: N=20 messages max per channel per attempt.\n4) Messenger fallback wording locked as defined in Messenger Job (7:00)."
+      },
+      {
         "heading": "Data Sources (fixed)",
-        "body": "\u2022 Janitor summary source: Discord channel `1475309759300239380` (latest relevant messages only).\n\u2022 Bug scanner source: Discord channel `1475384413801021542` (latest relevant messages only).\n\u2022 Work planning source: live Linear state for completed-yesterday + recommended-next + stale/blocked >3d."
+        "body": "\u2022 Janitor summary source: Discord channel `1475309759300239380` (latest relevant messages only).\n\u2022 Bug scanner source: Discord channel `1475384413801021542` (latest relevant messages only).\n\u2022 Work planning source: live Linear state for completed-yesterday + recommended-next + stale/blocked >3d.\n\u2022 Locked Discord read bound: each capture reads at most latest `N=20` messages from its channel per attempt."
       },
       {
         "heading": "Execution Model",
@@ -329,15 +333,15 @@
       },
       {
         "heading": "Retry Strategy (lazy + deterministic)",
-        "body": "\u2022 Retry schedule is time-based and deterministic: each of the 3 capture jobs runs at 6:00, 6:10, 6:20.\n\u2022 Jobs retry only if their own section is not already `success` for the day.\n\u2022 Hard cap: max 3 attempts per section/day.\n\u2022 Reason codes (minimal set): `source_read_error`, `parse_error`, `timeout`, `empty_result`."
+        "body": "\u2022 Retry schedule is time-based and deterministic: each of the 3 capture jobs runs at 6:00, 6:10, 6:20.\n\u2022 Jobs retry only if their own section is not already `success` for the day.\n\u2022 Hard cap: max 3 attempts per section/day.\n\u2022 Reason codes (minimal set): `source_read_error`, `parse_error`, `timeout`, `empty_result`.\n\u2022 Attempt windows are locked per source:\n  - Janitor/Bug scanner: latest 20 messages each attempt\n  - Linear completed-yesterday: issues transitioned to Done between PT 00:00-23:59 previous day\n  - Linear stale: In Progress/Backlog items with no update >72h"
       },
       {
         "heading": "Artifact Contract",
-        "body": "Artifact dir: `/home/mattc/.openclaw/workspace-codex-gamehub/.openclaw/morning-digest/`\nFiles (per PT day):\n- `YYYY-MM-DD-janitor.json`\n- `YYYY-MM-DD-bugscanner.json`\n- `YYYY-MM-DD-linear.json`\nSuggested JSON schema: `{ section, dateKey, status, attemptCount, lastAttemptAt, reasonCode, summary, bullets[] }`\nOnly the messenger reads these files for publication."
+        "body": "Artifact dir: `/home/mattc/.openclaw/workspace-codex-gamehub/.openclaw/morning-digest/`\nFiles (per PT day):\n- `YYYY-MM-DD-janitor.json`\n- `YYYY-MM-DD-bugscanner.json`\n- `YYYY-MM-DD-linear.json`\n\nLocked schema (required fields):\n`{ section, dateKey, status, attemptCount, lastAttemptAt, reasonCode, summary, bullets, sourceWindow }`\n- `section`: `janitor|bugscanner|linear`\n- `dateKey`: PT date `YYYY-MM-DD`\n- `status`: `success|failed`\n- `attemptCount`: integer 1..3\n- `lastAttemptAt`: ISO timestamp\n- `reasonCode`: `none|source_read_error|parse_error|timeout|empty_result`\n- `summary`: short string (<=160 chars)\n- `bullets`: array of short strings (0..5)\n- `sourceWindow`: short descriptor of what was read (e.g. `last20messages`, `yesterday_pt`)\n\nValidation rule: messenger treats missing required fields as `failed` with reason `parse_error`."
       },
       {
         "heading": "Messenger Job (7:00)",
-        "body": "At 7:00 AM PT:\n1) Read the three artifacts for current date key.\n2) Build one Discord-ready message with fixed section order.\n3) If any section missing/failed, include concise fallback line (e.g., `Bug scanner: unavailable (timeout after 3 attempts)`).\n4) Post exactly once to channel `1475524028080066640`.\n5) No secondary channel posting."
+        "body": "At 7:00 AM PT:\n1) Read the three artifacts for current date key.\n2) Build one Discord-ready message with fixed section order.\n3) Degraded behavior is locked:\n   - Missing file -> `Section unavailable (missing artifact after 3 attempts)`\n   - Failed file -> `Section unavailable (<reasonCode> after <attemptCount> attempts)`\n   - Invalid schema -> `Section unavailable (parse_error after <attemptCount> attempts)`\n4) Post exactly once to channel `1475524028080066640`.\n5) No secondary channel posting."
       },
       {
         "heading": "Discord Output Format",
