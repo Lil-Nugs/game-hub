@@ -1,5 +1,55 @@
 [
   {
+    "id": "janitor-sync-v1",
+    "title": "Janitor Sync Architecture (Cron-First + Heartbeat Assist)",
+    "date": "2026-02-22",
+    "author": "Codex Gamehub",
+    "summary": "Define a durable anti-drift janitor system where cron scripts are source-of-truth for reconciliation and heartbeat remains optional triage commentary.",
+    "tags": [
+      "operations",
+      "janitor",
+      "sync",
+      "linear",
+      "planning"
+    ],
+    "sections": [
+      {
+        "heading": "Goal",
+        "body": "Eliminate status/plan/routing drift across Linear, repo planning docs, and agent execution by introducing a deterministic janitor-sync loop."
+      },
+      {
+        "heading": "Operating Model",
+        "body": "Primary: cron-driven script(s) with strict checks and safe auto-fixes. Secondary: heartbeat prompt for summarization, prioritization, and escalation text only. Heartbeat is not source of truth."
+      },
+      {
+        "heading": "Scope of Checks (v1)",
+        "body": "1) Linear parent/child status consistency\n2) Linear done-vs-backlog mismatch against recent delivery evidence\n3) Required label schema validation (`source:*`, `lane:*`, `kind:*`, `exec:*`, `agent:*` where applicable)\n4) `data/planning/plans.json` implementationStatus/taskTrackerStatus reconciliation\n5) Stale In Progress issues timeout checks with blocker tagging"
+      },
+      {
+        "heading": "Auto-fix Policy",
+        "body": "Auto-fix only low-risk deterministic cases: close parent when all children done, add missing required labels from inferred lane/project defaults, update plan status fields from Linear majority signal. Any ambiguous case opens/updates a drift report issue instead of mutating state."
+      },
+      {
+        "heading": "Cadence",
+        "body": "Run janitor cron every 30–60 minutes. Generate one concise drift report artifact each run: no-op (clean) or actionable mismatches grouped by severity."
+      },
+      {
+        "heading": "Observability",
+        "body": "Persist run logs to repo-local state (`memory/heartbeat-state.json` or dedicated janitor log), include: run id, checks run, fixes applied, unresolved alerts, and links to affected Linear issues."
+      },
+      {
+        "heading": "Acceptance Criteria",
+        "body": "• Zero parent/child mismatch older than 24h\n• Zero completed implementation left in Backlog for >24h\n• Plan status fields never stale beyond one janitor interval\n• 100% of new operational issues contain required labels"
+      },
+      {
+        "heading": "Task Breakdown",
+        "body": "Implementation tasks are tracked in Linear under Long-Term Planning / GAM-7 epic."
+      }
+    ],
+    "implementationStatus": "in-progress",
+    "taskTrackerStatus": "in-progress"
+  },
+  {
     "id": "game-ratings-rollout-v1",
     "title": "Game Ratings Rollout Plan (Supabase + Existing Games)",
     "date": "2026-02-22",
