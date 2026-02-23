@@ -45,6 +45,16 @@ data/planning/
 
 If you're an agent reading this — this planning area is not for you. Use Linear for task tracking.
 
+## Janitor scope (so agents don't over-read)
+
+Janitor automation in this repo is operational glue for planning/task hygiene:
+
+- `scripts/janitor/check-linear-drift.mjs` → detects Linear parent/child + label drift
+- `scripts/janitor/reconcile-plans-status.mjs` → syncs `plans.json` status fields from mapped Linear issues
+- `scripts/janitor/run-all.mjs` → runs the janitor pipeline and writes machine-readable logs
+
+If your assignment is to build or edit games, you should generally skip janitor docs/scripts unless the task explicitly says janitor/planning/Linear sync.
+
 ## Data Formats
 
 ### `meta.json`

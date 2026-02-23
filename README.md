@@ -96,6 +96,15 @@ Agents must include the Hub back-link in every game:
 
 See `AGENTS.md` for the full game generation spec.
 
+### Agent routing note (important)
+
+If your task is **game generation** (create/update a playable game), you can ignore janitor internals.
+
+- Use: `AGENTS.md`, `games.json`, `games/{slug}/index.html`, `shared/` (if needed for ratings/leaderboard integration)
+- Ignore unless explicitly asked: `scripts/janitor/`, `docs/janitor/`, and janitor plan sync details in `data/planning/`
+
+Janitor exists for planning/task-state reconciliation and operational reporting — it is not part of normal game creation flow.
+
 ---
 
 ## Stack
