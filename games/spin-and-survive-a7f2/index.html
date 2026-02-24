@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Spin &amp; Survive</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d0520; display: flex; justify-content: center; align-items: center;
+         height: 100vh; overflow: hidden; touch-action: none; }
+  #ui-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    display: none; justify-content: center; align-items: center;
+    z-index: 10; background: rgba(0,0,0,0.88);
+    font-family: 'Fredoka One', sans-serif; flex-direction: column; color: #fff;
+  }
+  #ui-overlay.active { display: flex; }
+  #game-over-box {
+    background: linear-gradient(135deg, #2d1060, #0d1f6e);
+    border: 3px solid #ff6b35; border-radius: 20px;
+    padding: 36px; max-width: 440px; width: 90%;
+    text-align: center; box-shadow: 0 0 40px rgba(255,107,53,0.4);
+    max-height: 90vh; overflow-y: auto;
+  }
+  #game-over-box h1 { font-size: 2.4em; color: #ff6b35; margin-bottom: 4px; }
+  #game-over-box .subtitle { color: #aaa; font-size: 1em; margin-bottom: 16px; }
+  #final-score { font-size: 3em; color: #ffd700; margin: 12px 0; }
+  #name-input {
+    width: 100%; padding: 12px 16px; font-size: 1.2em;
+    font-family: 'Fredoka One', sans-serif;
+    background: rgba(255,255,255,0.1); border: 2px solid #ff6b35;
+    border-radius: 10px; color: #fff; text-align: center;
+    margin: 10px 0; outline: none;
+  }
+  .btn {
+    background: linear-gradient(135deg, #ff6b35, #ff3300);
+    color: #fff; border: none; padding: 12px 24px;
+    font-size: 1.1em; font-family: 'Fredoka One', sans-serif;
+    border-radius: 10px; cursor: pointer; margin: 5px 4px;
+    transition: transform 0.1s; box-shadow: 0 4px 15px rgba(255,107,53,0.4);
+  }
+  .btn:hover { transform: scale(1.05); }
+  .btn:disabled { opacity: 0.6; cursor: default; transform: none; }
+  .btn.secondary { background: rgba(255,255,255,0.12); border: 2px solid #aaa; box-shadow: none; }
+  #leaderboard { margin: 12px 0; text-align: left; }
+  #leaderboard h3 { color: #ffd700; margin-bottom: 8px; font-size: 1em; }
+  .lb-row { display: flex; justify-content: space-between; padding: 4px 0;
+            font-size: 0.9em; border-bottom: 1px solid rgba(255,255,255,0.1); }
+  .lb-rank { color: #ff6b35; width: 28px; }
+  .lb-name { flex: 1; padding-left: 6px; }
+  .lb-score { color: #ffd700; }
+  .lb-you { background: rgba(255,215,0,0.12); border-radius: 4px; padding: 2px 4px; }
+</style>
+</head>
+<body>
+<div id="ui-overlay">
+  <div id="game-over-box">
+    <h1>📻 OFF AIR</h1>
+    <p class="subtitle">The crowd voted you out!</p>
+    <div id="final-score">0</div>
+    <p style="color:#aaa;font-size:0.82em;margin-bottom:10px">Enter your DJ name for the leaderboard</p>
+    <input id="name-input" type="text" maxlength="20" placeholder="DJ Anonymous" />
+    <div>
+      <button class="btn" id="submit-btn" onclick="handleSubmit()">🎙️ Submit Score</button>
+    </div>
+    <div id="leaderboard"></div>
+    <button class="btn secondary" onclick="handleReplay()">🔄 Back on Air</button>
+  </div>
+</div>
+
+<script>
+/*
+  DESIGN HEADER: Spin & Survive — DJ Approval Survival Game
+  ============================================================
+  Concept:  You are a live radio DJ. AI listeners each have genre preferences.
+            Play music genre cards to keep crowd approval above 0% or get voted off.
+
+  Controls: Mouse click / touch tap on music genre cards (bottom of screen).
+
+  Core loop: Every few seconds you must pick one of 3 genre cards to play.
+             Each listener has 1-2 favourite genres; they thumbs-up (like) or
+             thumbs-down (dislike) your pick. Their votes shift the Approval meter.
+             Approval also decays continuously over time.
+  Death:    Approval hits 0% → crowd votes you off. Game over.
+
+  Hazards / challenges:
+    1. Approval decay:  meter drains continuously, rate increases over 120 s
+    2. Pickier listeners: after 40 s listeners narrow to a single favourite genre
+    3. Card timer: you have N seconds to pick or lose 15% approval; N shrinks from 5→2.5 s
+    4. More listeners: crowd grows from 4 → 7 over time (harder to satisfy all)
+
+  Pickups / risk-reward:
+    1. BANGER card  (15% chance): 60% all listeners love it (+25 approval) or hate it (−25)
+    2. SAFE PLAY    (15% chance): everyone mildly happy regardless (+5 approval, no risk)
+
+  Scoring: score = Math.floor(timeAlive * 10 + bonusPoints)
+           Bonus: +50 per "full crowd" (all listeners 👍 on non-safe pick)
+
+  Difficulty ramp:  time-based lerp over 120 seconds
+    - approvalDecayRate:   0.08 → 0.3 per 100 ms tick
+    - cardTimerMax:        5 s → 2.5 s
+    - listenerFavWidth:    2 genres → 1 genre (at elapsed > 40 s)
+    - listenerCount:       4 → 7 (refreshed every 30 s)
+
+  Visual:   Warm purple-indigo radio booth, orange/gold accents, Fredoka One font.
+            Floating vinyl records in background. VU-meter approval bar (green→red).
+
+  Audio:    Web Audio API, warm piano-ish tones.
+            sfxCardPick → ascending notes; sfxCrowdLove → chime burst;
+            sfxCrowdBoo → descending sawtooth; sfxDeath → pitch-dive scratch;
+            sfxTick → high click for last-3-seconds countdown.
+
+  Art:      Listeners drawn as procedural head circles with emoji avatars.
+            Genre cards: rounded rects with genre-colour borders + emoji icons.
+            Timer bar at bottom changes green→yellow→red.
+*/
+
+const GAME_ID = 'spin-and-survive-a7f2';
+const SUPABASE_URL = 'https://lecyuhectrddtbjfyarm.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_gEX7QnQ24XzV6t0eNuWnVQ_ud19UxxJ';
+
+// ─── Audio ────────────────────────────────────────────────────────────────────
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playTone(freq, type, duration, volume, delay) {
+  delay = delay || 0;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, audioCtx.currentTime + delay);
+  gain.gain.setValueAtTime(volume, audioCtx.currentTime + delay);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + delay + duration);
+  osc.start(audioCtx.currentTime + delay);
+  osc.stop(audioCtx.currentTime + delay + duration + 0.01);
+}
+
+function sfxCardPick() {
+  playTone(440, 'sine', 0.08, 0.2);
+  playTone(554, 'sine', 0.08, 0.15, 0.06);
+  playTone(659, 'sine', 0.10, 0.18, 0.12);
+}
+function sfxCrowdLove() {
+  [523, 659, 784, 1047].forEach(function(f,i){ playTone(f, 'sine', 0.14, 0.22, i*0.05); });
+}
+function sfxCrowdBoo() {
+  playTone(250, 'sawtooth', 0.15, 0.28);
+  playTone(150, 'sawtooth', 0.22, 0.22, 0.12);
+  playTone(80, 'square', 0.30, 0.18, 0.24);
+}
+function sfxTick() { playTone(1100, 'triangle', 0.05, 0.12); }
+function sfxDeath() {
+  playTone(440, 'sawtooth', 0.1, 0.4);
+  playTone(350, 'sawtooth', 0.15, 0.35, 0.1);
+  playTone(200, 'sawtooth', 0.30, 0.3, 0.22);
+  playTone(80,  'sawtooth', 0.60, 0.22, 0.44);
+}
+function sfxBanger() {
+  [262,330,392,523,659].forEach(function(f,i){ playTone(f,'sine',0.16,0.28,i*0.06); });
+}
+function sfxSafe() { playTone(660, 'triangle', 0.12, 0.15); }
+
+// ─── Leaderboard ──────────────────────────────────────────────────────────────
+function getClientFingerprint() {
+  var key = 'gamehub.client-fingerprint.v1';
+  var existing = localStorage.getItem(key);
+  if (existing) return existing;
+  var created = (crypto.randomUUID ? crypto.randomUUID() : (Date.now()+'-'+Math.random().toString(36).slice(2)));
+  localStorage.setItem(key, created);
+  return created;
+}
+
+async function supabaseRequest(path, opts) {
+  opts = opts || {};
+  var method = opts.method || 'GET';
+  var body = opts.body;
+  var prefer = opts.prefer;
+  var headers = {
+    apikey: SUPABASE_PUBLISHABLE_KEY,
+    Authorization: 'Bearer ' + SUPABASE_PUBLISHABLE_KEY,
+    'Content-Type': 'application/json'
+  };
+  if (prefer) headers.Prefer = prefer;
+  var res = await fetch(SUPABASE_URL + '/rest/v1' + path, {
+    method: method, headers: headers,
+    body: body ? JSON.stringify(body) : undefined
+  });
+  var text = await res.text();
+  var data = text ? JSON.parse(text) : null;
+  if (!res.ok) throw new Error((data && (data.message || data.error)) || ('Supabase ' + res.status));
+  return data;
+}
+
+async function submitScore(playerName, score) {
+  try {
+    await supabaseRequest('/leaderboard_scores', {
+      method: 'POST', prefer: 'return=minimal',
+      body: {
+        game_slug: GAME_ID,
+        player_name: String(playerName || 'Anonymous').slice(0, 20),
+        score: Math.round(score),
+        client_fingerprint: getClientFingerprint()
+      }
+    });
+    var scores = await getLeaderboard(100);
+    var rank = scores.findIndex(function(r){ return r.playerName === String(playerName||'Anonymous').slice(0,20) && r.score === Math.round(score); }) + 1;
+    return { ok: true, rank: rank > 0 ? rank : null, totalScores: scores.length };
+  } catch(e) { console.warn('Leaderboard unavailable:', e); return null; }
+}
+
+async function getLeaderboard(limit) {
+  limit = limit || 10;
+  try {
+    var rows = await supabaseRequest('/rpc/get_game_leaderboard', {
+      method: 'POST',
+      body: { p_game_slug: GAME_ID, p_limit: Math.min(Math.max(parseInt(limit,10)||10,1),100) }
+    });
+    return (rows||[]).map(function(row){ return { playerName: row.player_name, score: Number(row.score)||0, date: row.created_at }; });
+  } catch(e) { console.warn('Leaderboard unavailable:', e); return []; }
+}
+
+// ─── Game constants ───────────────────────────────────────────────────────────
+var GENRES = [
+  { id:'pop',     label:'POP',     color:0xff6b9d, emoji:'🎤', textColor:'#ff6b9d' },
+  { id:'rock',    label:'ROCK',    color:0xff4757, emoji:'🎸', textColor:'#ff4757' },
+  { id:'edm',     label:'EDM',     color:0x00d2ff, emoji:'🎧', textColor:'#00d2ff' },
+  { id:'hiphop',  label:'HIP-HOP', color:0xffd700, emoji:'🎵', textColor:'#ffd700' },
+  { id:'country', label:'COUNTRY', color:0xf4a460, emoji:'🎻', textColor:'#f4a460' },
+  { id:'jazz',    label:'JAZZ',    color:0xb06be0, emoji:'🎷', textColor:'#b06be0' },
+];
+
+var LISTENER_TYPES = [
+  { name:'Pop Princess', avatar:'👩', favGenres:['pop','country'] },
+  { name:'Rock Head',    avatar:'🤘', favGenres:['rock','country'] },
+  { name:'Club Kid',     avatar:'🕺', favGenres:['edm','hiphop'] },
+  { name:'Old Soul',     avatar:'🎩', favGenres:['jazz','country'] },
+  { name:'Hype Beast',   avatar:'🔥', favGenres:['hiphop','edm'] },
+  { name:'Indie Kid',    avatar:'🌿', favGenres:['rock','jazz'] },
+  { name:'Chart Chaser', avatar:'🌟', favGenres:['pop','hiphop'] },
+];
+
+function lerp(a, b, t) { return a + (b-a)*t; }
+
+var finalScoreValue = 0;
+
+// ─── MenuScene ────────────────────────────────────────────────────────────────
+var MenuScene = new Phaser.Class({
+  Extends: Phaser.Scene,
+  initialize: function MenuScene() { Phaser.Scene.call(this, { key: 'MenuScene' }); },
+
+  create: function() {
+    var w = this.scale.width, h = this.scale.height;
+
+    // BG gradient
+    var bg = this.add.graphics();
+    bg.fillGradientStyle(0x0d0520, 0x0d0520, 0x2d1060, 0x2d1060, 1);
+    bg.fillRect(0,0,w,h);
+
+    // Floating vinyl records
+    for (var i=0; i<10; i++) {
+      var x = Phaser.Math.Between(30, w-30);
+      var y = Phaser.Math.Between(30, h-30);
+      var r = Phaser.Math.Between(18, 52);
+      var alpha = Phaser.Math.FloatBetween(0.06, 0.18);
+      var vg = this.add.graphics();
+      vg.lineStyle(3, 0xff6b35, alpha);
+      vg.strokeCircle(x, y, r);
+      vg.lineStyle(2, 0xff6b35, alpha*0.5);
+      vg.strokeCircle(x, y, r*0.5);
+      vg.fillStyle(0x000000, 0);
+      this.tweens.add({ targets: vg, angle: 360, duration: Phaser.Math.Between(5000,13000), repeat:-1, ease:'Linear' });
+    }
+
+    this.add.text(w/2, h*0.28, '📻', { fontSize:'80px' }).setOrigin(0.5);
+
+    this.add.text(w/2, h*0.43, 'SPIN & SURVIVE', {
+      fontFamily:'"Fredoka One"', fontSize:'54px', color:'#ff6b35',
+      stroke:'#7a1500', strokeThickness:6,
+      shadow:{ offsetX:0, offsetY:0, color:'#ff6b35', blur:24, fill:true }
+    }).setOrigin(0.5);
+
+    this.add.text(w/2, h*0.53, 'Read the room. Play the right music. Stay on air.', {
+      fontFamily:'"Fredoka One"', fontSize:'17px', color:'#ffcba4'
+    }).setOrigin(0.5);
+
+    var instrs = [
+      '🎵 Pick a music genre card every few seconds',
+      '👥 Each listener has favourite genres — match them!',
+      '💀 Let approval hit 0% and you get voted off',
+      '⏱️ Pick before the timer runs out or lose approval',
+      '💥 BANGER = high risk · 🛡️ SAFE PLAY = small steady gain',
+    ];
+    instrs.forEach(function(line, i) {
+      this.add.text(w/2, h*0.63 + i*27, line, {
+        fontFamily:'"Fredoka One"', fontSize:'14px', color:'#c9a0dc'
+      }).setOrigin(0.5);
+    }, this);
+
+    var startTxt = this.add.text(w/2, h*0.90, '🎙️  TAP TO GO ON AIR  🎙️', {
+      fontFamily:'"Fredoka One"', fontSize:'22px', color:'#ffd700',
+      stroke:'#886600', strokeThickness:3
+    }).setOrigin(0.5);
+    this.tweens.add({ targets:startTxt, alpha:0.2, yoyo:true, repeat:-1, duration:700, ease:'Sine.easeInOut' });
+
+    this.input.once('pointerdown', function() {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      this.scene.start('GameScene');
+    }, this);
+  }
+});
+
+// ─── GameScene ────────────────────────────────────────────────────────────────
+var GameScene = new Phaser.Class({
+  Extends: Phaser.Scene,
+  initialize: function GameScene() { Phaser.Scene.call(this, { key: 'GameScene' }); },
+
+  create: function() {
+    var w = this.scale.width, h = this.scale.height;
+
+    // State
+    this.score = 0;
+    this.bonusPoints = 0;
+    this.timeAlive = 0;
+    this.approval = 55;
+    this.gameStartTime = this.time.now;
+    this.isDead = false;
+    this.handCards = [];
+    this.cardObjects = [];
+    this.listenerGroup = [];
+    this.cardTimerVal = 5;
+    this.cardTimerMax = 5;
+    this.cardTimerActive = false;
+    this.lastTickSecond = 5;
+    this._lastListenerRefresh = -1;
+
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+
+    // Background
+    var bgG = this.add.graphics();
+    bgG.fillGradientStyle(0x0d0520, 0x0d0520, 0x1a0840, 0x1a0840, 1);
+    bgG.fillRect(0,0,w,h);
+
+    // Subtle vinyl decorations
+    for (var vi=0; vi<7; vi++) {
+      var vx = Phaser.Math.Between(20, w-20);
+      var vy = Phaser.Math.Between(80, h-130);
+      var vr = Phaser.Math.Between(15, 42);
+      var vg2 = this.add.graphics();
+      vg2.lineStyle(2, 0xff6b35, 0.08);
+      vg2.strokeCircle(0, 0, vr);
+      vg2.lineStyle(1, 0xff6b35, 0.04);
+      vg2.strokeCircle(0, 0, vr*0.5);
+      vg2.setPosition(vx, vy);
+      this.tweens.add({ targets:vg2, angle:360, duration:Phaser.Math.Between(6000,14000), repeat:-1, ease:'Linear' });
+    }
+
+    // ON AIR banner
+    var onAirBg = this.add.graphics();
+    onAirBg.fillStyle(0xcc1100, 1);
+    onAirBg.fillRoundedRect(w/2-56, 7, 112, 30, 8);
+    var onAirTxt = this.add.text(w/2, 22, '● ON AIR', {
+      fontFamily:'"Fredoka One"', fontSize:'15px', color:'#fff'
+    }).setOrigin(0.5);
+    this.tweens.add({ targets:[onAirBg, onAirTxt], alpha:0.35, yoyo:true, repeat:-1, duration:900 });
+
+    // Approval label
+    this.add.text(16, 46, 'APPROVAL', {
+      fontFamily:'"Fredoka One"', fontSize:'12px', color:'#ff6b35'
+    });
+    this.approvalPct = this.add.text(w-16, 44, '55%', {
+      fontFamily:'"Fredoka One"', fontSize:'19px', color:'#ffd700'
+    }).setOrigin(1, 0);
+
+    // Meter BG
+    this.add.graphics().fillStyle(0x333333, 1).fillRoundedRect(16, 60, w-32, 16, 8);
+    this.meterFill = this.add.graphics();
+    this.drawMeter();
+
+    // Score
+    this.scoreTxt = this.add.text(16, 80, 'SCORE: 0', {
+      fontFamily:'"Fredoka One"', fontSize:'15px', color:'#c9a0dc'
+    });
+
+    // Card area background
+    this.add.graphics().fillStyle(0x000000, 0.35).fillRoundedRect(8, h-155, w-16, 150, 10);
+    this.add.text(w/2, h-162, 'PICK A TRACK ↓', {
+      fontFamily:'"Fredoka One"', fontSize:'12px', color:'#888'
+    }).setOrigin(0.5);
+
+    // Timer bar BG
+    this.add.graphics().fillStyle(0x222222, 1).fillRoundedRect(8, h-14, w-16, 10, 5);
+    this.cardTimerBar = this.add.graphics();
+
+    // Spawn listeners
+    this.spawnListeners();
+
+    // Deal first hand
+    this.time.delayedCall(400, this.dealHand, [], this);
+
+    // Approval decay every 100ms
+    this.time.addEvent({ delay:100, callback:this.tickDecay, callbackScope:this, loop:true });
+  },
+
+  drawMeter: function() {
+    var w = this.scale.width;
+    var pct = this.approval / 100;
+    var mw = (w-32) * Math.max(0, pct);
+    // Color: green→yellow→red
+    var r = Math.round(lerp(0, 255, 1 - pct));
+    var g2 = Math.round(lerp(255, 0, Math.max(0, (pct - 0.5)*2)));
+    var col = ((r & 0xFF) << 16) | ((g2 & 0xFF) << 8) | 0x22;
+    this.meterFill.clear();
+    if (mw > 2) {
+      this.meterFill.fillStyle(col, 1);
+      this.meterFill.fillRoundedRect(16, 60, mw, 16, 8);
+    }
+  },
+
+  spawnListeners: function() {
+    var w = this.scale.width;
+    var elapsed = (this.time.now - this.gameStartTime) / 1000;
+    var diff = Math.min(elapsed / 120, 1);
+    var count = Math.min(7, Math.floor(lerp(4, 7, diff)));
+
+    // Destroy old
+    this.listenerGroup.forEach(function(l){ if (l.container) l.container.destroy(); });
+    this.listenerGroup = [];
+
+    var listenerY = 188;
+    var spread = Math.min(w - 80, 680);
+    var startX = (w - spread) / 2 + (count > 1 ? 0 : spread/2);
+    var spacing = count > 1 ? spread / (count - 1) : 0;
+
+    for (var i=0; i<count; i++) {
+      var type = LISTENER_TYPES[i % LISTENER_TYPES.length];
+      var cx = startX + i * spacing;
+      var container = this.add.container(cx, listenerY);
+
+      // Head bg circle
+      var head = this.add.graphics();
+      head.fillStyle(0x2d1060, 1);
+      head.lineStyle(3, 0xff6b35, 0.55);
+      head.fillCircle(0, 0, 26);
+      head.strokeCircle(0, 0, 26);
+
+      // Avatar emoji
+      var avatar = this.add.text(0, 1, type.avatar, { fontSize:'24px' }).setOrigin(0.5);
+
+      // Name
+      var nameT = this.add.text(0, 36, type.name, {
+        fontFamily:'"Fredoka One"', fontSize:'10px', color:'#ddd'
+      }).setOrigin(0.5);
+
+      // Genre preference badges
+      var favs = this.getListenerFavs(type, diff);
+      var badgeCont = this.add.container(0, 54);
+      favs.forEach(function(gid, bi) {
+        var genre = GENRES.find(function(g){ return g.id===gid; });
+        if (!genre) return;
+        var bx = (bi - (favs.length-1)/2) * 26;
+        var badge = this.add.graphics();
+        badge.fillStyle(genre.color, 0.75);
+        badge.fillRoundedRect(bx-11, -7, 22, 14, 4);
+        var bTxt = this.add.text(bx, 0, genre.emoji, { fontSize:'10px' }).setOrigin(0.5);
+        badgeCont.add([badge, bTxt]);
+      }, this);
+
+      // Mood
+      var moodT = this.add.text(0, -36, '😐', { fontSize:'15px' }).setOrigin(0.5);
+
+      container.add([head, avatar, nameT, badgeCont, moodT]);
+
+      this.listenerGroup.push({ type:type, container:container, moodT:moodT, favs:favs, mood:0 });
+    }
+  },
+
+  getListenerFavs: function(type, diff) {
+    if (diff < 0.33) return type.favGenres.slice(); // both genres
+    return [type.favGenres[0]]; // pickier
+  },
+
+  dealHand: function() {
+    if (this.isDead) return;
+
+    // Clear old cards
+    this.cardObjects.forEach(function(c){ c.container.destroy(); });
+    this.cardObjects = [];
+
+    var w = this.scale.width, h = this.scale.height;
+    var elapsed = (this.time.now - this.gameStartTime) / 1000;
+    var diff = Math.min(elapsed / 120, 1);
+
+    // Pick 3 distinct genres
+    var pool = Phaser.Utils.Array.Shuffle(GENRES.slice());
+    var hand = pool.slice(0, 3);
+
+    // Possible special cards
+    if (Math.random() < 0.15) hand[2] = { id:'banger', label:'BANGER', color:0xff00ff, emoji:'💥', textColor:'#ff00ff', isBanger:true };
+    if (Math.random() < 0.15) hand[0] = { id:'safe', label:'SAFE PLAY', color:0x00ff88, emoji:'🛡️', textColor:'#00ff88', isSafe:true };
+
+    this.handCards = hand;
+
+    // Card timer
+    this.cardTimerMax = lerp(5, 2.5, diff);
+    this.cardTimerVal = this.cardTimerMax;
+    this.cardTimerActive = true;
+    this.lastTickSecond = Math.ceil(this.cardTimerMax);
+
+    // Layout cards
+    var cardW = 105, cardH = 95;
+    var totalW = (hand.length - 1) * 120;
+    var startX = w/2 - totalW/2;
+
+    hand.forEach(function(genre, i) {
+      var cx = startX + i * 120;
+      var cy = h - 82;
+      var cont = this.add.container(cx, cy + 50);
+      cont.setAlpha(0);
+
+      var bg = this.add.graphics();
+      bg.fillStyle(0x1a0840, 1);
+      bg.lineStyle(3, genre.color, 0.85);
+      bg.fillRoundedRect(-cardW/2, -cardH/2, cardW, cardH, 12);
+      bg.strokeRoundedRect(-cardW/2, -cardH/2, cardW, cardH, 12);
+
+      var icon = this.add.text(0, -12, genre.emoji, { fontSize:'28px' }).setOrigin(0.5);
+      var lbl = this.add.text(0, 24, genre.label, {
+        fontFamily:'"Fredoka One"', fontSize:'12px', color:genre.textColor
+      }).setOrigin(0.5);
+
+      cont.add([bg, icon, lbl]);
+      cont.setInteractive(new Phaser.Geom.Rectangle(-cardW/2, -cardH/2, cardW, cardH), Phaser.Geom.Rectangle.Contains);
+
+      var self = this;
+      cont.on('pointerover', function() {
+        self.tweens.add({ targets:cont, scaleX:1.08, scaleY:1.08, duration:80 });
+        bg.clear();
+        bg.fillStyle(genre.color, 0.12);
+        bg.lineStyle(3, genre.color, 1);
+        bg.fillRoundedRect(-cardW/2, -cardH/2, cardW, cardH, 12);
+        bg.strokeRoundedRect(-cardW/2, -cardH/2, cardW, cardH, 12);
+      });
+      cont.on('pointerout', function() {
+        self.tweens.add({ targets:cont, scaleX:1, scaleY:1, duration:80 });
+        bg.clear();
+        bg.fillStyle(0x1a0840, 1);
+        bg.lineStyle(3, genre.color, 0.85);
+        bg.fillRoundedRect(-cardW/2, -cardH/2, cardW, cardH, 12);
+        bg.strokeRoundedRect(-cardW/2, -cardH/2, cardW, cardH, 12);
+      });
+      cont.on('pointerdown', function() { self.playCard(genre, cont); });
+
+      this.tweens.add({ targets:cont, alpha:1, y:cy, duration:220, delay:i*65, ease:'Back.easeOut' });
+
+      this.cardObjects.push({ genre:genre, container:cont });
+    }, this);
+  },
+
+  playCard: function(genre, clickedCont) {
+    if (this.isDead || !this.cardTimerActive) return;
+    this.cardTimerActive = false;
+
+    sfxCardPick();
+
+    var w = this.scale.width, h = this.scale.height;
+    this.tweens.add({ targets:clickedCont, x:w/2, y:h/2, scaleX:1.5, scaleY:1.5, alpha:0, duration:380, ease:'Power2',
+      onComplete: function() { clickedCont.destroy(); }
+    });
+    this.cardObjects.forEach(function(c) {
+      if (c.container !== clickedCont) {
+        this.tweens.add({ targets:c.container, alpha:0, duration:180,
+          onComplete: function() { c.container.destroy(); }
+        });
+      }
+    }, this);
+    this.cardObjects = [];
+
+    this.time.delayedCall(360, function() { this.evaluateCrowd(genre); }, [], this);
+  },
+
+  evaluateCrowd: function(genre) {
+    if (this.isDead) return;
+    var w = this.scale.width;
+    var likes = 0, dislikes = 0;
+
+    this.listenerGroup.forEach(function(l) {
+      var liked = false;
+      if (genre.isBanger) {
+        liked = Math.random() < 0.6;
+      } else if (genre.isSafe) {
+        liked = true;
+      } else {
+        liked = l.favs.indexOf(genre.id) >= 0;
+      }
+
+      if (liked) { likes++; l.mood = 1; l.moodT.setText('😄'); }
+      else { dislikes++; l.mood = -1; l.moodT.setText('😤'); }
+
+      // Floating vote emoji
+      var lx = l.container.x, ly = l.container.y;
+      var vt = this.add.text(lx, ly - 44, liked ? '👍' : '👎', { fontSize:'22px' }).setOrigin(0.5).setDepth(5);
+      this.tweens.add({ targets:vt, y:ly - 90, alpha:0, duration:950, ease:'Power2',
+        onComplete: function() { vt.destroy(); }
+      });
+    }, this);
+
+    var total = this.listenerGroup.length;
+    var likeRatio = likes / total;
+    var change = 0;
+
+    if (genre.isSafe) {
+      change = 5;
+      sfxSafe();
+    } else if (genre.isBanger) {
+      if (likeRatio >= 0.5) { change = 22; sfxBanger(); }
+      else { change = -26; sfxCrowdBoo(); }
+    } else {
+      change = lerp(-18, 22, likeRatio);
+      if (likeRatio >= 0.5) sfxCrowdLove();
+      else sfxCrowdBoo();
+    }
+
+    // Bonus: full crowd loves it
+    if (likes === total && !genre.isSafe) {
+      this.bonusPoints += 50;
+      this.showPopup(w/2, this.scale.height/2 - 50, '🎉 CROWD GOES WILD! +50', '#ffd700', 26);
+    }
+
+    this.approval = Math.min(100, Math.max(0, this.approval + change));
+    this.drawMeter();
+    this.approvalPct.setText(Math.round(this.approval) + '%');
+
+    if (this.approval <= 0) { this.triggerDeath(); return; }
+
+    // Reset moods
+    this.time.delayedCall(1300, function() {
+      if (!this.isDead) this.listenerGroup.forEach(function(l){ l.mood=0; l.moodT.setText('😐'); });
+    }, [], this);
+
+    // Next hand
+    this.time.delayedCall(1500, function() {
+      if (!this.isDead) this.dealHand();
+    }, [], this);
+  },
+
+  tickDecay: function() {
+    if (this.isDead) return;
+    var elapsed = (this.time.now - this.gameStartTime) / 1000;
+    var diff = Math.min(elapsed / 120, 1);
+    var rate = lerp(0.08, 0.30, diff); // per 100ms
+    this.approval = Math.max(0, this.approval - rate);
+    this.drawMeter();
+    this.approvalPct.setText(Math.round(this.approval) + '%');
+    if (this.approval <= 0) this.triggerDeath();
+  },
+
+  update: function(time, delta) {
+    if (this.isDead) return;
+    var dt = delta / 16.667;
+    var elapsed = (time - this.gameStartTime) / 1000;
+    this.timeAlive = elapsed;
+    this.score = Math.floor(this.timeAlive * 10 + this.bonusPoints);
+    this.scoreTxt.setText('SCORE: ' + this.score);
+
+    // Card timer countdown
+    if (this.cardTimerActive) {
+      this.cardTimerVal -= delta / 1000;
+
+      var s = Math.ceil(this.cardTimerVal);
+      if (s !== this.lastTickSecond && this.cardTimerVal < 3.5) {
+        sfxTick();
+        this.lastTickSecond = s;
+      }
+
+      if (this.cardTimerVal <= 0) {
+        this.cardTimerActive = false;
+        this.approval = Math.max(0, this.approval - 16);
+        this.drawMeter();
+        this.approvalPct.setText(Math.round(this.approval) + '%');
+        this.cameras.main.shake(160, 0.006);
+        this.showPopup(this.scale.width/2, this.scale.height/2 - 30, '⏰ TOO SLOW! −16%', '#ff4757', 24);
+        sfxCrowdBoo();
+
+        if (this.approval <= 0) { this.triggerDeath(); return; }
+
+        this.cardObjects.forEach(function(c){
+          this.tweens.add({ targets:c.container, alpha:0, duration:200,
+            onComplete: function(){ c.container.destroy(); }
+          });
+        }, this);
+        this.cardObjects = [];
+        this.time.delayedCall(650, function(){ if (!this.isDead) this.dealHand(); }, [], this);
+      }
+
+      // Draw timer bar
+      var h = this.scale.height, ww = this.scale.width;
+      var ratio = Math.max(0, this.cardTimerVal / this.cardTimerMax);
+      var tcol = ratio > 0.5 ? 0x00ff88 : (ratio > 0.25 ? 0xffd700 : 0xff4757);
+      this.cardTimerBar.clear();
+      if (ratio > 0) {
+        this.cardTimerBar.fillStyle(tcol, 1);
+        this.cardTimerBar.fillRoundedRect(8, h-14, (ww-16)*ratio, 10, 5);
+      }
+    }
+
+    // Periodic listener refresh (every 30s)
+    var refreshMark = Math.floor(elapsed / 30);
+    if (refreshMark > 0 && refreshMark !== this._lastListenerRefresh && elapsed > 30) {
+      this._lastListenerRefresh = refreshMark;
+      this.spawnListeners();
+    }
+  },
+
+  showPopup: function(x, y, text, color, size) {
+    var t = this.add.text(x, y, text, {
+      fontFamily:'"Fredoka One"', fontSize:(size||20)+'px',
+      color:color, stroke:'#000', strokeThickness:4
+    }).setOrigin(0.5).setDepth(10);
+    this.tweens.add({ targets:t, y:y-65, alpha:0, duration:1300, ease:'Power2',
+      onComplete: function(){ t.destroy(); }
+    });
+  },
+
+  triggerDeath: function() {
+    if (this.isDead) return;
+    this.isDead = true;
+    this.cardTimerActive = false;
+
+    sfxDeath();
+    this.cameras.main.shake(450, 0.016);
+    this.cameras.main.flash(700, 200, 0, 0);
+
+    this.listenerGroup.forEach(function(l){ l.moodT.setText('😡'); });
+    this.cardObjects.forEach(function(c){
+      this.tweens.add({ targets:c.container, alpha:0, duration:280,
+        onComplete: function(){ c.container.destroy(); }
+      });
+    }, this);
+    this.cardObjects = [];
+
+    finalScoreValue = Math.floor(this.timeAlive * 10 + this.bonusPoints);
+
+    this.time.delayedCall(650, function() {
+      this.scene.pause();
+      showGameOverUI(finalScoreValue);
+    }, [], this);
+  }
+});
+
+// ─── Game Over UI ─────────────────────────────────────────────────────────────
+function showGameOverUI(score) {
+  document.getElementById('final-score').textContent = score.toLocaleString();
+  document.getElementById('ui-overlay').classList.add('active');
+  document.getElementById('leaderboard').innerHTML = '';
+  var btn = document.getElementById('submit-btn');
+  btn.textContent = '🎙️ Submit Score';
+  btn.disabled = false;
+  setTimeout(function(){ document.getElementById('name-input').focus(); }, 100);
+}
+
+async function handleSubmit() {
+  var nameEl = document.getElementById('name-input');
+  var name = nameEl.value.trim() || 'DJ Anonymous';
+  var btn = document.getElementById('submit-btn');
+  btn.textContent = '📡 Submitting...';
+  btn.disabled = true;
+
+  var result = await submitScore(name, finalScoreValue);
+  var scores = await getLeaderboard(10);
+
+  var lb = document.getElementById('leaderboard');
+  var html = '';
+  if (result && result.rank) {
+    html += '<p style="color:#ffd700;margin:10px 0;font-size:0.95em">🎖️ You ranked #'+result.rank+' of '+result.totalScores+'!</p>';
+  }
+  if (scores.length > 0) {
+    html += '<div style="margin-top:10px"><h3>🏆 TOP DJs</h3>';
+    var safeName = String(name).slice(0,20);
+    scores.forEach(function(s, i) {
+      var isYou = s.playerName === safeName && s.score === Math.round(finalScoreValue);
+      html += '<div class="lb-row'+(isYou?' lb-you':'')+'"><span class="lb-rank">#'+(i+1)+'</span><span class="lb-name">'+s.playerName+'</span><span class="lb-score">'+s.score.toLocaleString()+'</span></div>';
+    });
+    html += '</div>';
+  }
+  lb.innerHTML = html;
+  btn.textContent = '✅ Score Submitted!';
+}
+
+function handleReplay() {
+  document.getElementById('ui-overlay').classList.remove('active');
+  var scene = game.scene.getScene('GameScene');
+  if (scene) {
+    if (scene.scene.isPaused()) scene.scene.resume();
+    scene.scene.restart();
+  }
+}
+
+// ─── Phaser Config ────────────────────────────────────────────────────────────
+var config = {
+  type: Phaser.AUTO,
+  width: 800,
+  height: 600,
+  backgroundColor: '#0d0520',
+  physics: { default:'arcade', arcade:{ gravity:{ y:0 }, debug:false } },
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: [MenuScene, GameScene]
+};
+
+var game = new Phaser.Game(config);
+</script>
+</body>
+</html>

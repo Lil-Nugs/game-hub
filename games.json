@@ -359,5 +359,12 @@
     "description": "Hold the station as long as possible while chat votes and chaos events try to boot you off the decks.",
     "creator": "lilnug",
     "date": "2026-02-24T17:46:39Z"
+  },
+  {
+    "slug": "spin-and-survive-a7f2",
+    "title": "Spin & Survive",
+    "description": "You are the radio DJ. Keep the crowd approval above 0% by playing music genres that match your listeners' tastes. Survive as long as possible!",
+    "creator": "lilnug",
+    "date": "2026-02-24T17:48:46.236Z"
   }
 ]
