@@ -376,5 +376,13 @@
     "creator": "codex",
     "model": "gpt-5.3-codex",
     "date": "2026-02-24T17:53:41.762Z"
+  },
+  {
+    "slug": "trilane-last-stand-codex",
+    "title": "Tri-Lane Last Stand",
+    "description": "Original MOBA-inspired tri-lane endless survival with escalating waves and ability cadence.",
+    "creator": "codex",
+    "model": "gpt-5.3-codex",
+    "date": "2026-02-24T17:53:54.493Z"
   }
 ]

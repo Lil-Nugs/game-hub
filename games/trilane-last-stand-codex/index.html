@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
+  <title>Tri-Lane Last Stand</title>
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#08111f;color:#e7f2ff;font-family:Inter,Segoe UI,system-ui,sans-serif;overflow:hidden;touch-action:none}
+    #game{width:100vw;height:100vh}
+    #hud{position:fixed;top:10px;right:10px;z-index:5;width:min(360px,45vw);padding:10px;border-radius:12px;background:rgba(2,10,24,.76);border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(5px);font-size:13px}
+    #hud b{color:#fff}
+    #board{max-height:130px;overflow:auto;margin-top:6px;line-height:1.35}
+    #board li{margin-left:18px}
+    #over{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.6);z-index:10}
+    #card{width:min(420px,92vw);background:#0e1a32;border:1px solid rgba(255,255,255,.2);border-radius:14px;padding:16px}
+    #card .row{display:flex;gap:8px;margin-top:10px}
+    input,button{border-radius:8px;border:1px solid rgba(255,255,255,.26);background:rgba(255,255,255,.1);color:#fff;padding:9px 10px;font-weight:600}
+    input{flex:1}
+    button{cursor:pointer}
+    #touch{position:fixed;left:0;right:0;bottom:10px;display:flex;justify-content:space-between;padding:0 14px;z-index:6;pointer-events:none}
+    .pad{display:flex;gap:10px;pointer-events:auto}
+    .t{width:62px;height:62px;border-radius:50%;background:rgba(8,23,50,.6);color:#fff;border:1px solid rgba(255,255,255,.3);font-size:21px;font-weight:800}
+    .t:active,.t.active{background:rgba(126,201,255,.45)}
+  </style>
+</head>
+<body>
+<div id="game"></div>
+<div id="hud">
+  <div><b>Tri-Lane Last Stand</b> — Endless MOBA-style survival</div>
+  <div id="stats" style="margin-top:6px">Loading...</div>
+  <div style="margin-top:6px">Abilities: Dash <b>Shift/K</b>, Shock Nova <b>J</b>, Volley <b>L</b></div>
+  <div style="margin-top:6px">Global Leaderboard</div>
+  <ol id="board"></ol>
+</div>
+<div id="over"><div id="card"><h2>Defeat</h2><div id="final">Score: 0</div><div class="row"><input id="name" maxlength="20" value="Player"/><button id="submit">Submit</button><button id="restart">Restart</button></div><div id="msg" style="margin-top:8px;font-size:12px;opacity:.9"></div></div></div>
+<div id="touch">
+  <div class="pad"><button class="t" id="left">◀</button><button class="t" id="right">▶</button><button class="t" id="up">▲</button><button class="t" id="down">▼</button></div>
+  <div class="pad"><button class="t" id="nova">N</button><button class="t" id="dash">D</button><button class="t" id="volley">V</button></div>
+</div>
+<script>
+const GAME_ID='trilane-last-stand-codex';
+const SUPABASE_URL='https://lecyuhectrddtbjfyarm.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY='sb_publishable_gEX7QnQ24XzV6t0eNuWnVQ_ud19UxxJ';
+
+let latestScore=0;
+let sceneRef=null;
+
+class TriLane extends Phaser.Scene{
+  constructor(){super('TriLane')}
+  create(){
+    sceneRef=this;
+    this.w=1200;this.h=720;
+    this.world.setBounds(0,0,this.w,this.h);
+    this.cameras.main.setBounds(0,0,this.w,this.h);
+    this.timeAlive=0;this.score=0;this.dead=false;
+    this.baseHP=100;this.enemyCoreHP=100;
+    this.wave=1;this.nextWaveAt=0;this.waveGap=9000;
+    this.cool={dash:0,nova:0,volley:0};
+
+    this.add.rectangle(this.w/2,this.h/2,this.w,this.h,0x101a2f);
+    const lanes=[170,360,550];
+    this.lanes=lanes;
+    lanes.forEach((y,i)=>{
+      this.add.rectangle(this.w/2,y,this.w-80,120,0x162747,0.58).setStrokeStyle(2,0x35588e,0.7);
+      this.add.text(28,y-48,['TOP','MID','BOT'][i],{font:'16px monospace',color:'#8ec3ff'});
+    });
+
+    this.leftTower=this.add.rectangle(110,360,42,290,0x2f9558).setStrokeStyle(2,0xa8ffd0);
+    this.rightTower=this.add.rectangle(this.w-110,360,42,290,0x9a2e3b).setStrokeStyle(2,0xffc2c9);
+    this.add.text(72,52,'ALLY CORE',{font:'15px monospace',color:'#baffd0'});
+    this.add.text(this.w-196,52,'ENEMY CORE',{font:'15px monospace',color:'#ffd0d3'});
+
+    this.units=this.physics.add.group();
+    this.projectiles=this.physics.add.group();
+
+    this.hero=this.add.circle(240,360,18,0x79d8ff);
+    this.physics.add.existing(this.hero);
+    this.hero.body.setCollideWorldBounds(true);
+    this.hero.body.setDamping(true);this.hero.body.setDrag(0.91);this.hero.body.setMaxVelocity(300);
+    this.heroHP=8;
+
+    this.spawnWave(true);
+    this.time.addEvent({delay:800,loop:true,callback:()=>this.spawnSkirmish()});
+
+    this.keys=this.input.keyboard.addKeys({left:'A',right:'D',up:'W',down:'S',dash:'SHIFT',nova:'J',volley:'L'});
+    this.arrow=this.input.keyboard.createCursorKeys();
+
+    this.touch={left:false,right:false,up:false,down:false,dash:false,nova:false,volley:false,dashJust:false,novaJust:false,volleyJust:false};
+    const bind=(id,key)=>{const el=document.getElementById(id);const dn=()=>{this.touch[key]=true;if(key==='dash'||key==='nova'||key==='volley')this.touch[key+'Just']=true;el.classList.add('active')};const up=()=>{this.touch[key]=false;el.classList.remove('active')};el.addEventListener('pointerdown',dn);el.addEventListener('pointerup',up);el.addEventListener('pointerleave',up);el.addEventListener('pointercancel',up)};
+    [['left','left'],['right','right'],['up','up'],['down','down'],['dash','dash'],['nova','nova'],['volley','volley']].forEach(([a,b])=>bind(a,b));
+
+    this.physics.add.overlap(this.units,this.units,(a,b)=>this.resolveUnitClash(a,b));
+    this.physics.add.overlap(this.projectiles,this.units,(p,u)=>this.hitByProjectile(p,u));
+
+    this.statsEl=document.getElementById('stats');
+  }
+
+  spawnWave(initial=false){
+    const n=initial?3:Math.min(11,3+Math.floor(this.wave*0.7));
+    for(let li=0;li<3;li++){
+      const y=this.lanes[li];
+      for(let i=0;i<n;i++){
+        this.spawnUnit('ally',y,170-i*18,'minion');
+        this.spawnUnit('enemy',y,this.w-170+i*18,(Math.random()<0.2+this.wave*0.01)?'brute':'minion');
+      }
+    }
+    if(!initial) this.wave++;
+  }
+
+  spawnSkirmish(){
+    if(this.dead) return;
+    if(this.time.now>=this.nextWaveAt){this.spawnWave();this.nextWaveAt=this.time.now+Math.max(2800,this.waveGap-this.wave*180)}
+    if(Math.random()<0.45){
+      const y=Phaser.Utils.Array.GetRandom(this.lanes);
+      this.spawnUnit('enemy',this.w-160,y,'raider');
+    }
+  }
+
+  spawnUnit(team,x,y,type){
+    const c=team==='ally'?0x72e8a0:0xff7b8c;
+    const size=type==='brute'?15:type==='raider'?10:8;
+    const u=this.add.circle(x,y,size,c);
+    this.physics.add.existing(u);
+    u.body.allowGravity=false;
+    u.body.setMaxVelocity(170,0);
+    const hp=type==='brute'?6:type==='raider'?2:3;
+    u.setDataEnabled();
+    u.setData({team,type,hp,lane:y,atk:0,speed:(team==='ally'?1:-1)*(type==='brute'?40:type==='raider'?120:70),dmg:type==='brute'?2:1,score:type==='brute'?20:type==='raider'?8:5});
+    this.units.add(u);
+    return u;
+  }
+
+  resolveUnitClash(a,b){
+    if(!a.active||!b.active||a===b) return;
+    const ta=a.getData('team'),tb=b.getData('team');
+    if(ta===tb) return;
+    const now=this.time.now;
+    if((a.getData('atk')||0)>now||(b.getData('atk')||0)>now) return;
+    a.setData('atk',now+420);b.setData('atk',now+420);
+    a.setData('hp',a.getData('hp')-b.getData('dmg'));
+    b.setData('hp',b.getData('hp')-a.getData('dmg'));
+    if(a.getData('hp')<=0) this.killUnit(a,b.getData('team')==='ally');
+    if(b.getData('hp')<=0) this.killUnit(b,a.getData('team')==='ally');
+  }
+
+  killUnit(u,byAlly){
+    if(!u?.active) return;
+    if(byAlly) this.score+=u.getData('score')||1;
+    const puff=this.add.circle(u.x,u.y,4,0xffffff,0.85);
+    this.tweens.add({targets:puff,alpha:0,scale:2,duration:120,onComplete:()=>puff.destroy()});
+    u.destroy();
+  }
+
+  castNova(){
+    if(this.time.now<this.cool.nova) return;
+    this.cool.nova=this.time.now+5200;
+    const ring=this.add.circle(this.hero.x,this.hero.y,18,0x88ddff,0.2).setStrokeStyle(3,0x9fe8ff,0.8);
+    this.tweens.add({targets:ring,scale:5,alpha:0,duration:260,onComplete:()=>ring.destroy()});
+    this.units.getChildren().forEach(u=>{
+      if(!u.active||u.getData('team')!=='enemy') return;
+      const d=Phaser.Math.Distance.Between(this.hero.x,this.hero.y,u.x,u.y);
+      if(d<170){u.setData('hp',u.getData('hp')-3); if(u.getData('hp')<=0) this.killUnit(u,true);} 
+    });
+  }
+
+  castDash(dx,dy){
+    if(this.time.now<this.cool.dash) return;
+    this.cool.dash=this.time.now+2400;
+    const v=new Phaser.Math.Vector2(dx,dy);
+    if(v.lengthSq()===0) v.set(1,0);
+    v.normalize().scale(520);
+    this.hero.body.setVelocity(v.x,v.y);
+  }
+
+  castVolley(){
+    if(this.time.now<this.cool.volley) return;
+    this.cool.volley=this.time.now+3600;
+    this.lanes.forEach((lane)=>{
+      const p=this.add.rectangle(this.hero.x,this.hero.y,10,4,0xcdf1ff);
+      this.physics.add.existing(p);
+      p.body.allowGravity=false;
+      p.body.setVelocity(430,(lane-this.hero.y)*1.15);
+      p.setDataEnabled();
+      p.setData({team:'ally',dmg:2,pierce:3});
+      this.projectiles.add(p);
+    });
+  }
+
+  hitByProjectile(p,u){
+    if(!p.active||!u.active) return;
+    if(u.getData('team')===p.getData('team')) return;
+    u.setData('hp',u.getData('hp')-(p.getData('dmg')||1));
+    p.setData('pierce',(p.getData('pierce')||0)-1);
+    if(u.getData('hp')<=0) this.killUnit(u,true);
+    if((p.getData('pierce')||0)<0) p.destroy();
+  }
+
+  damageCore(team,dmg){
+    if(team==='ally'){this.baseHP=Math.max(0,this.baseHP-dmg); if(this.baseHP<=0) this.endRun();}
+    else {this.enemyCoreHP=Math.max(0,this.enemyCoreHP-dmg); this.score+=dmg*25;}
+  }
+
+  update(_,dt){
+    if(this.dead) return;
+    this.timeAlive+=dt/1000;
+
+    const l=this.keys.left.isDown||this.arrow.left.isDown||this.touch.left;
+    const r=this.keys.right.isDown||this.arrow.right.isDown||this.touch.right;
+    const u=this.keys.up.isDown||this.arrow.up.isDown||this.touch.up;
+    const d=this.keys.down.isDown||this.arrow.down.isDown||this.touch.down;
+    const move=new Phaser.Math.Vector2((l?-1:0)+(r?1:0),(u?-1:0)+(d?1:0));
+    if(move.lengthSq()>0){move.normalize().scale(180);this.hero.body.setVelocity(Phaser.Math.Linear(this.hero.body.velocity.x,move.x,0.35),Phaser.Math.Linear(this.hero.body.velocity.y,move.y,0.35));}
+
+    const dashJust=Phaser.Input.Keyboard.JustDown(this.keys.dash)||this.touch.dashJust;
+    const novaJust=Phaser.Input.Keyboard.JustDown(this.keys.nova)||this.touch.novaJust;
+    const volleyJust=Phaser.Input.Keyboard.JustDown(this.keys.volley)||this.touch.volleyJust;
+    this.touch.dashJust=this.touch.novaJust=this.touch.volleyJust=false;
+    if(dashJust) this.castDash(move.x||1,move.y);
+    if(novaJust) this.castNova();
+    if(volleyJust) this.castVolley();
+
+    this.units.getChildren().forEach(u=>{
+      if(!u.active) return;
+      const team=u.getData('team');
+      const speed=u.getData('speed');
+      u.body.setVelocity(speed,0);
+      if(team==='enemy'&&Phaser.Math.Distance.Between(u.x,u.y,this.hero.x,this.hero.y)<20){
+        u.destroy(); this.heroHP--; if(this.heroHP<=0) this.endRun();
+      }
+      if(team==='ally'&&u.x>this.w-140){this.damageCore('enemy',1);u.destroy();}
+      if(team==='enemy'&&u.x<140){this.damageCore('ally',1);u.destroy();}
+      if(u.x<-40||u.x>this.w+40) u.destroy();
+    });
+
+    this.projectiles.getChildren().forEach(p=>{if(!p.active) return; if(p.x<-20||p.x>this.w+20||p.y<-20||p.y>this.h+20)p.destroy();});
+
+    const pressure=Math.max(0,100-this.baseHP)+Math.floor(this.wave*2.4);
+    this.score=Math.floor(this.score+dt*0.012+pressure*0.0025);
+    this.statsEl.textContent=`Score ${this.score} | Time ${this.timeAlive.toFixed(1)}s | Wave ${this.wave} | Ally Core ${this.baseHP} | Hero HP ${this.heroHP} | CDs D:${Math.max(0,((this.cool.dash-this.time.now)/1000)).toFixed(1)} N:${Math.max(0,((this.cool.nova-this.time.now)/1000)).toFixed(1)} V:${Math.max(0,((this.cool.volley-this.time.now)/1000)).toFixed(1)}`;
+  }
+
+  endRun(){
+    this.dead=true;
+    latestScore=this.score;
+    document.getElementById('final').textContent=`Score: ${latestScore}`;
+    document.getElementById('msg').textContent='';
+    document.getElementById('over').style.display='flex';
+    refreshLeaderboard();
+  }
+}
+
+new Phaser.Game({
+  type:Phaser.AUTO,parent:'game',width:1200,height:720,backgroundColor:'#0f1d35',
+  physics:{default:'arcade',arcade:{gravity:{y:0},debug:false}},
+  scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},
+  scene:[TriLane]
+});
+
+function getClientFingerprint(){const k='gamehub.client-fingerprint.v1';const v=localStorage.getItem(k);if(v)return v;const n=(crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${Math.random().toString(36).slice(2)}`);localStorage.setItem(k,n);return n;}
+async function supabaseRequest(path,{method='GET',body,prefer}={}){const headers={apikey:SUPABASE_PUBLISHABLE_KEY,Authorization:`Bearer ${SUPABASE_PUBLISHABLE_KEY}`,'Content-Type':'application/json'};if(prefer)headers.Prefer=prefer;const res=await fetch(`${SUPABASE_URL}/rest/v1${path}`,{method,headers,body:body?JSON.stringify(body):undefined});const text=await res.text();const data=text?JSON.parse(text):null;if(!res.ok)throw new Error((data&&(data.message||data.error))||`Supabase ${res.status}`);return data;}
+async function getLeaderboard(limit=10){try{const rows=await supabaseRequest('/rpc/get_game_leaderboard',{method:'POST',body:{p_game_slug:GAME_ID,p_limit:Math.min(Math.max(parseInt(limit,10)||10,1),100)}});return(rows||[]).map(r=>({playerName:r.player_name,score:Number(r.score)||0,date:r.created_at}));}catch(e){console.warn('Leaderboard unavailable',e);return[];}}
+async function submitScore(name,score){try{await supabaseRequest('/leaderboard_scores',{method:'POST',prefer:'return=minimal',body:{game_slug:GAME_ID,player_name:String(name||'Anonymous').slice(0,20),score:Math.round(score),client_fingerprint:getClientFingerprint()}});const scores=await getLeaderboard(100);const rank=scores.findIndex(r=>r.playerName===String(name||'Anonymous').slice(0,20)&&r.score===Math.round(score))+1;return{ok:true,rank:rank>0?rank:null,totalScores:scores.length};}catch(e){console.warn('Submit unavailable',e);return null;}}
+async function refreshLeaderboard(){const el=document.getElementById('board');el.innerHTML='<li>Loading...</li>';const rows=await getLeaderboard(10);el.innerHTML='';if(!rows.length){const li=document.createElement('li');li.textContent='No scores yet — be first.';el.appendChild(li);return;}rows.forEach((r,i)=>{const li=document.createElement('li');li.textContent=`${r.playerName||'anon'} — ${r.score}`;if(i===0)li.style.color='#ffe58f';el.appendChild(li);});}
+document.getElementById('submit').addEventListener('click',async()=>{const n=(document.getElementById('name').value||'Player').trim().slice(0,20)||'Player';const m=document.getElementById('msg');m.textContent='Submitting...';const res=await submitScore(n,latestScore);m.textContent=res?`Submitted${res.rank?` • Rank #${res.rank}`:''}!`:'Submit failed (leaderboard unavailable).';await refreshLeaderboard();});
+document.getElementById('restart').addEventListener('click',()=>{document.getElementById('over').style.display='none';if(sceneRef)sceneRef.scene.restart();});
+refreshLeaderboard();
+</script>
+</body>
+</html>
