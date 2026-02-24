@@ -308,6 +308,10 @@
     ],
     "sections": [
       {
+        "heading": "Disposition (2026-02-24)",
+        "body": "Status: FAILED / DO NOT IMPLEMENT. This approach was retired by explicit owner direction after repeated orchestration friction and unacceptable operational overhead. All related automation cron jobs were removed, related Linear tasks were canceled, and runtime artifacts/prompts were purged. This plan is retained only as historical record and should not be revived without a new approved plan id."
+      },
+      {
         "heading": "Goal",
         "body": "Publish one reliable, concise morning update in #morning-standup while minimizing token use and avoiding non-deterministic inter-session handoff behavior."
       },
@@ -364,7 +368,7 @@
         "body": "Suggested future subagent tasks:\nA) Artifact library + date-key helper\nB) Janitor capture job\nC) Bug scanner capture job\nD) Linear capture job (yesterday done + today next + stale)\nE) Messenger formatter/poster\nF) Cron wiring + smoke checklist"
       }
     ],
-    "implementationStatus": "draft",
-    "taskTrackerStatus": "not-converted"
+    "implementationStatus": "failed",
+    "taskTrackerStatus": "canceled"
   }
 ]
