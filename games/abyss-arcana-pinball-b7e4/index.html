@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>Abyss Arcana Pinball</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#081a2b;display:flex;justify-content:center;align-items:center;height:100vh;overflow:hidden;touch-action:none}
+#ui-overlay,#draft-overlay,#shop-overlay{position:fixed;inset:0;display:none;justify-content:center;align-items:center;background:rgba(2,8,18,.82);z-index:20;font-family:'Orbitron',sans-serif;color:#e7fbff}
+.modal{width:min(92vw,520px);max-height:88vh;overflow:auto;background:linear-gradient(165deg,#0f3552,#143f63);border:2px solid #48cae4;border-radius:14px;padding:18px;box-shadow:0 0 24px rgba(72,202,228,.35)}
+h1,h2{color:#90e0ef;text-align:center}
+p{opacity:.95}
+#final-score{font-size:2.5rem;color:#ffd166;text-align:center;margin:10px 0}
+input{width:100%;padding:10px;border-radius:8px;border:2px solid #48cae4;background:#0a2238;color:#fff;margin:10px 0;font-family:'Orbitron',sans-serif}
+.btn{width:100%;margin:6px 0;padding:11px;border:none;border-radius:8px;background:#00b4d8;color:#052338;font-weight:700;font-family:'Orbitron',sans-serif;cursor:pointer}
+.btn.alt{background:#8ecae6}
+.btn.danger{background:#ff9f6e}
+.row{display:flex;gap:8px}
+.row .btn{flex:1}
+#leaderboard{margin-top:12px;font-size:.9rem}
+.lb{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.14)}
+.choice{background:#0a2942;border:2px solid #48cae4;border-radius:10px;padding:10px;margin-top:8px}
+.shop-item{display:flex;justify-content:space-between;align-items:center;background:#09263c;padding:10px;border-radius:8px;margin-top:8px;border:1px solid #48cae4}
+.small{font-size:.8rem;color:#cde}
+</style>
+</head>
+<body>
+<div id="draft-overlay"><div class="modal"><h2>Choose Arcana Upgrade</h2><p style="text-align:center">Pick 1 of 3 blessings.</p><div id="draft-choices"></div></div></div>
+<div id="shop-overlay"><div class="modal"><h2>Deepwater Shop</h2><p style="text-align:center">Spend Pearls (<span id="shop-currency">0</span>)</p><div id="shop-items"></div><button class="btn alt" onclick="closeShop()">Back to Table</button></div></div>
+<div id="ui-overlay"><div class="modal"><h1>TABLE SUNK</h1><p style="text-align:center">The abyss claimed your orb.</p><div id="final-score">0</div><input id="name-input" maxlength="20" placeholder="Pinball Mage" /><button class="btn" id="submit-btn" onclick="handleSubmit()">Submit Score</button><div id="leaderboard"></div><button class="btn alt" onclick="handleReplay()">Play Again</button></div></div>
+
+<script>
+/*
+DESIGN HEADER — Abyss Arcana Pinball (Ocean/Cool Theme)
+Controls: Left/Right arrows (or A/D) fire flippers; touch left/right screen halves also fire.
+Core loop + death: Keep the orb alive on an endless pinball table while hazards intensify. Orb has Integrity; taking hazard hits or falling through drain hurts. Integrity at 0 = death.
+Hazards: (1) Tidal mines drift and home slightly, damaging on contact. (2) Sweep rays cross horizontally at intervals, forcing timing.
+Pickups/upgrades/risk-reward: Pearls (currency) drop from bumpers/hazards. Draft every 24s: pick 1 of 3 upgrades. Shop (B button/UI) sells powerful items with tradeoffs (more power but more heat, etc.).
+Scoring: monotonic score = Math.floor(timeAlive * 10 + bonusPoints). bonusPoints from hazard clears, bumper combos, and pearl pickups.
+Difficulty: smooth time-based ramp via ease curve over 120s; mine speed/count, ray cadence, drain punish, and hazard density all increase.
+Visual/audio: Ocean palette (#0a1628→#1e3a5f) + Orbitron font, bubbles/parallax; synthesized watery blips, thumps, and death drop.
+*/
+
+const GAME_ID = 'abyss-arcana-pinball-b7e4';
+const SUPABASE_URL = 'https://lecyuhectrddtbjfyarm.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_gEX7QnQ24XzV6t0eNuWnVQ_ud19UxxJ';
+const LEADERBOARD_API = 'https://game-hub-supabase.local';
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function tone(type,freq,dur=.12,vol=.2,slide=1){ if(audioCtx.state==='suspended') audioCtx.resume(); const o=audioCtx.createOscillator(),g=audioCtx.createGain(); o.type=type; o.frequency.setValueAtTime(freq,audioCtx.currentTime); o.frequency.exponentialRampToValueAtTime(Math.max(40,freq*slide),audioCtx.currentTime+dur); g.gain.setValueAtTime(vol,audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+dur); o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime+dur);} 
+const sfxFlip=()=>{tone('triangle',340,.08,.16,1.3);};
+const sfxHit=()=>{tone('square',160,.11,.22,.6);};
+const sfxPearl=()=>{tone('sine',760,.08,.18,1.5);};
+const sfxBuy=()=>{tone('triangle',520,.08,.18,1.2);};
+const sfxDraft=()=>{tone('sine',410,.12,.2,1.7);};
+const sfxDeath=()=>{tone('sawtooth',280,.2,.28,.5); setTimeout(()=>tone('sawtooth',120,.4,.22,.5),110);};
+
+function getClientFingerprint() {
+  const key = 'gamehub.client-fingerprint.v1';
+  const existing = localStorage.getItem(key);
+  if (existing) return existing;
+  const created = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  localStorage.setItem(key, created);
+  return created;
+}
+async function supabaseRequest(path, { method = 'GET', body, prefer } = {}) {
+  const headers = {apikey: SUPABASE_PUBLISHABLE_KEY,Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,'Content-Type': 'application/json'};
+  if (prefer) headers.Prefer = prefer;
+  const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const text = await res.text(); const data = text ? JSON.parse(text) : null;
+  if (!res.ok) throw new Error((data && (data.message || data.error)) || `Supabase ${res.status}`);
+  return data;
+}
+async function submitScore(playerName, score) {
+  try {
+    await supabaseRequest('/leaderboard_scores', { method: 'POST', prefer: 'return=minimal', body: { game_slug: GAME_ID, player_name: String(playerName || 'Anonymous').slice(0, 20), score: Math.round(score), client_fingerprint: getClientFingerprint() } });
+    const scores = await getLeaderboard(100);
+    const rank = scores.findIndex((row) => row.playerName === String(playerName || 'Anonymous').slice(0, 20) && row.score === Math.round(score)) + 1;
+    return { ok: true, rank: rank > 0 ? rank : null, totalScores: scores.length };
+  } catch (e) { console.warn('Leaderboard unavailable:', e); return null; }
+}
+async function getLeaderboard(limit = 10) {
+  try {
+    const rows = await supabaseRequest('/rpc/get_game_leaderboard', { method: 'POST', body: { p_game_slug: GAME_ID, p_limit: Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100) } });
+    return (rows || []).map((row) => ({ playerName: row.player_name, score: Number(row.score) || 0, date: row.created_at }));
+  } catch (e) { console.warn('Leaderboard unavailable:', e); return []; }
+}
+
+let gameSceneRef=null, finalScoreValue=0;
+
+class MenuScene extends Phaser.Scene {
+  constructor(){super('MenuScene');}
+  create(){
+    const {width,height}=this.scale;
+    const g=this.add.graphics();
+    g.fillGradientStyle(0x0a1628,0x0a1628,0x1e3a5f,0x1e3a5f,1); g.fillRect(0,0,width,height);
+    this.add.text(width/2,90,'ABYSS ARCANA PINBALL',{fontFamily:'Orbitron',fontSize:'42px',color:'#90e0ef',fontStyle:'900'}).setOrigin(.5);
+    this.add.text(width/2,220,'Survive as long as possible.\nLeft/Right (A/D) or touch screen halves to fire flippers.\nB opens shop. Draft choice every 24s.',{align:'center',fontFamily:'Orbitron',fontSize:'18px',color:'#e7fbff'}).setOrigin(.5);
+    this.add.text(width/2,480,'Tap / Press any key to dive',{fontFamily:'Orbitron',fontSize:'20px',color:'#48cae4'}).setOrigin(.5);
+    this.tweens.add({targets:g,alpha:{from:.8,to:1},duration:1200,yoyo:true,repeat:-1});
+    const start=()=>{ if(audioCtx.state==='suspended') audioCtx.resume(); tone('sine',300,.1,.2,1.4); this.scene.start('GameScene'); };
+    this.input.once('pointerdown',start); this.input.keyboard.once('keydown',start);
+  }
+}
+
+class GameScene extends Phaser.Scene {
+  constructor(){super('GameScene');}
+  create(){
+    gameSceneRef=this;
+    const {width,height}=this.scale;
+    this.isGameOver=false; this.isPausedForUI=false;
+    this.gameStartTime=this.time.now; this.timeAlive=0; this.bonusPoints=0; this.score=0;
+    this.integrity=100; this.pearls=0;
+    this.flipperPower=1; this.flipperWidth=1; this.mineSlow=1; this.shield=0; this.heat=0;
+
+    this.bg=this.add.tileSprite(width/2,height/2,width,height,'').setTint(0x1b4266).setAlpha(.35);
+    this.bubbles=this.add.particles(0,0,'',{x:{min:0,max:width},y:height+10,lifespan:6000,speedY:{min:-35,max:-70},scale:{start:.25,end:0},frequency:190,quantity:1,tint:0x90e0ef});
+
+    const wall=14;
+    this.physics.world.setBounds(wall,wall,width-wall*2,height-wall*2);
+    this.ball=this.add.circle(width/2,height*0.58,14,0xe0fbff);
+    this.physics.add.existing(this.ball);
+    this.ball.body.setCircle(11); // forgiving
+    this.ball.body.setBounce(1,1); this.ball.body.setCollideWorldBounds(true);
+    this.ball.body.setVelocity(150,-210);
+
+    this.bumperGroup=this.physics.add.staticGroup();
+    [[width*0.3,230,24],[width*0.5,180,22],[width*0.7,230,24],[width*0.5,320,18]].forEach(([x,y,r])=>{
+      const c=this.add.circle(x,y,r,0x48cae4,0.95); this.physics.add.existing(c,true); c.body.setCircle(r*0.78); this.bumperGroup.add(c);
+    });
+
+    this.mines=this.physics.add.group();
+    this.rays=this.physics.add.group();
+    this.pearlGroup=this.physics.add.group();
+
+    this.leftPad=this.add.rectangle(width*0.34,height-74,130,20,0x00b4d8).setAngle(-22).setAlpha(.9);
+    this.rightPad=this.add.rectangle(width*0.66,height-74,130,20,0x00b4d8).setAngle(22).setAlpha(.9);
+
+    this.physics.add.collider(this.ball,this.bumperGroup,(ball,b)=>this.hitBumper(b));
+    this.physics.add.overlap(this.ball,this.mines,()=>this.damageBall(8));
+    this.physics.add.overlap(this.ball,this.rays,()=>this.damageBall(6));
+    this.physics.add.overlap(this.ball,this.pearlGroup,(ball,p)=>{this.collectPearl(p);});
+
+    this.keys=this.input.keyboard.addKeys('LEFT,RIGHT,A,D,B');
+    this.input.on('pointerdown',p=>{ if(this.isPausedForUI||this.isGameOver) return; if(p.x<this.scale.width/2)this.fireLeft(); else this.fireRight(); });
+    this.input.keyboard.on('keydown-B',()=>{ if(!this.isGameOver) openShop(); });
+
+    this.mineTimer=0; this.rayTimer=0; this.pearlDropTimer=0; this.draftTimer=24;
+
+    this.ui=this.add.text(12,10,'',{fontFamily:'Orbitron',fontSize:'18px',color:'#e7fbff'}).setDepth(9);
+  }
+
+  fireLeft(){ this.leftPad.setAngle(-45); this.time.delayedCall(80,()=>this.leftPad.setAngle(-22)); this.applyFlipperImpulse(true); sfxFlip(); }
+  fireRight(){ this.rightPad.setAngle(45); this.time.delayedCall(80,()=>this.rightPad.setAngle(22)); this.applyFlipperImpulse(false); sfxFlip(); }
+
+  applyFlipperImpulse(left){
+    const b=this.ball.body; const x=this.ball.x,y=this.ball.y;
+    const targetX=left?this.scale.width*0.34:this.scale.width*0.66;
+    if(Math.abs(x-targetX)<110*this.flipperWidth && y>this.scale.height-140){
+      const dir=left?1:-1;
+      b.setVelocity(b.velocity.x + (150*dir*this.flipperPower), -Math.max(220,b.velocity.y*-1)-130*this.flipperPower);
+      this.heat=Math.min(100,this.heat+3*this.flipperPower);
+    }
+  }
+
+  hitBumper(b){
+    this.bonusPoints += 3;
+    this.pearls += Phaser.Math.Between(0,1);
+    if(Math.random()<0.2){ this.spawnPearl(b.x,b.y); }
+    this.ball.body.velocity.scale(1.03);
+    sfxHit();
+  }
+
+  spawnMine(difficulty){
+    const x=Phaser.Math.Between(40,this.scale.width-40), y=Phaser.Math.Between(100,360);
+    const mine=this.add.polygon(x,y,[0,-18,14,-6,14,9,0,18,-14,9,-14,-6],0xff8fa3,0.95);
+    this.physics.add.existing(mine); mine.body.setCircle(10); mine.body.setBounce(1,1); mine.body.setCollideWorldBounds(true);
+    mine.body.setVelocity(Phaser.Math.Between(-80,80),Phaser.Math.Between(-60,60));
+    mine.hp=1+Math.floor(difficulty*2);
+    this.mines.add(mine);
+  }
+
+  spawnRay(difficulty){
+    const y=Phaser.Math.Between(120,this.scale.height-200);
+    const ray=this.add.rectangle(-90,y,180,14,0xffd166,0.8);
+    this.physics.add.existing(ray); ray.body.setAllowGravity(false); ray.body.setImmovable(true);
+    ray.body.setSize(160,10); ray.vx=220+difficulty*230; this.rays.add(ray);
+  }
+
+  spawnPearl(x,y){
+    const p=this.add.circle(x,y,8,0x90e0ef,1); this.physics.add.existing(p); p.body.setCircle(5); p.body.setVelocity(Phaser.Math.Between(-60,60),Phaser.Math.Between(40,120)); p.body.setBounce(.8); p.body.setCollideWorldBounds(true); p.life=4800; this.pearlGroup.add(p);
+  }
+
+  collectPearl(p){ p.destroy(); this.pearls += 3; this.bonusPoints += 10; sfxPearl(); }
+
+  damageBall(amount){
+    if(this.damageCooldown && this.time.now<this.damageCooldown) return;
+    this.damageCooldown=this.time.now+250;
+    const reduced=Math.max(1,amount - this.shield);
+    this.integrity -= reduced;
+    this.ball.setFillStyle(0xffadad);
+    this.time.delayedCall(80,()=>{ if(!this.isGameOver) this.ball.setFillStyle(0xe0fbff); });
+    this.cameras.main.shake(70,0.004);
+    if(this.integrity<=0) this.gameOver();
+  }
+
+  update(time,delta){
+    if(this.isGameOver||this.isPausedForUI)return;
+    const dt=delta/16.667;
+    this.timeAlive=(time-this.gameStartTime)/1000;
+    const t=Math.min(this.timeAlive/120,1); const difficulty=1-Math.exp(-2.2*t);
+
+    if(Phaser.Input.Keyboard.JustDown(this.keys.LEFT)||Phaser.Input.Keyboard.JustDown(this.keys.A)) this.fireLeft();
+    if(Phaser.Input.Keyboard.JustDown(this.keys.RIGHT)||Phaser.Input.Keyboard.JustDown(this.keys.D)) this.fireRight();
+
+    this.bg.tilePositionY-=0.25*dt;
+    this.heat=Math.max(0,this.heat-0.12*dt);
+
+    const velCap=360+difficulty*280;
+    this.ball.body.velocity.x=Phaser.Math.Clamp(this.ball.body.velocity.x,-velCap,velCap);
+    this.ball.body.velocity.y=Phaser.Math.Clamp(this.ball.body.velocity.y,-velCap,velCap);
+
+    if(this.ball.y>this.scale.height-18){
+      this.damageBall(12+Math.floor(12*difficulty));
+      this.ball.body.setVelocity(Phaser.Math.Between(-180,180),-280);
+      this.ball.setPosition(this.scale.width/2,this.scale.height-120);
+    }
+
+    this.mineTimer+=delta;
+    const mineEvery=Phaser.Math.Linear(1700,700,difficulty);
+    if(this.mineTimer>=mineEvery){ this.mineTimer=0; if(this.mines.countActive(true)<(3+Math.floor(difficulty*6))) this.spawnMine(difficulty); }
+
+    this.rayTimer+=delta;
+    const rayEvery=Phaser.Math.Linear(4200,1700,difficulty);
+    if(this.rayTimer>=rayEvery){ this.rayTimer=0; this.spawnRay(difficulty); }
+
+    this.mines.getChildren().forEach(m=>{
+      if(!m.active)return;
+      const toBall=new Phaser.Math.Vector2(this.ball.x-m.x,this.ball.y-m.y).normalize().scale((22+difficulty*65)*this.mineSlow*dt);
+      m.body.velocity.x += toBall.x; m.body.velocity.y += toBall.y;
+      m.rotation+=0.02*dt;
+    });
+
+    this.rays.getChildren().forEach(r=>{ if(!r.active)return; r.x+=r.vx*dt/60; if(r.x>this.scale.width+120) r.destroy(); });
+    this.pearlGroup.getChildren().forEach(p=>{ if(!p.active)return; p.life-=delta; if(p.life<=0)p.destroy(); });
+
+    this.draftTimer-=delta/1000;
+    if(this.draftTimer<=0){ this.draftTimer=24; openDraft(); }
+
+    // score monotonic by formula
+    this.score=Math.floor(this.timeAlive*10 + this.bonusPoints);
+
+    this.ui.setText(`Score ${this.score}  |  Integrity ${Math.max(0,Math.floor(this.integrity))}%  |  Pearls ${this.pearls}  |  Heat ${Math.floor(this.heat)}%`);
+
+    if(this.heat>95){ this.damageBall(3); }
+  }
+
+  applyUpgrade(up){
+    if(up==='power'){ this.flipperPower+=0.22; this.heat+=12; }
+    if(up==='width'){ this.flipperWidth+=0.16; this.mineSlow*=0.94; }
+    if(up==='shield'){ this.shield+=1; this.ball.body.setBounce(this.ball.body.bounce.x*0.98,this.ball.body.bounce.y*0.98); }
+    if(up==='pearl'){ this.pearls+=22; this.integrity=Math.max(35,this.integrity-12); }
+    if(up==='combo'){ this.bonusPoints+=80; this.integrity-=8; }
+    if(up==='coolant'){ this.heat=Math.max(0,this.heat-35); this.flipperPower=Math.max(0.95,this.flipperPower-0.05); }
+    sfxDraft();
+  }
+
+  buy(item){
+    const cost=item.cost;
+    if(this.pearls<cost) return false;
+    this.pearls-=cost;
+    if(item.id==='repair'){ this.integrity=Math.min(100,this.integrity+28); this.bonusPoints=Math.max(0,this.bonusPoints-15); }
+    if(item.id==='overclock'){ this.flipperPower+=0.35; this.heat+=22; }
+    if(item.id==='coolant'){ this.mineSlow*=0.88; this.bonusPoints=Math.max(0,this.bonusPoints-30); }
+    if(item.id==='insurance'){ this.shield+=2; this.flipperWidth=Math.max(.9,this.flipperWidth-0.08); }
+    sfxBuy();
+    return true;
+  }
+
+  gameOver(){
+    if(this.isGameOver)return;
+    this.isGameOver=true;
+    this.cameras.main.shake(280,0.012); this.cameras.main.flash(220,120,180,220);
+    sfxDeath();
+    this.ball.body.setVelocity(0,0);
+    this.tweens.add({targets:this.ball,alpha:0,scale:2,duration:420,ease:'Cubic.In'});
+    this.time.delayedCall(520,()=>{ this.scene.pause(); finalScoreValue=Math.floor(this.timeAlive*10 + this.bonusPoints); showGameOverUI(finalScoreValue); });
+  }
+}
+
+const config={type:Phaser.AUTO,width:800,height:600,backgroundColor:'#0a1628',physics:{default:'arcade',arcade:{gravity:{y:0},debug:false}},scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},scene:[MenuScene,GameScene]};
+const game=new Phaser.Game(config);
+
+const draftPool=[
+  {id:'power',name:'Tidal Slam',desc:'+Flipper power, +Heat strain'},
+  {id:'width',name:'Wide Fins',desc:'+Flipper range, mines steer harder'},
+  {id:'shield',name:'Coral Aegis',desc:'+Damage reduction, slightly less bounce speed'},
+  {id:'pearl',name:'Blood Pearl Cache',desc:'+22 Pearls now, -12 Integrity'},
+  {id:'combo',name:'Gambit Sigil',desc:'+80 bonus points, -8 Integrity'},
+  {id:'coolant',name:'Cold Brine',desc:'Drop Heat hard, slight power loss'}
+];
+
+const shopData=[
+  {id:'repair',name:'Patch Hull',cost:16,trade:' +28 Integrity, -15 bonus points'},
+  {id:'overclock',name:'Overclock Coils',cost:24,trade:' +Big flipper power, +Heat spike'},
+  {id:'coolant',name:'Mine Scrambler',cost:20,trade:' Mines steer slower, -30 bonus points'},
+  {id:'insurance',name:'Abyss Insurance',cost:28,trade:' +2 Shield, slightly narrower flippers'}
+];
+
+function openDraft(){
+  if(!gameSceneRef||gameSceneRef.isGameOver) return;
+  gameSceneRef.isPausedForUI=true; gameSceneRef.scene.pause();
+  const overlay=document.getElementById('draft-overlay'); const box=document.getElementById('draft-choices'); box.innerHTML='';
+  Phaser.Utils.Array.Shuffle(draftPool).slice(0,3).forEach(choice=>{
+    const d=document.createElement('div'); d.className='choice';
+    d.innerHTML=`<strong>${choice.name}</strong><div class='small'>${choice.desc}</div><button class='btn'>Choose</button>`;
+    d.querySelector('button').onclick=()=>{ gameSceneRef.applyUpgrade(choice.id); overlay.style.display='none'; gameSceneRef.scene.resume(); gameSceneRef.isPausedForUI=false; };
+    box.appendChild(d);
+  });
+  overlay.style.display='flex';
+}
+
+function openShop(){
+  if(!gameSceneRef||gameSceneRef.isGameOver||gameSceneRef.isPausedForUI) return;
+  gameSceneRef.isPausedForUI=true; gameSceneRef.scene.pause();
+  const overlay=document.getElementById('shop-overlay');
+  document.getElementById('shop-currency').textContent=gameSceneRef.pearls;
+  const box=document.getElementById('shop-items'); box.innerHTML='';
+  shopData.forEach(item=>{
+    const r=document.createElement('div'); r.className='shop-item';
+    r.innerHTML=`<div><div><strong>${item.name}</strong> <span class='small'>(${item.cost})</span></div><div class='small'>${item.trade}</div></div><button class='btn'>Buy</button>`;
+    r.querySelector('button').onclick=()=>{ const ok=gameSceneRef.buy(item); if(ok){ document.getElementById('shop-currency').textContent=gameSceneRef.pearls; } else { r.style.borderColor='#ff9f6e'; } };
+    box.appendChild(r);
+  });
+  overlay.style.display='flex';
+}
+function closeShop(){ const o=document.getElementById('shop-overlay'); o.style.display='none'; if(gameSceneRef&&!gameSceneRef.isGameOver){gameSceneRef.scene.resume(); gameSceneRef.isPausedForUI=false;} }
+
+function showGameOverUI(finalScore){
+  document.getElementById('final-score').textContent=finalScore;
+  document.getElementById('name-input').value='';
+  document.getElementById('leaderboard').innerHTML='<p class="small">Loading leaderboard...</p>';
+  document.getElementById('ui-overlay').style.display='flex';
+  renderLeaderboard();
+}
+
+async function renderLeaderboard(){
+  const scores=await getLeaderboard(10);
+  const lb=document.getElementById('leaderboard');
+  lb.innerHTML='<h3>Top Divers</h3>'+(scores.length? scores.map((s,i)=>`<div class='lb'><span>#${i+1} ${s.playerName}</span><span>${s.score}</span></div>`).join('') : '<p class="small">Leaderboard offline.</p>');
+}
+
+async function handleSubmit(){
+  const btn=document.getElementById('submit-btn'); btn.disabled=true;
+  const name=document.getElementById('name-input').value.trim()||'Anonymous';
+  await submitScore(name,finalScoreValue);
+  await renderLeaderboard();
+  btn.disabled=false;
+}
+
+function handleReplay(){
+  document.getElementById('ui-overlay').style.display='none';
+  document.getElementById('draft-overlay').style.display='none';
+  document.getElementById('shop-overlay').style.display='none';
+  if(gameSceneRef){ gameSceneRef.scene.stop(); gameSceneRef.scene.start('GameScene'); }
+}
+</script>
+</body>
+</html>
