@@ -2,7 +2,7 @@
   {
     "slug": "pong-ba5d",
     "title": "Pong",
-    "description": "Classic pong \u2014 you vs AI. First to 7 wins!",
+    "description": "Classic pong — you vs AI. First to 7 wins!",
     "creator": "lilnug",
     "date": "2025-02-17T00:00:00Z",
     "model": "unknown",
@@ -228,14 +228,14 @@
   {
     "slug": "dream-escape-7f3a",
     "title": "Dream Escape",
-    "description": "Endless runner \u2014 escape a collapsing dreamworld across 3 lanes. Dodge nightmares, rifts, and wraiths. Collect dream shards. Survive the encroaching Void.",
+    "description": "Endless runner — escape a collapsing dreamworld across 3 lanes. Dodge nightmares, rifts, and wraiths. Collect dream shards. Survive the encroaching Void.",
     "creator": "vimgo",
     "model": "claude",
     "date": "2026-02-21T08:50:53Z"
   },
   {
     "slug": "cozy-witch-cafe-b5c2",
-    "title": "Cozy Witch Caf\u00e9",
+    "title": "Cozy Witch Café",
     "description": "A Vampire Survivors-style auto-battler where you play as a cozy witch. Auto-cast magical baking spells to fend off hordes of hungry magical creatures. Collect ingredient gems to level up and unlock new spells!",
     "creator": "vimgo",
     "model": "claude",
@@ -268,7 +268,7 @@
   {
     "slug": "gravity-pull-a3f9",
     "title": "Gravity Pull",
-    "description": "You ARE gravity! Move your gravity well to pull escaping rockets, asteroids, and satellites back before they fly off-screen. Survive as long as possible \u2014 5 escapes means gravitational collapse!",
+    "description": "You ARE gravity! Move your gravity well to pull escaping rockets, asteroids, and satellites back before they fly off-screen. Survive as long as possible — 5 escapes means gravitational collapse!",
     "creator": "vimgo",
     "model": "claude",
     "date": "2026-02-21T09:09:53.776Z"
@@ -308,7 +308,7 @@
   {
     "slug": "recoil-rush-c4f2",
     "title": "Recoil Rush",
-    "description": "You can only move by shooting! Every shot propels your ship backward \u2014 aim at enemies to kill them AND dodge them at the same time. Survive the cosmic swarm as long as you can.",
+    "description": "You can only move by shooting! Every shot propels your ship backward — aim at enemies to kill them AND dodge them at the same time. Survive the cosmic swarm as long as you can.",
     "creator": "vimgo",
     "model": "claude",
     "date": "2026-02-21T15:38:35.742Z"
@@ -332,7 +332,7 @@
   {
     "slug": "power-creep-b3a2",
     "title": "Power Creep",
-    "description": "Collect Power Crystals to grow stronger \u2014 but each one slows you down. Balance raw power against mobility to survive endless enemy waves.",
+    "description": "Collect Power Crystals to grow stronger — but each one slows you down. Balance raw power against mobility to survive endless enemy waves.",
     "creator": "vimgo",
     "model": "codex",
     "date": "2026-02-22T09:29:20.057Z"
@@ -340,7 +340,7 @@
   {
     "slug": "stomp-blitz-7584",
     "title": "STOMP BLITZ",
-    "description": "Neon cyberpunk auto-scrolling platformer \u2014 stomp enemies, collect star shards to unlock roguelite upgrades, combo for massive scores!",
+    "description": "Neon cyberpunk auto-scrolling platformer — stomp enemies, collect star shards to unlock roguelite upgrades, combo for massive scores!",
     "creator": "lilnug",
     "model": "codex",
     "date": "2026-02-22T09:26:40.972Z"
@@ -392,5 +392,12 @@
     "creator": "codex-gamehub",
     "model": "codex",
     "date": "2026-02-24T17:54:21Z"
+  },
+  {
+    "slug": "arena-brawler-a7f2",
+    "title": "Void Ascendant",
+    "description": "MOBA-inspired arena survival. Fight endless waves of enemies with abilities, earn gold, and buy upgrades. How long can you survive?",
+    "creator": "gamehub",
+    "date": "2026-02-24T17:59:02.335Z"
   }
 ]
