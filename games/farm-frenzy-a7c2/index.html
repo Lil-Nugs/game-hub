@@ -1,0 +1,1319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Farm Frenzy - Survive the Chaos!</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a3a0a;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+    touch-action: none;
+    font-family: 'Nunito', sans-serif;
+  }
+  #ui-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    display: none; justify-content: center; align-items: center;
+    z-index: 100; background: rgba(0,0,0,0.88);
+    font-family: 'Fredoka One', cursive;
+  }
+  #game-over-box {
+    background: linear-gradient(160deg, #3d1a00 0%, #5c2e08 50%, #3d1a00 100%);
+    border: 4px solid #f4a460;
+    border-radius: 24px;
+    padding: 28px 36px 32px;
+    text-align: center;
+    max-width: 480px;
+    width: 92%;
+    color: #ffd700;
+    box-shadow: 0 0 40px rgba(244,164,96,0.6), inset 0 0 20px rgba(0,0,0,0.4);
+  }
+  #game-over-box h1 {
+    font-size: 34px;
+    margin-bottom: 4px;
+    color: #ff6347;
+    text-shadow: 2px 2px 0 #8b0000, 4px 4px 8px rgba(0,0,0,0.5);
+  }
+  .go-score {
+    font-size: 20px;
+    color: #ffe0b2;
+    margin: 4px 0 2px;
+  }
+  .go-score span {
+    font-size: 44px;
+    color: #fff;
+    display: block;
+    text-shadow: 0 0 15px rgba(255,215,0,0.8);
+  }
+  #time-survived {
+    font-family: 'Nunito', sans-serif;
+    font-size: 15px;
+    color: #f4a460;
+    margin-bottom: 14px;
+  }
+  #player-name {
+    width: 100%;
+    padding: 10px 16px;
+    margin: 0 0 10px;
+    font-family: 'Nunito', sans-serif;
+    font-size: 17px;
+    border-radius: 12px;
+    border: 2px solid #f4a460;
+    background: rgba(255,255,255,0.08);
+    color: white;
+    text-align: center;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  #player-name:focus { border-color: #ffd700; }
+  #player-name::placeholder { color: rgba(255,255,255,0.4); }
+  .btn-row { display: flex; gap: 10px; justify-content: center; margin: 4px 0 8px; }
+  .btn {
+    flex: 1;
+    padding: 12px 16px;
+    font-family: 'Fredoka One', cursive;
+    font-size: 17px;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: transform 0.1s, filter 0.1s;
+  }
+  .btn:active { transform: scale(0.94); }
+  .btn:disabled { filter: grayscale(0.6); cursor: default; }
+  #submit-btn {
+    background: linear-gradient(135deg, #27ae60, #1e8449);
+    color: white;
+    box-shadow: 0 4px 0 #145a32;
+  }
+  #play-again-btn {
+    background: linear-gradient(135deg, #f39c12, #d68910);
+    color: white;
+    box-shadow: 0 4px 0 #9a6709;
+  }
+  #leaderboard-section {
+    display: none;
+    margin-top: 12px;
+    background: rgba(0,0,0,0.35);
+    border-radius: 12px;
+    padding: 10px 12px;
+    max-height: 190px;
+    overflow-y: auto;
+  }
+  .lb-header {
+    font-size: 16px;
+    color: #ffd700;
+    margin-bottom: 8px;
+  }
+  .lb-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 6px;
+    font-family: 'Nunito', sans-serif;
+    font-size: 13px;
+    color: #ffe0b2;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .lb-row.rank1 { color: #ffd700; font-weight: 700; font-size: 14px; }
+  .lb-row.rank2 { color: #c0c0c0; font-weight: 700; }
+  .lb-row.rank3 { color: #cd7f32; font-weight: 700; }
+  .lb-rank { width: 28px; text-align: left; }
+  .lb-name { flex: 1; text-align: left; padding: 0 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .lb-score { font-weight: 700; }
+  #rank-announce { font-family: 'Nunito', sans-serif; font-size: 14px; color: #7fff7f; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+
+<div id="ui-overlay">
+  <div id="game-over-box">
+    <h1>🐔 FARM BANKRUPT! 🐔</h1>
+    <div class="go-score">Final Score<span id="final-score">0</span></div>
+    <div id="time-survived"></div>
+    <input type="text" id="player-name" placeholder="Your farmer name..." maxlength="20" autocomplete="off">
+    <div class="btn-row">
+      <button class="btn" id="submit-btn" onclick="handleSubmit()">📊 Submit</button>
+      <button class="btn" id="play-again-btn" onclick="handleReplay()">🔄 Play Again</button>
+    </div>
+    <div id="rank-announce"></div>
+    <div id="leaderboard-section">
+      <div class="lb-header">🏆 Top Farmers</div>
+      <div id="lb-list"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/*
+ * ============================================================
+ * DESIGN HEADER
+ * Game:     Farm Frenzy – Survive the Chaos!
+ * Slug:     farm-frenzy-a7c2
+ *
+ * Controls: Click/tap eggs to collect for bonus coins.
+ *           Click shop buttons (right panel) to buy upgrades.
+ *           Keyboard: SPACE = quick-sell all eggs
+ *
+ * Core Loop:
+ *   Chickens lay eggs on the farm field → click eggs for
+ *   bonus coins, or they auto-sell after a few seconds →
+ *   spend coins on upgrades → survive escalating disasters.
+ *
+ * Death Condition:
+ *   Coin balance hits 0 (farm goes bankrupt).
+ *
+ * Hazards (3 distinct types + rising costs):
+ *   1. Drought      – Egg production halved, income -40%.
+ *                     Counter: Rain Barrel upgrade.
+ *   2. Pest Infestation – Drains 2 coins/sec until expires.
+ *                     Counter: Pesticide upgrade.
+ *   3. Fox Attack   – Instant coin theft (15–45 coins).
+ *                     Counter: Scarecrow upgrade.
+ *   4. Market Crash – Egg value drops 65% temporarily.
+ *   (+) Rising maintenance fee charged every 30 seconds,
+ *       scaling from 8→35 coins over 2 minutes.
+ *
+ * Upgrades (8 total):
+ *   Chicken, Worker (auto-collect), Henhouse (lay speed),
+ *   Tractor (2× egg value), Corn Plot (+passive income),
+ *   Pesticide, Rain Barrel, Scarecrow
+ *
+ * Scoring: Math.floor(timeAlive * 10 + bonusCoins)  ← monotonic
+ *
+ * Difficulty Ramp:
+ *   Disaster interval: lerp(30s → 7s) over 120s
+ *   Maintenance cost:  lerp(8 → 35) over 120s
+ *   Egg lay speed:     starts generous, food events slow it
+ *   Uses easeIn curve for gentle early / brutal late
+ *
+ * Visual Theme: Warm farm – sky blues, grass greens, barn reds,
+ *               golden yellows. Font: Fredoka One.
+ *
+ * Audio: Web Audio API procedural SFX – cheerful coin pings,
+ *        clucking chickens, ominous disaster buzzes, death toll.
+ * ============================================================
+ */
+
+// ─── CONFIG ──────────────────────────────────────────────────
+const GAME_ID  = 'farm-frenzy-a7c2';
+const SUPABASE_URL  = 'https://lecyuhectrddtbjfyarm.supabase.co';
+const SUPABASE_KEY  = 'sb_publishable_gEX7QnQ24XzV6t0eNuWnVQ_ud19UxxJ';
+
+const CW = 800, CH = 600;          // canvas size
+const FARM_W = 555;                 // farm play area width
+const SHOP_X = FARM_W;             // shop panel starts here
+const SHOP_W = CW - FARM_W;       // 245px
+const HUD_H  = 52;                 // top HUD bar height
+
+// Farm play bounds (world-space)
+const FARM_LEFT   = 14;
+const FARM_RIGHT  = FARM_W - 14;
+const FARM_TOP    = HUD_H + 10;
+const FARM_BOTTOM = CH - 14;
+
+// ─── AUDIO ────────────────────────────────────────────────────
+const _ac = new (window.AudioContext || window.webkitAudioContext)();
+function _tone(freq, type, dur, vol, endFreq) {
+  if (_ac.state === 'suspended') return;
+  try {
+    const o = _ac.createOscillator(), g = _ac.createGain();
+    o.connect(g); g.connect(_ac.destination);
+    o.type = type || 'sine';
+    o.frequency.setValueAtTime(freq, _ac.currentTime);
+    if (endFreq) o.frequency.exponentialRampToValueAtTime(endFreq, _ac.currentTime + dur);
+    g.gain.setValueAtTime(Math.min(vol || 0.25, 0.4), _ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, _ac.currentTime + dur);
+    o.start(); o.stop(_ac.currentTime + dur);
+  } catch(e) {}
+}
+const sfx = {
+  coin:     () => { _tone(660,'sine',0.08,0.25); setTimeout(()=>_tone(990,'sine',0.07,0.18),55); },
+  egg:      () => { _tone(440,'triangle',0.12,0.22,620); },
+  buy:      () => { _tone(520,'sine',0.1,0.2); setTimeout(()=>_tone(780,'sine',0.12,0.2),80); setTimeout(()=>_tone(1040,'sine',0.09,0.15),160); },
+  cluck:    () => { _tone(380,'square',0.04,0.12,280); setTimeout(()=>_tone(280,'square',0.05,0.1,200),70); },
+  disaster: () => { _tone(220,'sawtooth',0.35,0.35); setTimeout(()=>_tone(165,'sawtooth',0.45,0.28),250); },
+  death:    () => { _tone(300,'sawtooth',0.25,0.38,90); setTimeout(()=>_tone(180,'sawtooth',0.35,0.3,70),300); setTimeout(()=>_tone(90,'sawtooth',0.55,0.22,50),580); },
+  start:    () => { [400,500,640,800].forEach((f,i)=>setTimeout(()=>_tone(f,'sine',0.18,0.22),i*100)); },
+};
+
+// ─── SUPABASE / LEADERBOARD ──────────────────────────────────
+function getFingerprint() {
+  const k = 'gamehub.fp.v1';
+  return localStorage.getItem(k) || (() => {
+    const v = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(k, v); return v;
+  })();
+}
+async function sbReq(path, opts = {}) {
+  const h = { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' };
+  if (opts.prefer) h.Prefer = opts.prefer;
+  const r = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
+    method: opts.method || 'GET', headers: h,
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  });
+  const t = await r.text();
+  const d = t ? JSON.parse(t) : null;
+  if (!r.ok) throw new Error((d && (d.message || d.error)) || `HTTP ${r.status}`);
+  return d;
+}
+async function submitScore(name, score) {
+  try {
+    await sbReq('/leaderboard_scores', {
+      method: 'POST', prefer: 'return=minimal',
+      body: { game_slug: GAME_ID, player_name: String(name||'Farmer').slice(0,20),
+              score: Math.round(score), client_fingerprint: getFingerprint() }
+    });
+    const all = await getLeaderboard(100);
+    const rank = all.findIndex(r => r.name === String(name||'Farmer').slice(0,20) && r.score === Math.round(score)) + 1;
+    return { ok: true, rank: rank > 0 ? rank : null, total: all.length };
+  } catch(e) { console.warn('LB submit:', e); return null; }
+}
+async function getLeaderboard(n = 10) {
+  try {
+    const rows = await sbReq('/rpc/get_game_leaderboard', {
+      method: 'POST', body: { p_game_slug: GAME_ID, p_limit: Math.min(Math.max(n|0,1),100) }
+    });
+    return (rows||[]).map(r => ({ name: r.player_name, score: Number(r.score)||0 }));
+  } catch(e) { console.warn('LB fetch:', e); return []; }
+}
+
+// ─── GAME OVER UI ─────────────────────────────────────────────
+let _score = 0, _time = 0, _scene = null;
+
+function showGameOver(score, time) {
+  _score = score; _time = time;
+  document.getElementById('final-score').textContent = score.toLocaleString();
+  const m = Math.floor(time/60), s = Math.floor(time%60);
+  document.getElementById('time-survived').textContent = `Survived: ${m>0?m+'m ':''}${s}s`;
+  document.getElementById('rank-announce').textContent = '';
+  document.getElementById('leaderboard-section').style.display = 'none';
+  document.getElementById('submit-btn').disabled = false;
+  document.getElementById('submit-btn').textContent = '📊 Submit';
+  document.getElementById('ui-overlay').style.display = 'flex';
+  setTimeout(() => document.getElementById('player-name').focus(), 300);
+}
+async function handleSubmit() {
+  const name = (document.getElementById('player-name').value.trim() || 'Farmer');
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true; btn.textContent = '⏳ Submitting…';
+  const res = await submitScore(name, _score);
+  btn.textContent = '✅ Done!';
+  if (res && res.rank) {
+    document.getElementById('rank-announce').textContent = `🎉 You ranked #${res.rank} of ${res.total}!`;
+  }
+  const scores = await getLeaderboard(10);
+  const lb = document.getElementById('lb-list');
+  lb.innerHTML = scores.length
+    ? scores.map((s,i) => `<div class="lb-row ${i===0?'rank1':i===1?'rank2':i===2?'rank3':''}">
+        <span class="lb-rank">#${i+1}</span>
+        <span class="lb-name">${s.name}</span>
+        <span class="lb-score">${s.score.toLocaleString()}</span>
+      </div>`).join('')
+    : '<div class="lb-row" style="justify-content:center;color:#888">No scores yet</div>';
+  document.getElementById('leaderboard-section').style.display = 'block';
+}
+function handleReplay() {
+  document.getElementById('ui-overlay').style.display = 'none';
+  if (_scene) _scene.scene.restart();
+}
+
+// ─── HELPERS ──────────────────────────────────────────────────
+function lerp(a, b, t) { return a + (b - a) * t; }
+function easeIn(t) { return t * t; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// ─── MENU SCENE ───────────────────────────────────────────────
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+
+  create() {
+    const w = CW, h = CH;
+
+    // Sky gradient
+    const sky = this.add.graphics();
+    sky.fillGradientStyle(0x87cefa, 0x87cefa, 0xb0e8ff, 0xb0e8ff, 1);
+    sky.fillRect(0, 0, w, h);
+
+    // Grass
+    const grass = this.add.graphics();
+    grass.fillStyle(0x4a8f2c, 1);
+    grass.fillRect(0, h * 0.58, w, h * 0.42);
+    grass.fillStyle(0x3d7a22, 0.4);
+    for (let i = 0; i < 40; i++) {
+      const gx = Phaser.Math.Between(0, w);
+      grass.fillRect(gx, h*0.58 + Phaser.Math.Between(0, h*0.4), Phaser.Math.Between(2,6), Phaser.Math.Between(8,18));
+    }
+
+    // Sun
+    const sun = this.add.graphics();
+    sun.fillStyle(0xffd700, 0.25); sun.fillCircle(w-90, 70, 58);
+    sun.fillStyle(0xffd700, 1);    sun.fillCircle(w-90, 70, 38);
+
+    // Clouds
+    this._cloud(180, 70); this._cloud(430, 45); this._cloud(640, 85);
+
+    // Barn
+    this._barn(60, h*0.35, 0.78);
+
+    // Chickens deco
+    this._chickenDeco(w*0.48, h*0.60);
+    this._chickenDeco(w*0.56, h*0.62);
+    this._chickenDeco(w*0.41, h*0.64);
+
+    // Fence
+    const fence = this.add.graphics();
+    fence.lineStyle(4, 0x6b3a10);
+    fence.strokeRect(0, h*0.58 - 2, w, 1);
+    for (let px = 20; px < w; px += 80) {
+      fence.fillStyle(0x8B4513, 1);
+      fence.fillRect(px - 5, h*0.52, 10, h*0.12);
+    }
+
+    // Title
+    this.add.text(w/2, h*0.13, '🌾 FARM FRENZY 🌾', {
+      fontFamily: "'Fredoka One', cursive", fontSize: '52px',
+      color: '#3d1a00', stroke: '#ffd700', strokeThickness: 5,
+      shadow: { blur: 12, color: '#000', fill: true }
+    }).setOrigin(0.5);
+
+    this.add.text(w/2, h*0.24, 'Survive the Chaos!', {
+      fontFamily: "'Fredoka One', cursive", fontSize: '26px',
+      color: '#ff6347', stroke: '#3d1a00', strokeThickness: 3
+    }).setOrigin(0.5);
+
+    // Instructions box
+    const bx = 80, by = h*0.32, bw = w-160, bh = 145;
+    const box = this.add.graphics();
+    box.fillStyle(0x3d1a00, 0.87); box.fillRoundedRect(bx, by, bw, bh, 14);
+    box.lineStyle(3, 0xf4a460); box.strokeRoundedRect(bx, by, bw, bh, 14);
+
+    this.add.text(w/2, by+16, '🐔  HOW TO PLAY', {
+      fontFamily: "'Fredoka One', cursive", fontSize: '19px', color: '#ffd700'
+    }).setOrigin(0.5, 0);
+
+    const lines = [
+      '• Chickens lay eggs — CLICK them for bonus coins!',
+      '• Buy upgrades in the right panel to grow your farm',
+      '• Fight disasters: droughts, pests & fox attacks!',
+      '• Maintenance costs rise every 30 seconds',
+      '• Your coins hit ZERO = BANKRUPT! 💀',
+      '• Score = Survival Time × 10 + Bonus Coins',
+    ];
+    this.add.text(w/2, by+46, lines.join('\n'), {
+      fontFamily: "'Nunito', sans-serif", fontSize: '13px',
+      color: '#ffe0b2', lineSpacing: 6, align: 'left'
+    }).setOrigin(0.5, 0);
+
+    // Tap to start
+    const tap = this.add.text(w/2, h*0.85, '🥚  TAP ANYWHERE TO START FARMING!  🥚', {
+      fontFamily: "'Fredoka One', cursive", fontSize: '24px',
+      color: '#ffd700', stroke: '#3d1a00', strokeThickness: 3
+    }).setOrigin(0.5);
+    this.tweens.add({ targets: tap, alpha: 0.25, duration: 650, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+
+    // Best score
+    const best = localStorage.getItem('farmfrenzy_best') | 0;
+    if (best > 0) {
+      this.add.text(w/2, h*0.93, `🏆 Best: ${best.toLocaleString()}`, {
+        fontFamily: "'Nunito', sans-serif", fontSize: '14px', color: '#f4d03f'
+      }).setOrigin(0.5);
+    }
+
+    this.input.once('pointerdown', () => this._go());
+    this.input.keyboard.once('keydown', () => this._go());
+  }
+
+  _go() {
+    _ac.resume().then(() => sfx.start());
+    this.cameras.main.fadeOut(280, 0, 0, 0);
+    this.time.delayedCall(280, () => this.scene.start('GameScene'));
+  }
+
+  _cloud(x, y) {
+    const g = this.add.graphics();
+    g.fillStyle(0xffffff, 0.92);
+    g.fillCircle(x, y, 22); g.fillCircle(x+28, y-10, 32); g.fillCircle(x+60, y, 22);
+    g.fillRect(x, y, 60, 22);
+    this.tweens.add({ targets: g, x: '-=160', duration: 28000 + Math.random()*20000,
+                      ease: 'Linear', repeat: -1, yoyo: false,
+                      onRepeat: () => { g.x += CW + 200; } });
+  }
+
+  _barn(x, y, s=1) {
+    const g = this.add.graphics();
+    g.fillStyle(0xc0392b); g.fillRect(x, y+38*s, 80*s, 62*s);
+    g.fillStyle(0x96281b); g.fillTriangle(x-8*s, y+38*s, x+40*s, y, x+88*s, y+38*s);
+    g.fillStyle(0x6e2c0e); g.fillRect(x+28*s, y+72*s, 24*s, 28*s);
+    g.fillStyle(0xfff9c4); g.fillRect(x+6*s, y+48*s, 16*s, 16*s); g.fillRect(x+58*s, y+48*s, 16*s, 16*s);
+    g.lineStyle(2, 0x6e2c0e);
+    g.lineBetween(x+6*s, y+56*s, x+22*s, y+56*s); g.lineBetween(x+14*s, y+48*s, x+14*s, y+64*s);
+    g.lineBetween(x+58*s, y+56*s, x+74*s, y+56*s); g.lineBetween(x+66*s, y+48*s, x+66*s, y+64*s);
+  }
+
+  _chickenDeco(x, y) {
+    const g = this.add.graphics();
+    g.fillStyle(0xfafafa); g.fillEllipse(x, y, 30, 22);
+    g.fillStyle(0xfafafa); g.fillCircle(x+15, y-10, 11);
+    g.fillStyle(0xe74c3c); g.fillCircle(x+17, y-20, 5); g.fillCircle(x+22, y-22, 4);
+    g.fillStyle(0xf39c12); g.fillTriangle(x+23, y-10, x+30, y-7, x+23, y-4);
+    g.fillStyle(0x1a1a1a); g.fillCircle(x+21, y-11, 2);
+    this.tweens.add({ targets: g, y: '-=4', duration: 600+Math.random()*400, yoyo: true, repeat: -1, ease: 'Sine' });
+  }
+}
+
+// ─── GAME SCENE ───────────────────────────────────────────────
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  // ── PRELOAD ────────────────────────────────────────────────
+  preload() {}   // all textures generated in create()
+
+  // ── CREATE ─────────────────────────────────────────────────
+  create() {
+    _scene = this;
+    _ac.resume().catch(() => {});
+
+    // --- state ---
+    this.coins       = 85;       // starting coins
+    this.bonusCoins  = 0;        // for score calc
+    this.score       = 0;
+    this.timeAlive   = 0;
+    this.t0          = this.time.now;
+    this.dead        = false;
+    this.bankruptWarn = false;
+    this.bankruptTimer = 0;
+
+    // farm upgrades
+    this.numChickens   = 3;
+    this.numWorkers    = 0;
+    this.henHouseLevel = 1;   // 1–3
+    this.hasTractor    = false;
+    this.cornPlots     = 0;   // 0–4
+    this.hasPesticide  = false;
+    this.hasRainBarrel = false;
+    this.hasScarecrow  = false;
+
+    // upgrade costs (scale on purchase)
+    this.costs = { chicken:50, worker:80, henhouse:100, tractor:200, corn:120, pesticide:35, rainbarrel:55, scarecrow:40 };
+
+    // disaster state
+    this.droughtActive = false;
+    this.pestsActive   = false;
+    this.marketCrash   = false;
+
+    // timing
+    this.nextDisasterAt   = 22000;   // first disaster at 22s
+    this.lastMaintAt      = this.time.now;
+    this.lastCornAt       = this.time.now;
+    this.lastCluckAt      = 0;
+    this.workerObjs       = [];
+
+    // egg group
+    this.eggs = this.physics.add.group();
+
+    // ── textures ──
+    this._genTextures();
+
+    // ── world ──
+    this._buildBackground();
+    this._initChickens();
+    this._buildShop();
+    this._buildHUD();
+
+    // Input
+    this.input.on('pointerdown', this._onPointer, this);
+    this.input.keyboard.on('keydown-SPACE', () => this._quickSellAll());
+
+    // fade in
+    this.cameras.main.fadeIn(350);
+  }
+
+  // ── TEXTURE GENERATION ────────────────────────────────────
+  _genTextures() {
+    // chicken (64×56)
+    { const g = this.add.graphics();
+      g.fillStyle(0xf5f5f5); g.fillEllipse(26, 34, 40, 30);
+      g.fillStyle(0xf5f5f5); g.fillCircle(42, 18, 14);
+      g.fillStyle(0xe74c3c); g.fillCircle(44, 6, 6); g.fillCircle(50, 4, 5); g.fillCircle(38, 6, 5);
+      g.fillStyle(0xf39c12); g.fillTriangle(53, 18, 62, 22, 53, 26);
+      g.fillStyle(0x111);    g.fillCircle(49, 16, 3);
+      g.fillStyle(0xffffff); g.fillCircle(50, 15, 1.2);
+      g.lineStyle(2, 0xd0d0d0); g.strokeEllipse(20, 34, 28, 18);
+      g.lineStyle(3, 0xf39c12);
+      g.lineBetween(18,46,12,55); g.lineBetween(12,55,8,55); g.lineBetween(12,55,13,58);
+      g.lineBetween(32,46,38,55); g.lineBetween(38,55,34,55); g.lineBetween(38,55,39,58);
+      g.generateTexture('chicken', 64, 60); g.destroy(); }
+
+    // egg (22×30)
+    { const g = this.add.graphics();
+      g.fillStyle(0xfff8e6); g.fillEllipse(11, 15, 20, 28);
+      g.lineStyle(1.5, 0xd4c390); g.strokeEllipse(11, 15, 20, 28);
+      g.fillStyle(0xffffff, 0.55); g.fillEllipse(7, 9, 7, 9);
+      g.generateTexture('egg', 22, 30); g.destroy(); }
+
+    // corn (26×46)
+    { const g = this.add.graphics();
+      g.lineStyle(3, 0x4a8f2c); g.lineBetween(13, 46, 13, 4);
+      g.fillStyle(0x4a8f2c); g.fillEllipse(7, 30, 18, 9); g.fillEllipse(19, 22, 18, 9);
+      g.fillStyle(0xf4d03f); g.fillRoundedRect(8, 6, 11, 20, 4);
+      g.fillStyle(0xd4a80e);
+      for (let r=0;r<4;r++) for (let c=0;c<2;c++) g.fillRect(9+c*5, 8+r*5, 4, 4);
+      g.generateTexture('corn', 26, 46); g.destroy(); }
+
+    // tractor (72×54)
+    { const g = this.add.graphics();
+      g.fillStyle(0xe74c3c); g.fillRect(14, 12, 44, 24);
+      g.fillStyle(0xc0392b); g.fillRect(30, 2, 26, 14);
+      g.fillStyle(0x85c1e9); g.fillRect(34, 4, 18, 10);
+      g.fillStyle(0x2c3e50); g.fillCircle(22, 38, 17); g.fillCircle(55, 40, 11);
+      g.fillStyle(0x7f8c8d); g.fillCircle(22, 38, 11); g.fillCircle(55, 40, 7);
+      g.fillStyle(0x2c3e50); g.fillCircle(22, 38, 4);  g.fillCircle(55, 40, 2.5);
+      g.fillStyle(0xf39c12); g.fillRect(58, 16, 12, 6);
+      g.generateTexture('tractor', 72, 56); g.destroy(); }
+
+    // worker (32×50)
+    { const g = this.add.graphics();
+      g.fillStyle(0x3498db); g.fillRect(8, 22, 16, 20);
+      g.fillStyle(0xf39c12); g.fillRect(10, 18, 12, 10);
+      g.fillStyle(0xfad7a0); g.fillCircle(16, 12, 10);
+      g.fillStyle(0x8B4513); g.fillRect(5, 4, 22, 6); g.fillRect(9, 0, 14, 7);
+      g.fillStyle(0x111); g.fillCircle(12, 11, 1.5); g.fillCircle(20, 11, 1.5);
+      g.lineStyle(1.5, 0x333); g.strokeEllipse(16, 16, 8, 4);
+      g.fillStyle(0xfad7a0); g.fillRect(1, 22, 8, 5); g.fillRect(23, 22, 8, 5);
+      g.fillStyle(0x2980b9); g.fillRect(9, 40, 6, 8); g.fillRect(17, 40, 6, 8);
+      g.fillStyle(0x5d4037); g.fillRect(8, 46, 8, 5); g.fillRect(16, 46, 8, 5);
+      g.generateTexture('worker', 32, 52); g.destroy(); }
+
+    // scarecrow (36×64)
+    { const g = this.add.graphics();
+      g.lineStyle(4, 0x8B4513); g.lineBetween(18,64,18,10); g.lineBetween(4,28,32,28);
+      g.fillStyle(0xfad7a0); g.fillCircle(18, 12, 10);
+      g.fillStyle(0x8B4513); g.fillRect(6, 2, 24, 7); g.fillRect(10, 0, 16, 5);
+      g.fillStyle(0x111); g.fillCircle(14, 11, 2); g.fillCircle(22, 11, 2);
+      g.fillStyle(0xf39c12); g.fillTriangle(15, 15, 21, 15, 18, 20);
+      g.fillStyle(0x27ae60); g.fillRect(6, 22, 24, 20);
+      g.lineStyle(2, 0x1e8449); g.lineBetween(6,26,30,26); g.lineBetween(6,32,30,32); g.lineBetween(6,38,30,38);
+      g.fillStyle(0xc0392b); g.fillCircle(4, 8, 4); g.fillCircle(32, 8, 4); g.fillCircle(4, 24, 4); g.fillCircle(32, 24, 4);
+      g.generateTexture('scarecrow', 36, 64); g.destroy(); }
+  }
+
+  // ── BACKGROUND ────────────────────────────────────────────
+  _buildBackground() {
+    const w = CW, h = CH;
+
+    // Sky
+    const sky = this.add.graphics();
+    sky.fillGradientStyle(0x87cefa, 0x87cefa, 0xb4ecff, 0xb4ecff, 1);
+    sky.fillRect(0, HUD_H, FARM_W, h - HUD_H);
+
+    // Grass field
+    const grass = this.add.graphics();
+    grass.fillStyle(0x4a8f2c); grass.fillRect(0, HUD_H, FARM_W, h - HUD_H);
+    for (let i = 0; i < 60; i++) {
+      grass.fillStyle(0x3d7a22, 0.5);
+      const gx = Phaser.Math.Between(5, FARM_W - 5);
+      const gy = Phaser.Math.Between(HUD_H + 5, h - 5);
+      grass.fillRect(gx, gy, Phaser.Math.Between(2,6), Phaser.Math.Between(5,14));
+    }
+
+    // Dirt path
+    const path = this.add.graphics();
+    path.fillStyle(0xc2a06a, 0.55); path.fillRect(90, HUD_H + 60, 32, h - HUD_H - 60);
+
+    // Barn
+    this._drawBarn(22, HUD_H + 16, 0.72);
+
+    // Fence
+    const fence = this.add.graphics();
+    fence.lineStyle(4, 0x6b3a10);
+    fence.strokeRect(8, HUD_H + 8, FARM_W - 16, h - HUD_H - 16);
+    for (let fx = 8; fx <= FARM_W - 8; fx += 60) {
+      fence.fillStyle(0x8B4513);
+      fence.fillRect(fx - 5, HUD_H + 3, 10, 16);
+      fence.fillRect(fx - 5, h - 19, 10, 16);
+    }
+    for (let fy = HUD_H + 8; fy <= h - 8; fy += 55) {
+      fence.fillRect(3, fy - 5, 16, 10);
+      fence.fillRect(FARM_W - 19, fy - 5, 16, 10);
+    }
+
+    // Sun
+    const sun = this.add.graphics();
+    sun.fillStyle(0xffd700, 0.2); sun.fillCircle(FARM_W - 60, HUD_H + 50, 50);
+    sun.fillStyle(0xffd700);      sun.fillCircle(FARM_W - 60, HUD_H + 50, 34);
+
+    // Clouds
+    this._drawCloud(200, HUD_H + 40); this._drawCloud(380, HUD_H + 25); this._drawCloud(480, HUD_H + 55);
+
+    // Shop panel background
+    const shop = this.add.graphics();
+    shop.fillStyle(0x2a0e00); shop.fillRect(SHOP_X, 0, SHOP_W, h);
+    shop.lineStyle(3, 0xf4a460); shop.lineBetween(SHOP_X, 0, SHOP_X, h);
+    shop.fillStyle(0x4a1a00); shop.fillRect(SHOP_X, 0, SHOP_W, 42);
+    this.add.text(SHOP_X + SHOP_W/2, 21, '🏪 SHOP', {
+      fontFamily: "'Fredoka One', cursive", fontSize: '17px', color: '#ffd700'
+    }).setOrigin(0.5);
+
+    // HUD background
+    const hud = this.add.graphics();
+    hud.fillStyle(0x1a0a00, 0.95); hud.fillRect(0, 0, w, HUD_H);
+    hud.lineStyle(2, 0xf4a460); hud.lineBetween(0, HUD_H, SHOP_X, HUD_H);
+  }
+
+  _drawBarn(x, y, s = 1) {
+    const g = this.add.graphics();
+    g.fillStyle(0xc0392b); g.fillRect(x, y + 38*s, 80*s, 62*s);
+    g.fillStyle(0x96281b); g.fillTriangle(x-8*s, y+38*s, x+40*s, y, x+88*s, y+38*s);
+    g.fillStyle(0x6e2c0e); g.fillRect(x+28*s, y+72*s, 24*s, 28*s);
+    g.fillStyle(0xfff9c4); g.fillRect(x+6*s, y+48*s, 16*s, 16*s); g.fillRect(x+58*s, y+48*s, 16*s, 16*s);
+    g.lineStyle(2, 0x6e2c0e);
+    g.lineBetween(x+6*s, y+56*s, x+22*s, y+56*s); g.lineBetween(x+14*s, y+48*s, x+14*s, y+64*s);
+    g.lineBetween(x+58*s, y+56*s, x+74*s, y+56*s); g.lineBetween(x+66*s, y+48*s, x+66*s, y+64*s);
+  }
+
+  _drawCloud(x, y) {
+    const g = this.add.graphics();
+    g.fillStyle(0xffffff, 0.85);
+    g.fillCircle(x, y, 18); g.fillCircle(x+25, y-8, 26); g.fillCircle(x+52, y, 18);
+    g.fillRect(x, y, 52, 18);
+    this.tweens.add({ targets: g, x: '-=120', duration: 26000+Math.random()*18000, ease: 'Linear', repeat: -1,
+                      onRepeat: () => { g.x += FARM_W + 160; } });
+  }
+
+  // ── CHICKENS ──────────────────────────────────────────────
+  _initChickens() {
+    this.chickenObjs = [];
+    for (let i = 0; i < this.numChickens; i++) this._spawnChicken();
+  }
+
+  _spawnChicken() {
+    const x = Phaser.Math.Between(130, FARM_RIGHT - 20);
+    const y = Phaser.Math.Between(FARM_TOP + 60, FARM_BOTTOM - 20);
+    const ch = this.physics.add.image(x, y, 'chicken').setScale(0.7);
+    ch.body.setSize(ch.width * 0.55, ch.height * 0.55);
+    ch.body.setCollideWorldBounds(false);
+    ch.wanderCd = Phaser.Math.Between(2200, 5500);
+    ch.wanderEl = 0;
+    ch.layEl    = 0;
+    ch.layDelay = Phaser.Math.Between(5000, 9000);
+    const a = Math.random() * Math.PI * 2, sp = Phaser.Math.Between(18, 45);
+    ch.body.setVelocity(Math.cos(a)*sp, Math.sin(a)*sp);
+    ch.setFlipX(ch.body.velocity.x < 0);
+    this.chickenObjs.push(ch);
+    return ch;
+  }
+
+  _spawnWorker() {
+    const x = Phaser.Math.Between(130, FARM_RIGHT - 20);
+    const y = Phaser.Math.Between(FARM_TOP + 60, FARM_BOTTOM - 20);
+    const w = this.physics.add.image(x, y, 'worker').setScale(0.8);
+    w.body.setCollideWorldBounds(false);
+    w.wanderCd = 3000; w.wanderEl = 0; w.speed = 65;
+    this.workerObjs.push(w);
+  }
+
+  // ── SHOP ──────────────────────────────────────────────────
+  _buildShop() {
+    const sx = SHOP_X + 6, sw = SHOP_W - 12;
+
+    const upgrades = [
+      { key:'chicken',   emoji:'🐔', label:'Buy Chicken',    sub:'+25% income',    cond:()=>true,              act:()=>this._buyChicken() },
+      { key:'worker',    emoji:'👨‍🌾', label:'Hire Worker',    sub:'Auto-collects',   cond:()=>true,              act:()=>this._buyWorker() },
+      { key:'henhouse',  emoji:'🏠', label:'Upgrade Coop',   sub:'Eggs faster',     cond:()=>this.henHouseLevel<3, act:()=>this._upgradeHenhouse() },
+      { key:'tractor',   emoji:'🚜', label:'Buy Tractor',    sub:'2× egg value!',   cond:()=>!this.hasTractor,  act:()=>this._buyTractor() },
+      { key:'corn',      emoji:'🌽', label:'Plant Corn',     sub:'+15 coins/10s',   cond:()=>this.cornPlots<4,  act:()=>this._plantCorn() },
+      { key:'pesticide', emoji:'🧪', label:'Pesticide',      sub:'Stop pest drain', cond:()=>!this.hasPesticide,act:()=>this._buyPesticide() },
+      { key:'rainbarrel',emoji:'🪣', label:'Rain Barrel',    sub:'Halve drought',   cond:()=>!this.hasRainBarrel,act:()=>this._buyRainBarrel() },
+      { key:'scarecrow', emoji:'🧟', label:'Scarecrow',      sub:'Block fox attacks',cond:()=>!this.hasScarecrow,act:()=>this._buyScarecrow() },
+    ];
+    this._upgrades = upgrades;
+    this._shopBtns = [];
+    this._shopCostTexts = {};
+
+    const rowH = 65, startY = 46;
+
+    upgrades.forEach((u, i) => {
+      const y = startY + i * rowH;
+
+      // bg rect (interactive)
+      const bg = this.add.graphics();
+      this._drawShopBtn(bg, sx, y, sw, 59, false);
+      const zone = this.add.zone(sx, y, sw, 59).setOrigin(0, 0).setInteractive();
+      zone.on('pointerover', () => { this._drawShopBtn(bg, sx, y, sw, 59, true); });
+      zone.on('pointerout',  () => { this._drawShopBtn(bg, sx, y, sw, 59, false); });
+      zone.on('pointerdown', () => {
+        if (this.dead) return;
+        const cost = this.costs[u.key];
+        if (u.cond() && this.coins >= cost) {
+          u.act();
+          sfx.buy();
+        } else if (this.coins < cost) {
+          this._float(`Need ${cost}🪙`, FARM_W/2, FARM_TOP+80, '#ff6347');
+        }
+      });
+
+      this.add.text(sx + 8,  y + 10, u.emoji, { fontSize: '22px' }).setDepth(2);
+      this.add.text(sx + 38, y + 8,  u.label, { fontFamily:"'Fredoka One', cursive", fontSize:'13px', color:'#ffd700' }).setDepth(2);
+      this.add.text(sx + 38, y + 25, u.sub,   { fontFamily:"'Nunito', sans-serif",  fontSize:'11px', color:'#ffe0b2' }).setDepth(2);
+
+      const ct = this.add.text(sx + 38, y + 41, `Cost: ${this.costs[u.key]}🪙`, {
+        fontFamily: "'Nunito', sans-serif", fontSize: '12px', color: '#f4d03f'
+      }).setDepth(2);
+      this._shopCostTexts[u.key] = ct;
+      this._shopBtns.push({ bg, zone, u, sx, y, sw });
+    });
+  }
+
+  _drawShopBtn(g, x, y, w, h, hover) {
+    g.clear();
+    g.fillStyle(hover ? 0x5a2808 : 0x3d1800, 0.9);
+    g.fillRoundedRect(x, y, w, h, 8);
+    g.lineStyle(1.5, hover ? 0xffd700 : 0xf4a460, 0.7);
+    g.strokeRoundedRect(x, y, w, h, 8);
+  }
+
+  // ── HUD ───────────────────────────────────────────────────
+  _buildHUD() {
+    this._coinTxt  = this.add.text(10, HUD_H/2, '🪙 85',        { fontFamily:"'Fredoka One', cursive", fontSize:'20px', color:'#ffd700' }).setOrigin(0, 0.5).setDepth(15);
+    this._timeTxt  = this.add.text(200, HUD_H/2, '⏱ 0:00',       { fontFamily:"'Fredoka One', cursive", fontSize:'18px', color:'#3dbff5' }).setOrigin(0, 0.5).setDepth(15);
+    this._scoreTxt = this.add.text(360, HUD_H/2, '📊 0',         { fontFamily:"'Fredoka One', cursive", fontSize:'18px', color:'#2ecc71' }).setOrigin(0, 0.5).setDepth(15);
+    this._ipsTxt   = this.add.text(FARM_W - 8, HUD_H/2, '+0.0/s', { fontFamily:"'Nunito', sans-serif",  fontSize:'13px', color:'#2ecc71' }).setOrigin(1, 0.5).setDepth(15);
+
+    // disaster status strip
+    this._disasterTxts = {};
+    const dKeys = ['drought','pests','market'];
+    dKeys.forEach((k, i) => {
+      const dt = this.add.text(SHOP_X + 8, CH - 75 + i*24, '', {
+        fontFamily: "'Nunito', sans-serif", fontSize: '12px', color: '#ff6347', wordWrap: { width: SHOP_W - 12 }
+      }).setDepth(15);
+      this._disasterTxts[k] = dt;
+    });
+
+    // info text at bottom of shop
+    this.add.text(SHOP_X + SHOP_W/2, CH - 14, 'SPACE = sell all eggs', {
+      fontFamily: "'Nunito', sans-serif", fontSize: '10px', color: '#996633', align: 'center'
+    }).setOrigin(0.5, 1).setDepth(15);
+  }
+
+  // ── UPGRADE ACTIONS ───────────────────────────────────────
+  _buyChicken() {
+    this.coins -= this.costs.chicken;
+    this.costs.chicken = Math.floor(this.costs.chicken * 1.45);
+    this.numChickens++;
+    this._spawnChicken();
+    this._float(`+1 Chicken! 🐔`, FARM_W/2, 200, '#ffd700');
+    this._refreshShop();
+  }
+
+  _buyWorker() {
+    this.coins -= this.costs.worker;
+    this.costs.worker = Math.floor(this.costs.worker * 1.55);
+    this.numWorkers++;
+    this._spawnWorker();
+    this._float(`Worker hired! 👨‍🌾`, FARM_W/2, 200, '#3498db');
+    this._refreshShop();
+  }
+
+  _upgradeHenhouse() {
+    this.coins -= this.costs.henhouse;
+    this.costs.henhouse = Math.floor(this.costs.henhouse * 2.2);
+    this.henHouseLevel++;
+    this.chickenObjs.forEach(ch => { ch.layDelay = Math.max(ch.layDelay * 0.62, 1800); });
+    this._float(`Coop Lv.${this.henHouseLevel}! 🏠`, FARM_W/2, 200, '#f4d03f');
+    this._refreshShop();
+  }
+
+  _buyTractor() {
+    this.coins -= this.costs.tractor;
+    this.hasTractor = true;
+    const tr = this.add.image(200, CH - 55, 'tractor').setScale(0.85).setDepth(3);
+    this.tweens.add({ targets: tr, x: 250, duration: 3000, yoyo: true, repeat: -1, ease: 'Sine' });
+    this._float(`2× Egg Value! 🚜`, FARM_W/2, 200, '#e74c3c');
+    this._refreshShop();
+  }
+
+  _plantCorn() {
+    this.coins -= this.costs.corn;
+    this.costs.corn = Math.floor(this.costs.corn * 1.35);
+    this.cornPlots++;
+    const col = (this.cornPlots - 1) % 3;
+    const row = Math.floor((this.cornPlots - 1) / 3);
+    const cx = FARM_LEFT + 18 + col * 38;
+    const cy = FARM_BOTTOM - 55 - row * 50;
+    this.add.image(cx, cy, 'corn').setScale(1.1).setDepth(3);
+    this._float(`+15 coins/10s 🌽`, FARM_W/2, 200, '#27ae60');
+    this._refreshShop();
+  }
+
+  _buyPesticide() {
+    this.coins -= this.costs.pesticide;
+    this.hasPesticide = true;
+    this.pestsActive = false;
+    this._float(`Pests exterminated! 🧪`, FARM_W/2, 200, '#9b59b6');
+    this._refreshShop();
+  }
+
+  _buyRainBarrel() {
+    this.coins -= this.costs.rainbarrel;
+    this.hasRainBarrel = true;
+    this._float(`Drought halved! 🪣`, FARM_W/2, 200, '#3498db');
+    this._refreshShop();
+  }
+
+  _buyScarecrow() {
+    this.coins -= this.costs.scarecrow;
+    this.hasScarecrow = true;
+    const sc = this.add.image(450, FARM_TOP + 40, 'scarecrow').setScale(0.9).setDepth(3);
+    this.tweens.add({ targets: sc, angle: { from: -8, to: 8 }, duration: 1800, yoyo: true, repeat: -1 });
+    this._float(`Foxes beware! 🧟`, FARM_W/2, 200, '#e67e22');
+    this._refreshShop();
+  }
+
+  // ── INCOME ────────────────────────────────────────────────
+  _incomePerSec() {
+    let base = this.numChickens * 1.8 + this.numWorkers * 0.5;
+    if (this.hasTractor)   base *= 2.0;
+    if (this.droughtActive) base *= (this.hasRainBarrel ? 0.75 : 0.5);
+    if (this.marketCrash)  base *= 0.38;
+    return Math.max(base, 0);
+  }
+
+  _maintenanceCost() {
+    const t = easeIn(clamp(this.timeAlive / 120, 0, 1));
+    return lerp(8, 36, t);
+  }
+
+  _disasterInterval() {
+    const t = easeIn(clamp(this.timeAlive / 120, 0, 1));
+    return lerp(30000, 7000, t);
+  }
+
+  // ── EGG LIFECYCLE ─────────────────────────────────────────
+  _layEgg(x, y) {
+    if (this.eggs.getLength() >= 22) return;
+    const egg = this.eggs.create(x, y, 'egg').setScale(0.9);
+    egg.body.setSize(egg.width * 0.75, egg.height * 0.75);
+    egg.body.setVelocity(0, 0);
+    egg.setInteractive();
+    egg.baseValue = this.hasTractor ? 5 : 2;
+
+    this.tweens.add({ targets: egg, scaleX: 1.15, scaleY: 0.8, duration: 90, yoyo: true });
+
+    // auto-sell after 10s (half value)
+    egg._autoSellTimer = this.time.delayedCall(10000, () => {
+      if (egg.active) {
+        const v = Math.ceil(egg.baseValue * 0.5);
+        this.coins += v; this.bonusCoins += v;
+        this._popCoin(`+${v}`, egg.x, egg.y, '#aaa');
+        this.tweens.add({ targets: egg, alpha: 0, duration: 300, onComplete: () => egg.destroy() });
+      }
+    });
+
+    egg.on('pointerdown', () => this._collectEgg(egg));
+    egg.on('pointerover', () => egg.setTint(0xffff66));
+    egg.on('pointerout',  () => egg.clearTint());
+  }
+
+  _collectEgg(egg) {
+    if (!egg.active || this.dead) return;
+    if (egg._autoSellTimer) egg._autoSellTimer.remove();
+    const v = egg.baseValue;
+    this.coins += v; this.bonusCoins += v;
+    sfx.egg();
+    this._popCoin(`+${v}🪙`, egg.x, egg.y - 12, '#ffd700');
+    this._burst(egg.x, egg.y);
+    egg.destroy();
+  }
+
+  _quickSellAll() {
+    let total = 0;
+    this.eggs.getChildren().slice().forEach(egg => {
+      if (!egg.active) return;
+      if (egg._autoSellTimer) egg._autoSellTimer.remove();
+      total += egg.baseValue;
+      this.bonusCoins += egg.baseValue;
+      egg.destroy();
+    });
+    if (total > 0) {
+      this.coins += total;
+      sfx.coin();
+      this._float(`Quick sell +${total}🪙`, FARM_W/2, FARM_TOP+60, '#ffd700');
+    }
+  }
+
+  // ── DISASTERS ─────────────────────────────────────────────
+  _spawnDisaster() {
+    const opts = [];
+    if (!this.droughtActive) opts.push('drought');
+    if (!this.pestsActive)   opts.push('pests');
+    if (!this.marketCrash)   opts.push('market');
+    opts.push('fox');    // can stack
+
+    if (opts.length === 0) return;
+    const type = Phaser.Utils.Array.GetRandom(opts);
+    sfx.disaster();
+    switch (type) {
+      case 'drought': this._startDrought();      break;
+      case 'pests':   this._startPests();        break;
+      case 'market':  this._startMarketCrash();  break;
+      case 'fox':     this._startFoxAttack();    break;
+    }
+  }
+
+  _startDrought() {
+    this.droughtActive = true;
+    const dur = 18000 + Math.random()*10000;
+    this._alert('☀️ DROUGHT!', 'Egg income -50%!', 0xe74c3c, dur);
+    this.cameras.main.flash(200, 255, 140, 40);
+    this.time.delayedCall(dur, () => { this.droughtActive = false; });
+  }
+
+  _startPests() {
+    if (this.hasPesticide) {
+      this._float('🧪 Pesticide blocked pests!', FARM_W/2, 300, '#9b59b6');
+      return;
+    }
+    this.pestsActive = true;
+    const drain = 2;
+    const dur    = 14000;
+    this._alert('🐛 PEST INFESTATION!', `Draining ${drain} coins/s!`, 0x8e44ad, dur);
+    const tm = this.time.addEvent({
+      delay: 1000, repeat: (dur/1000) - 1,
+      callback: () => {
+        if (this.pestsActive && !this.dead) {
+          this.coins = Math.max(0, this.coins - drain);
+          this._popCoin(`-${drain}`, FARM_W/2 + Phaser.Math.Between(-80,80), Phaser.Math.Between(FARM_TOP+80, FARM_BOTTOM-80), '#e74c3c');
+        }
+      }
+    });
+    this.time.delayedCall(dur, () => { this.pestsActive = false; });
+  }
+
+  _startMarketCrash() {
+    this.marketCrash = true;
+    const dur = 16000 + Math.random()*8000;
+    this._alert('📉 MARKET CRASH!', 'Egg prices -65%!', 0xe67e22, dur);
+    this.cameras.main.flash(200, 255, 100, 0);
+    this.time.delayedCall(dur, () => { this.marketCrash = false; });
+  }
+
+  _startFoxAttack() {
+    if (this.hasScarecrow) {
+      this._float('🧟 Scarecrow scared the fox!', FARM_W/2, 300, '#27ae60');
+      return;
+    }
+    const stolen = Phaser.Math.Between(15, 42);
+    this.coins = Math.max(0, this.coins - stolen);
+    this._alert(`🦊 FOX ATTACK!`, `Lost ${stolen} coins!`, 0xe74c3c, 4500);
+    this.cameras.main.shake(300, 0.012);
+  }
+
+  _alert(title, sub, colorHex, dur) {
+    const w = FARM_W - 20, h = 52, x = 10, y = CH - 74;
+    const bg = this.add.graphics().setDepth(30);
+    bg.fillStyle(colorHex, 0.92); bg.fillRoundedRect(x, y, w, h, 10);
+    bg.lineStyle(2, 0xffffff, 0.6); bg.strokeRoundedRect(x, y, w, h, 10);
+
+    const t1 = this.add.text(FARM_W/2, y+14, title, {
+      fontFamily:"'Fredoka One', cursive", fontSize:'18px', color:'#fff'
+    }).setOrigin(0.5).setDepth(31);
+    const t2 = this.add.text(FARM_W/2, y+33, sub, {
+      fontFamily:"'Nunito', sans-serif", fontSize:'13px', color:'#fff'
+    }).setOrigin(0.5).setDepth(31);
+
+    this.tweens.add({ targets:[bg,t1,t2], alpha:0,
+      delay: Math.max(dur - 1200, 500), duration: 1000,
+      onComplete: () => { bg.destroy(); t1.destroy(); t2.destroy(); } });
+  }
+
+  // ── VISUAL FX ─────────────────────────────────────────────
+  _float(text, x, y, col) {
+    const t = this.add.text(x, y, text, {
+      fontFamily:"'Fredoka One', cursive", fontSize:'18px',
+      color: col||'#ffd700', stroke:'#000', strokeThickness:3
+    }).setOrigin(0.5).setDepth(35);
+    this.tweens.add({ targets:t, y:y-65, alpha:0, duration:1600, ease:'Power2', onComplete:()=>t.destroy() });
+  }
+
+  _popCoin(text, x, y, col) {
+    const t = this.add.text(x, y, text, {
+      fontFamily:"'Nunito', sans-serif", fontSize:'14px', fontStyle:'bold',
+      color: col||'#ffd700', stroke:'#000', strokeThickness:2
+    }).setOrigin(0.5).setDepth(35);
+    this.tweens.add({ targets:t, y:y-40, alpha:0, duration:1000, ease:'Power1', onComplete:()=>t.destroy() });
+  }
+
+  _burst(x, y) {
+    // Simple tween-based particles (no particle emitter API needed)
+    for (let i = 0; i < 6; i++) {
+      const angle = (i / 6) * Math.PI * 2;
+      const dot = this.add.circle(x, y, 4, 0xffd700).setDepth(34);
+      this.tweens.add({
+        targets: dot,
+        x: x + Math.cos(angle) * 40,
+        y: y + Math.sin(angle) * 40,
+        alpha: 0, scale: 0,
+        duration: 450, ease: 'Power2',
+        onComplete: () => dot.destroy()
+      });
+    }
+  }
+
+  // ── REFRESH SHOP ──────────────────────────────────────────
+  _refreshShop() {
+    this._upgrades.forEach(u => {
+      const ct = this._shopCostTexts[u.key];
+      if (!ct) return;
+      const canBuy  = u.cond();
+      const canAffd = this.coins >= this.costs[u.key];
+      if (!canBuy) {
+        ct.setText('✅ Owned / Max');
+        ct.setColor('#2ecc71');
+      } else {
+        ct.setText(`Cost: ${this.costs[u.key]}🪙`);
+        ct.setColor(canAffd ? '#f4d03f' : '#e74c3c');
+      }
+    });
+  }
+
+  // ── UPDATE ────────────────────────────────────────────────
+  update(time, delta) {
+    if (this.dead) return;
+
+    const dt  = delta / 1000;
+    const elapsed = (time - this.t0) / 1000;
+    this.timeAlive = elapsed;
+
+    // ── score (always rising) ──
+    this.score = Math.floor(elapsed * 10 + this.bonusCoins);
+
+    // ── passive income ──
+    this.coins += this._incomePerSec() * dt;
+
+    // ── corn passive ──
+    if (this.cornPlots > 0 && time - this.lastCornAt > 10000) {
+      const c = this.cornPlots * 15;
+      this.coins += c; this.bonusCoins += c;
+      this.lastCornAt = time;
+      this._float(`+${c} 🌽`, 90 + Phaser.Math.Between(-30,30), CH - 80, '#27ae60');
+      sfx.coin();
+    }
+
+    // ── maintenance ──
+    if (time - this.lastMaintAt > 30000 && this.lastMaintAt > this.t0) {
+      const cost = this._maintenanceCost();
+      this.coins -= cost;
+      this.lastMaintAt = time;
+      this._float(`-${cost.toFixed(0)} maintenance🔧`, FARM_W/2, HUD_H + 60, '#ff9966');
+    } else if (this.lastMaintAt <= this.t0 && time - this.t0 > 30000) {
+      this.lastMaintAt = time;
+    }
+
+    // ── disaster spawning ──
+    if (time - this.t0 > this.nextDisasterAt) {
+      this._spawnDisaster();
+      this.nextDisasterAt = (time - this.t0) + this._disasterInterval();
+    }
+
+    // ── chickens ──
+    this._tickChickens(time, delta);
+
+    // ── workers ──
+    this._tickWorkers(time, delta);
+
+    // ── occasional cluck ──
+    if (time - this.lastCluckAt > 4000 && Math.random() < 0.15) {
+      this.lastCluckAt = time;
+      sfx.cluck();
+    }
+
+    // ── HUD ──
+    this._updateHUD();
+
+    // ── shop refresh (throttled) ──
+    if (Math.floor(elapsed * 3) !== this._lastRefresh) {
+      this._lastRefresh = Math.floor(elapsed * 3);
+      this._refreshShop();
+    }
+
+    // ── disaster status strip ──
+    this._disasterTxts.drought.setText(this.droughtActive ? '☀️ DROUGHT active' : '');
+    this._disasterTxts.pests.setText(this.pestsActive   ? '🐛 PESTS draining coins!' : '');
+    this._disasterTxts.market.setText(this.marketCrash  ? '📉 MARKET CRASH active' : '');
+
+    // ── bankruptcy check ──
+    if (this.coins <= 0) {
+      this.coins = 0;
+      if (!this.bankruptWarn) {
+        this.bankruptWarn = true;
+        this.bankruptTimer = time;
+        this._float('⚠️ GOING BANKRUPT!', FARM_W/2, CH/2 - 40, '#ff4757');
+      } else if (time - this.bankruptTimer > 1800) {
+        this._triggerDeath();
+      }
+    } else {
+      this.bankruptWarn = false;
+    }
+  }
+
+  _tickChickens(time, delta) {
+    this.chickenObjs.forEach(ch => {
+      if (!ch.active) return;
+
+      // boundary bounce
+      if (ch.x < FARM_LEFT + 18)  { ch.x = FARM_LEFT + 18;  ch.body.setVelocityX( Math.abs(ch.body.velocity.x)); }
+      if (ch.x > FARM_RIGHT - 18) { ch.x = FARM_RIGHT - 18; ch.body.setVelocityX(-Math.abs(ch.body.velocity.x)); }
+      if (ch.y < FARM_TOP + 18)   { ch.y = FARM_TOP + 18;   ch.body.setVelocityY( Math.abs(ch.body.velocity.y)); }
+      if (ch.y > FARM_BOTTOM - 18){ ch.y = FARM_BOTTOM - 18; ch.body.setVelocityY(-Math.abs(ch.body.velocity.y)); }
+
+      ch.setFlipX(ch.body.velocity.x < 0);
+
+      // bob
+      ch.y += Math.sin(time / 280 + ch.x * 0.05) * 0.25;
+
+      // wander
+      ch.wanderEl += delta;
+      if (ch.wanderEl >= ch.wanderCd) {
+        ch.wanderEl = 0;
+        ch.wanderCd = Phaser.Math.Between(2000, 6000);
+        const a = Math.random() * Math.PI * 2;
+        const sp = Phaser.Math.Between(18, 48);
+        ch.body.setVelocity(Math.cos(a)*sp, Math.sin(a)*sp);
+      }
+
+      // egg laying
+      const drought_mod = (this.droughtActive && !this.hasRainBarrel) ? 2.0 : 1.0;
+      const layInterval = ch.layDelay * drought_mod;
+      ch.layEl += delta;
+      if (ch.layEl >= layInterval) {
+        ch.layEl = 0;
+        if (ch.x > FARM_LEFT + 30 && ch.x < FARM_RIGHT - 30) {
+          this._layEgg(ch.x, ch.y + 22);
+        }
+      }
+    });
+  }
+
+  _tickWorkers(time, delta) {
+    this.workerObjs.forEach(w => {
+      if (!w.active) return;
+
+      // find nearest egg
+      let target = null, best = Infinity;
+      this.eggs.getChildren().forEach(egg => {
+        if (!egg.active) return;
+        const d = Phaser.Math.Distance.Between(w.x, w.y, egg.x, egg.y);
+        if (d < best) { best = d; target = egg; }
+      });
+
+      if (target && best < 220) {
+        const a = Phaser.Math.Angle.Between(w.x, w.y, target.x, target.y);
+        w.body.setVelocity(Math.cos(a)*w.speed, Math.sin(a)*w.speed);
+        w.setFlipX(w.body.velocity.x < 0);
+        if (best < 18 && target.active) {
+          const v = Math.ceil(target.baseValue * 0.75);
+          this.coins += v; this.bonusCoins += v * 0.4;
+          if (target._autoSellTimer) target._autoSellTimer.remove();
+          target.destroy();
+          sfx.coin();
+        }
+      } else {
+        w.wanderEl += delta;
+        if (w.wanderEl >= w.wanderCd) {
+          w.wanderEl = 0;
+          const a = Math.random() * Math.PI * 2;
+          w.body.setVelocity(Math.cos(a)*45, Math.sin(a)*45);
+        }
+      }
+
+      // boundary
+      if (w.x < FARM_LEFT + 20)  { w.x = FARM_LEFT + 20;  w.body.setVelocityX(40); }
+      if (w.x > FARM_RIGHT - 20) { w.x = FARM_RIGHT - 20; w.body.setVelocityX(-40); }
+      if (w.y < FARM_TOP + 20)   { w.y = FARM_TOP + 20;   w.body.setVelocityY(40); }
+      if (w.y > FARM_BOTTOM - 20){ w.y = FARM_BOTTOM - 20; w.body.setVelocityY(-40); }
+    });
+  }
+
+  _onPointer(ptr) {
+    // clicking outside of an egg in farm area: small visual feedback only
+    if (ptr.x >= SHOP_X) return;
+  }
+
+  _updateHUD() {
+    const m = Math.floor(this.timeAlive / 60);
+    const s = Math.floor(this.timeAlive % 60);
+    this._timeTxt.setText(`⏱ ${m}:${s.toString().padStart(2,'0')}`);
+    this._scoreTxt.setText(`📊 ${Math.floor(this.score).toLocaleString()}`);
+    this._ipsTxt.setText(`+${this._incomePerSec().toFixed(1)}/s`);
+
+    const coins = Math.floor(this.coins);
+    this._coinTxt.setText(`🪙 ${coins}`);
+    if (coins < 15)      { this._coinTxt.setColor('#ff4757'); this._coinTxt.setAlpha(0.5 + Math.sin(this.timeAlive * 8) * 0.5); }
+    else if (coins < 40) { this._coinTxt.setColor('#ff9f43'); this._coinTxt.setAlpha(1); }
+    else                 { this._coinTxt.setColor('#ffd700'); this._coinTxt.setAlpha(1); }
+  }
+
+  // ── DEATH ─────────────────────────────────────────────────
+  _triggerDeath() {
+    if (this.dead) return;
+    this.dead = true;
+
+    // stop everything
+    this.chickenObjs.forEach(ch => { if (ch.active) ch.body.setVelocity(0,0); });
+    this.workerObjs.forEach(w  => { if (w.active)  w.body.setVelocity(0,0); });
+    this.physics.pause();
+
+    sfx.death();
+    this.cameras.main.shake(500, 0.022);
+    this.cameras.main.flash(350, 220, 0, 0);
+
+    // "BANKRUPT!" splash
+    const bang = this.add.text(FARM_W/2, CH/2, 'BANKRUPT! 💀', {
+      fontFamily:"'Fredoka One', cursive", fontSize:'60px',
+      color:'#ff4757', stroke:'#000', strokeThickness:8
+    }).setOrigin(0.5).setDepth(50).setAlpha(0);
+
+    this.tweens.add({
+      targets: bang, alpha: 1, scaleX: 1.2, scaleY: 1.2,
+      duration: 350, ease: 'Back.Out',
+      onComplete: () => {
+        // best score
+        const prev = localStorage.getItem('farmfrenzy_best') | 0;
+        if (this.score > prev) localStorage.setItem('farmfrenzy_best', this.score);
+
+        this.time.delayedCall(900, () => {
+          this.scene.pause();
+          showGameOver(this.score, this.timeAlive);
+        });
+      }
+    });
+  }
+}
+
+// ─── PHASER CONFIG ────────────────────────────────────────────
+const config = {
+  type: Phaser.AUTO,
+  width: CW, height: CH,
+  backgroundColor: '#1a3a0a',
+  physics: {
+    default: 'arcade',
+    arcade: { gravity: { y: 0 }, debug: false }
+  },
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
+  scene: [MenuScene, GameScene]
+};
+
+const game = new Phaser.Game(config);
+</script>
+</body>
+</html>
