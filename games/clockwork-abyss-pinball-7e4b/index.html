@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Clockwork Abyss Pinball</title>
+  <link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@400;700;900&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Exo 2', system-ui, sans-serif; background: radial-gradient(circle at 50% 0%, #274a69, #09101d 60%, #05070d); overflow: hidden; color: #e7f4ff; touch-action: none; }
+    #game-root { width: 100vw; height: 100vh; }
+    #hud { position: fixed; top: 10px; left: 10px; z-index: 20; background: rgba(8,17,30,.78); border: 1px solid rgba(151,211,255,.35); border-radius: 10px; padding: 8px 10px; min-width: 320px; }
+    #hud .line { font-size: 13px; line-height: 1.35; }
+    #hint { opacity: .85; font-size: 12px; margin-top: 4px; }
+    .panel { position: fixed; inset: 0; z-index: 40; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.58); }
+    .card { width: min(680px, 95vw); background: linear-gradient(170deg,#0f2238,#091120); border: 1px solid rgba(166,219,255,.4); border-radius: 14px; padding: 14px; }
+    .card h2 { margin-bottom: 8px; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .choice { border: 1px solid rgba(152,207,255,.4); background: rgba(130,197,255,.12); color: #e6f6ff; border-radius: 10px; padding: 10px; text-align: left; min-height: 120px; cursor: pointer; }
+    .choice:hover { background: rgba(130,197,255,.2); }
+    .shopGrid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; margin-top: 8px; }
+    .shopBtn { border: 1px solid rgba(152,207,255,.4); background: rgba(130,197,255,.14); color: #e6f6ff; border-radius: 8px; padding: 8px; text-align: left; cursor: pointer; }
+    .shopBtn:disabled { opacity: .45; cursor: not-allowed; }
+    #leaderboard li { margin-left: 18px; }
+    .row { display: flex; gap: 8px; margin-top: 8px; }
+    input, .btn { border-radius: 8px; border: 1px solid rgba(255,255,255,.35); padding: 9px 10px; background: rgba(255,255,255,.12); color: #fff; }
+    input { flex: 1; }
+    .btn { cursor: pointer; font-weight: 700; }
+    #touch { position: fixed; bottom: 10px; right: 10px; z-index: 25; display: flex; gap: 10px; }
+    .tbtn { width: 64px; height: 64px; border-radius: 50%; border: 1px solid rgba(255,255,255,.35); background: rgba(11,26,42,.55); color: #fff; font-size: 21px; font-weight: 900; }
+  </style>
+</head>
+<body>
+  <div id="game-root"></div>
+  <div id="hud">
+    <div class="line" id="stats"></div>
+    <div class="line" id="meta"></div>
+    <div id="hint">A/D or ◀/▶ flippers · Space launches · Shift opens run shop · Survive rising hazard.</div>
+  </div>
+
+  <div id="upgradePanel" class="panel"><div class="card"><h2>Choose 1 Upgrade</h2><div id="upgradeGrid" class="grid"></div></div></div>
+
+  <div id="runShop" class="panel">
+    <div class="card">
+      <h2>Run Shop (spend run scrap)</h2>
+      <div id="runShopCash"></div>
+      <div class="shopGrid">
+        <button class="shopBtn" id="runHeal">Patch Hull (+25 HP) · 45</button>
+        <button class="shopBtn" id="runMult">Score Multiplier +0.15 · 70</button>
+        <button class="shopBtn" id="runSlow">Temporal Slow (8s) · 95</button>
+        <button class="shopBtn" id="runClose">Close Shop</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="gameOver" class="panel">
+    <div class="card">
+      <h2>Machine Collapse</h2>
+      <div id="final"></div>
+      <h3 style="margin-top:10px">Leaderboard</h3>
+      <ol id="leaderboard"></ol>
+      <div class="row">
+        <input id="nameInput" maxlength="20" value="Player" />
+        <button class="btn" id="submitBtn">Submit Score</button>
+        <button class="btn" id="restartBtn">Play Again</button>
+      </div>
+      <div id="status" style="font-size:12px;opacity:.85;margin-top:8px"></div>
+    </div>
+  </div>
+
+  <div id="touch"><button class="tbtn" id="left">◀</button><button class="tbtn" id="right">▶</button></div>
+
+<script>
+/* DESIGN HEADER
+Concept expansion: Clockwork pinball survival arena where a steel orb is kept alive with player-controlled lower flippers while hazards intensify endlessly.
+Controls: keyboard A/D/Left/Right for flippers, Space to launch from plunger, Shift to open run shop; touch buttons for flippers and tap screen to launch.
+Core loop/death: keep the ball in play, farm scrap by bumper hits and shard pickups, choose one of three upgrades every 20s, fail when HP reaches 0 or ball drains repeatedly.
+Hazards: (1) roaming saw drones that collide for heavy damage, (2) pulse lasers sweeping lanes for chip damage, (3) gravity surges and rising speed pressure.
+Upgrades/risk-reward: pick-1-of-3 run upgrades on interval (damage shield, combo boost, magnet, wider flippers, extra bounce). Risk/reward from chasing shards near hazards for large bonus.
+Scoring: score = Math.floor(timeAlive*10 + bonusPoints), monotonic via ever-increasing timeAlive and non-negative bonusPoints.
+Difficulty ramp: smooth time-based lerp with ease over 150s for hazard spawn rate, hazard velocity, laser frequency, and ball chaos.
+Visual/audio: ocean-cool steel palette, Exo 2 font, subtle starfield motion; procedural synth pings for bounce/collect and harsh saw waves for damage/death.
+*/
+
+const GAME_ID = 'clockwork-abyss-pinball-7e4b';
+const SUPABASE_URL = 'https://lecyuhectrddtbjfyarm.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_gEX7QnQ24XzV6t0eNuWnVQ_ud19UxxJ';
+const LEADERBOARD_API = 'https://game-hub-supabase.local';
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function tone(type,f,d,v){ if(audioCtx.state==='suspended') audioCtx.resume(); const o=audioCtx.createOscillator(),g=audioCtx.createGain(); o.connect(g); g.connect(audioCtx.destination); o.type=type; o.frequency.setValueAtTime(f,audioCtx.currentTime); g.gain.setValueAtTime(v||0.2,audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+d); o.start(); o.stop(audioCtx.currentTime+d); }
+const sfx={ launch:()=>{tone('triangle',240,.12,.25);tone('triangle',380,.1,.2);}, bounce:()=>tone('sine',760,.05,.15), collect:()=>{tone('sine',980,.07,.2);tone('sine',1220,.06,.14);}, hit:()=>{tone('sawtooth',170,.18,.25);}, death:()=>{tone('sawtooth',260,.6,.3);tone('square',95,.8,.2);} };
+
+function lerp(a,b,t){ return a+(b-a)*t; }
+function easeInOut(t){ return t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2; }
+
+function getClientFingerprint() {
+  const key = 'gamehub.client-fingerprint.v1';
+  const existing = localStorage.getItem(key);
+  if (existing) return existing;
+  const created = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  localStorage.setItem(key, created);
+  return created;
+}
+async function supabaseRequest(path, { method = 'GET', body, prefer } = {}) {
+  const headers = { apikey: SUPABASE_PUBLISHABLE_KEY, Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`, 'Content-Type': 'application/json' };
+  if (prefer) headers.Prefer = prefer;
+  const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const text = await res.text(); const data = text ? JSON.parse(text) : null;
+  if (!res.ok) throw new Error((data && (data.message || data.error)) || `Supabase ${res.status}`);
+  return data;
+}
+async function submitScore(playerName, score) {
+  try {
+    await supabaseRequest('/leaderboard_scores', { method: 'POST', prefer: 'return=minimal', body: { game_slug: GAME_ID, player_name: String(playerName || 'Anonymous').slice(0, 20), score: Math.round(score), client_fingerprint: getClientFingerprint() } });
+    const scores = await getLeaderboard(100);
+    const rank = scores.findIndex((row) => row.playerName === String(playerName || 'Anonymous').slice(0, 20) && row.score === Math.round(score)) + 1;
+    return { ok: true, rank: rank > 0 ? rank : null, totalScores: scores.length };
+  } catch (e) { console.warn('Leaderboard unavailable:', e); return null; }
+}
+async function getLeaderboard(limit = 10) {
+  try {
+    const rows = await supabaseRequest('/rpc/get_game_leaderboard', { method: 'POST', body: { p_game_slug: GAME_ID, p_limit: Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100) } });
+    return (rows || []).map((row) => ({ playerName: row.player_name, score: Number(row.score) || 0, date: row.created_at }));
+  } catch (e) { console.warn('Leaderboard unavailable:', e); return []; }
+}
+
+const META_KEY = `${GAME_ID}.meta`;
+function loadMeta(){ try{return JSON.parse(localStorage.getItem(META_KEY)||'{"wallet":0,"maxHp":0,"startScrap":0,"flipper":0}') }catch{return {wallet:0,maxHp:0,startScrap:0,flipper:0};}}
+function saveMeta(m){ localStorage.setItem(META_KEY, JSON.stringify(m)); }
+let meta = loadMeta();
+let latestScore = 0;
+let activeScene = null;
+
+class MenuScene extends Phaser.Scene {
+  constructor(){ super('MenuScene'); }
+  create(){
+    const w=this.scale.width,h=this.scale.height;
+    const g=this.add.graphics();
+    g.fillGradientStyle(0x1a3a5f,0x1a3a5f,0x08111f,0x08111f,1); g.fillRect(0,0,w,h);
+    this.add.text(w/2, 90, 'CLOCKWORK ABYSS PINBALL', {fontSize:'36px',fontStyle:'900',color:'#c9edff'}).setOrigin(.5);
+    this.add.text(w/2, 160, 'Endless roguelike pinball survival. Upgrade every 20s.\nSpend run scrap mid-run or buy permanent meta boosts here.', {fontSize:'18px',align:'center'}).setOrigin(.5);
+    this.walletText=this.add.text(w/2,235,'',{fontSize:'20px',color:'#9bf4c7'}).setOrigin(.5);
+    this.refreshWallet();
+
+    const items=[
+      {k:'maxHp',n:'Reinforced Core (+15 Max HP)',c:110,s:1},
+      {k:'startScrap',n:'Scrap Stash (+25 Start Scrap)',c:140,s:1},
+      {k:'flipper',n:'Precision Arms (+6 Flipper Width)',c:170,s:1}
+    ];
+    items.forEach((it,i)=>{
+      const y=300+i*64;
+      const btn=this.add.rectangle(w/2, y, 520, 48, 0x1d3a55, 0.9).setStrokeStyle(2,0x8fd6ff).setInteractive({useHandCursor:true});
+      const txt=this.add.text(w/2-245,y-11,'',{fontSize:'18px'});
+      const redraw=()=>{ const lv=meta[it.k]||0; const cost=Math.floor(it.c*Math.pow(1.6,lv)); txt.setText(`${it.n}  Lv.${lv}  [${cost} scrap]`); };
+      redraw();
+      btn.on('pointerdown',()=>{ const lv=meta[it.k]||0; const cost=Math.floor(it.c*Math.pow(1.6,lv)); if(meta.wallet>=cost){ meta.wallet-=cost; meta[it.k]=lv+it.s; saveMeta(meta); redraw(); this.refreshWallet(); sfx.collect(); }});
+    });
+
+    const start=this.add.rectangle(w/2,h-95,280,62,0x2f8f67,1).setStrokeStyle(2,0xa6ffe1).setInteractive({useHandCursor:true});
+    this.add.text(w/2,h-111,'START RUN',{fontSize:'30px',fontStyle:'900'}).setOrigin(.5);
+    const begin=()=>{ if(audioCtx.state==='suspended') audioCtx.resume(); this.scene.start('GameScene'); };
+    start.on('pointerdown',begin); this.input.keyboard.once('keydown',begin);
+  }
+  refreshWallet(){ this.walletText?.setText(`Meta Scrap Wallet: ${Math.floor(meta.wallet)}`); }
+}
+
+class GameScene extends Phaser.Scene {
+  constructor(){ super('GameScene'); }
+  create(){
+    activeScene=this;
+    this.dead=false; this.startTime=this.time.now; this.timeAlive=0; this.bonusPoints=0; this.score=0;
+    this.maxHp=100 + (meta.maxHp||0)*15; this.hp=this.maxHp; this.runScrap=30 + (meta.startScrap||0)*25; this.scoreMult=1;
+    this.upgradeInterval=20000; this.nextUpgrade=this.time.now + this.upgradeInterval;
+    this.touch={l:false,r:false};
+    const w=this.scale.width,h=this.scale.height;
+    const bg=this.add.tileSprite(w/2,h/2,w,h,'').setTint(0x0b1829).setAlpha(1);
+    this.bg=bg;
+
+    this.physics.world.setBounds(100,30,w-200,h-30);
+    this.ball=this.add.circle(w/2,h-100,14,0xd5f6ff).setStrokeStyle(3,0x74b4d1);
+    this.physics.add.existing(this.ball);
+    this.ball.body.setCircle(11); this.ball.body.setBounce(0.98); this.ball.body.setDrag(0.0005); this.ball.body.setCollideWorldBounds(true);
+    this.ball.body.onWorldBounds = true;
+
+    this.leftFlip=this.add.rectangle(w/2-90,h-65,92 + (meta.flipper||0)*6,16,0x6edbff).setOrigin(0.9,0.5);
+    this.rightFlip=this.add.rectangle(w/2+90,h-65,92 + (meta.flipper||0)*6,16,0x6edbff).setOrigin(0.1,0.5);
+    this.physics.add.existing(this.leftFlip,true); this.physics.add.existing(this.rightFlip,true);
+    this.physics.add.collider(this.ball,this.leftFlip,()=>sfx.bounce()); this.physics.add.collider(this.ball,this.rightFlip,()=>sfx.bounce());
+
+    this.bumpers=this.physics.add.staticGroup();
+    [[w/2,220],[w/2-140,320],[w/2+140,320],[w/2,430]].forEach(([x,y])=>{ const b=this.add.circle(x,y,28,0x3ab0d4).setStrokeStyle(3,0xa6ecff); this.physics.add.existing(b,true); this.bumpers.add(b); });
+    this.physics.add.collider(this.ball,this.bumpers,(_,b)=>{ this.bonusPoints += 8*this.scoreMult; this.runScrap += 3; sfx.bounce(); });
+
+    this.drones=this.physics.add.group();
+    this.shards=this.physics.add.group();
+    this.lasers=this.add.group();
+
+    this.inputKeys=this.input.keyboard.addKeys({l:'A',r:'D',l2:'LEFT',r2:'RIGHT',launch:'SPACE',shop:'SHIFT'});
+    this.input.on('pointerdown',()=>{ if(this.ball.body.speed<60) this.launchBall(); });
+    const bindTouch=(id,k)=>{const e=document.getElementById(id);e.onpointerdown=()=>this.touch[k]=true;e.onpointerup=()=>this.touch[k]=false;e.onpointerleave=()=>this.touch[k]=false;};
+    bindTouch('left','l'); bindTouch('right','r');
+
+    this.physics.add.overlap(this.ball,this.drones,()=>this.takeDamage(18));
+    this.physics.add.overlap(this.ball,this.shards,(_,s)=>{ s.destroy(); this.bonusPoints += 35*this.scoreMult; this.runScrap += 14; sfx.collect(); });
+
+    this.time.addEvent({delay:1200,loop:true,callback:()=>this.spawnShard()});
+    this.time.addEvent({delay:1800,loop:true,callback:()=>this.spawnDrone()});
+    this.time.addEvent({delay:2500,loop:true,callback:()=>this.fireLaser()});
+
+    this.events.on('update',()=>this.updateHUD());
+    this.launchBall();
+  }
+
+  launchBall(){ if(this.dead) return; this.ball.body.setVelocity(Phaser.Math.Between(-90,90), -420); sfx.launch(); }
+
+  spawnShard(){ if(this.dead || Math.random()<0.2) return; const x=Phaser.Math.Between(130,this.scale.width-130), y=Phaser.Math.Between(100,this.scale.height-180); const s=this.add.star(x,y,5,7,13,0xfff6b0); this.physics.add.existing(s); s.body.setCircle(8); s.body.allowGravity=false; this.shards.add(s); this.tweens.add({targets:s,angle:360,duration:1900,repeat:-1}); this.time.delayedCall(6200,()=>s.destroy()); }
+
+  spawnDrone(){ if(this.dead) return; const t=Math.min(this.timeAlive/150,1),e=easeInOut(t); const count=Math.random()<lerp(0.25,0.8,e)?2:1; for(let i=0;i<count;i++){ const x=Math.random()<0.5?130:this.scale.width-130; const y=Phaser.Math.Between(70,420); const d=this.add.polygon(x,y,[0,-20,16,-8,20,12,0,20,-20,12,-16,-8],0xff8f6a).setStrokeStyle(2,0xffd2c0); this.physics.add.existing(d); d.body.setCircle(13); d.body.allowGravity=false; const v=lerp(70,190,e); d.body.setVelocity((this.ball.x<x?-1:1)*v,Phaser.Math.Between(-50,50)); d.damage=lerp(12,24,e); this.drones.add(d); this.time.delayedCall(12000,()=>d.destroy()); }}
+
+  fireLaser(){ if(this.dead) return; const t=Math.min(this.timeAlive/150,1),e=easeInOut(t); if(Math.random()>lerp(0.3,0.9,e)) return; const y=Phaser.Math.Between(130,this.scale.height-180); const r=this.add.rectangle(this.scale.width/2,y,this.scale.width-240,8,0xff507a,0.12); this.lasers.add(r); this.tweens.add({targets:r,alpha:{from:.12,to:.7},duration:420,yoyo:true,onComplete:()=>{ if(this.dead){r.destroy();return;} if(Math.abs(this.ball.y-y)<14) this.takeDamage(10+8*e); r.destroy(); }}); }
+
+  takeDamage(n){ if(this.dead) return; this.hp=Math.max(0,this.hp-n); this.ball.setFillStyle(0xffc8c8); this.time.delayedCall(90,()=>this.ball.setFillStyle(0xd5f6ff)); this.cameras.main.shake(120,0.005); sfx.hit(); if(this.hp<=0) this.die(); }
+
+  applyUpgrade(up){
+    if(up==='shield'){ this.maxHp += 15; this.hp=Math.min(this.maxHp,this.hp+15); }
+    if(up==='mult'){ this.scoreMult += 0.2; }
+    if(up==='flipper'){ this.leftFlip.width += 10; this.rightFlip.width += 10; this.leftFlip.body.updateFromGameObject(); this.rightFlip.body.updateFromGameObject(); }
+    if(up==='magnet'){ this.magnet=(this.magnet||0)+1; }
+    if(up==='bounce'){ this.ball.body.setBounce(Math.min(1.03,this.ball.body.bounce.x+0.02)); }
+  }
+
+  openUpgrade(){
+    this.scene.pause();
+    const panel=document.getElementById('upgradePanel'); const grid=document.getElementById('upgradeGrid'); grid.innerHTML='';
+    const all=[
+      {id:'shield',title:'Kinetic Shield',desc:'+15 max HP and heal 15'},
+      {id:'mult',title:'Combo Ledger',desc:'+0.20 score multiplier'},
+      {id:'flipper',title:'Long Arm Kit',desc:'Wider flippers (safer returns)'},
+      {id:'magnet',title:'Shard Magnet',desc:'Attract pickups near the ball'},
+      {id:'bounce',title:'Hyper Core',desc:'Higher bounce energy'}
+    ];
+    Phaser.Utils.Array.Shuffle(all); all.slice(0,3).forEach(c=>{ const b=document.createElement('button'); b.className='choice'; b.innerHTML=`<b>${c.title}</b><div style='font-size:13px;opacity:.9;margin-top:6px'>${c.desc}</div>`; b.onclick=()=>{ this.applyUpgrade(c.id); panel.style.display='none'; this.scene.resume(); sfx.collect(); }; grid.appendChild(b); });
+    panel.style.display='flex';
+  }
+
+  updateHUD(){
+    const stats=`HP ${Math.floor(this.hp)}/${Math.floor(this.maxHp)} · Time ${this.timeAlive.toFixed(1)}s · Score ${Math.floor(this.score)} · Bonus ${Math.floor(this.bonusPoints)}`;
+    const metaLine=`Run Scrap: ${Math.floor(this.runScrap)} · Mult x${this.scoreMult.toFixed(2)} · Meta Wallet ${Math.floor(meta.wallet)}`;
+    document.getElementById('stats').textContent=stats; document.getElementById('meta').textContent=metaLine;
+  }
+
+  update(time,delta){
+    if(this.dead) return;
+    const dt=delta/16.667;
+    this.timeAlive=(time-this.startTime)/1000;
+    const t=Math.min(this.timeAlive/150,1),e=easeInOut(t);
+
+    if(time>this.nextUpgrade){ this.nextUpgrade += this.upgradeInterval; this.openUpgrade(); }
+
+    const left=this.inputKeys.l.isDown||this.inputKeys.l2.isDown||this.touch.l;
+    const right=this.inputKeys.r.isDown||this.inputKeys.r2.isDown||this.touch.r;
+    this.leftFlip.rotation = Phaser.Math.Linear(this.leftFlip.rotation, left?-0.72:0.25, 0.26*dt);
+    this.rightFlip.rotation = Phaser.Math.Linear(this.rightFlip.rotation, right?0.72:-0.25, 0.26*dt);
+    this.leftFlip.body.updateFromGameObject(); this.rightFlip.body.updateFromGameObject();
+
+    if(Phaser.Input.Keyboard.JustDown(this.inputKeys.launch) && this.ball.body.speed<80) this.launchBall();
+    if(Phaser.Input.Keyboard.JustDown(this.inputKeys.shop)) openRunShop();
+
+    const drainY=this.scale.height-10;
+    if(this.ball.y>drainY){ this.takeDamage(15+10*e); this.ball.setPosition(this.scale.width/2,this.scale.height-100); this.ball.body.setVelocity(0,0); this.time.delayedCall(180,()=>this.launchBall()); }
+
+    const targetSpeed=lerp(280,560,e);
+    if(this.ball.body.speed<targetSpeed) this.ball.body.velocity.scale(1+0.0018*dt);
+    if(this.magnet){ this.shards.getChildren().forEach(s=>{ const dx=this.ball.x-s.x,dy=this.ball.y-s.y,d=Math.hypot(dx,dy); if(d<180){ s.x += dx*0.02*this.magnet*dt; s.y += dy*0.02*this.magnet*dt; }}); }
+
+    this.bonusPoints += (0.6 + 0.4*e) * this.scoreMult * dt;
+    this.score = Math.floor(this.timeAlive * 10 + this.bonusPoints);
+    latestScore=this.score;
+    this.bg.tilePositionY -= 0.2*dt;
+
+    if(this.hp<=0) this.die();
+  }
+
+  die(){
+    if(this.dead) return; this.dead=true; sfx.death(); this.cameras.main.shake(260,0.012); this.cameras.main.flash(220,255,120,120);
+    this.ball.setFillStyle(0xff6b6b); this.ball.body.setVelocity(0,0);
+    meta.wallet += Math.floor(this.score*0.18); saveMeta(meta);
+    this.time.delayedCall(520,()=>{ this.scene.pause(); showGameOver(this.score,this.timeAlive,Math.floor(this.score*0.18)); });
+  }
+}
+
+const config={
+  type:Phaser.AUTO,
+  parent:'game-root',
+  width:960,height:640,
+  physics:{default:'arcade',arcade:{gravity:{y:0},debug:false}},
+  scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},
+  scene:[MenuScene,GameScene]
+};
+const game=new Phaser.Game(config);
+
+async function refreshLeaderboard(){ const el=document.getElementById('leaderboard'); el.innerHTML=''; const rows=await getLeaderboard(10); if(!rows.length){ const li=document.createElement('li'); li.textContent='No scores yet — be first!'; el.appendChild(li); return; } rows.forEach(r=>{ const li=document.createElement('li'); li.textContent=`${r.playerName||'anon'} — ${r.score}`; el.appendChild(li); }); }
+
+function showGameOver(score,timeAlive,earnedMeta){
+  document.getElementById('gameOver').style.display='flex';
+  document.getElementById('final').innerHTML=`Final Score: <b>${Math.floor(score)}</b><br>Time: ${timeAlive.toFixed(1)}s<br>Meta scrap earned: ${earnedMeta}`;
+  document.getElementById('status').textContent='';
+  refreshLeaderboard();
+}
+
+function openRunShop(){
+  if(!activeScene || activeScene.dead) return;
+  activeScene.scene.pause();
+  const wrap=document.getElementById('runShop'); const cash=document.getElementById('runShopCash'); cash.textContent=`Run Scrap: ${Math.floor(activeScene.runScrap)}`;
+  const buy=(cost,fn)=>{ if(activeScene.runScrap<cost) return; activeScene.runScrap-=cost; fn(); sfx.collect(); cash.textContent=`Run Scrap: ${Math.floor(activeScene.runScrap)}`; };
+  document.getElementById('runHeal').onclick=()=>buy(45,()=>activeScene.hp=Math.min(activeScene.maxHp,activeScene.hp+25));
+  document.getElementById('runMult').onclick=()=>buy(70,()=>activeScene.scoreMult+=0.15);
+  document.getElementById('runSlow').onclick=()=>buy(95,()=>{ activeScene.drones.getChildren().forEach(d=>d.body.velocity.scale(0.5)); activeScene.time.delayedCall(8000,()=>activeScene.drones.getChildren().forEach(d=>d.body.velocity.scale(2))); });
+  document.getElementById('runClose').onclick=()=>{ wrap.style.display='none'; if(!activeScene.dead) activeScene.scene.resume(); };
+  wrap.style.display='flex';
+}
+
+document.getElementById('submitBtn').onclick=async()=>{
+  const name=(document.getElementById('nameInput').value||'Player').trim().slice(0,20)||'Player';
+  const s=document.getElementById('status'); s.textContent='Submitting...';
+  const res=await submitScore(name,latestScore); s.textContent=res?`Submitted${res.rank?` • Rank #${res.rank}`:''}`:'Submit failed (leaderboard unavailable).';
+  refreshLeaderboard();
+};
+document.getElementById('restartBtn').onclick=()=>{ document.getElementById('gameOver').style.display='none'; document.getElementById('upgradePanel').style.display='none'; document.getElementById('runShop').style.display='none'; game.scene.stop('GameScene'); game.scene.start('MenuScene'); };
+</script>
+</body>
+</html>

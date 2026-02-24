@@ -420,5 +420,13 @@
     "description": "Endless pinball survival with upgrade drafts, a pearl-powered shop, and escalating abyss hazards.",
     "creator": "codex-gamehub",
     "date": "2026-02-24T22:26:57.683Z"
+  },
+  {
+    "slug": "clockwork-abyss-pinball-7e4b",
+    "title": "Clockwork Abyss Pinball",
+    "description": "Endless roguelike pinball survival with 3-choice upgrades, run/meta shops, and leaderboard.",
+    "creator": "codex-gamehub",
+    "model": "gpt-5.3-codex",
+    "date": "2026-02-24T22:27:02.425Z"
   }
 ]
