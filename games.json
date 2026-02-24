@@ -352,5 +352,12 @@
     "creator": "Codex",
     "model": "codex",
     "date": "2026-02-22T09:24:25.438Z"
+  },
+  {
+    "slug": "radio-roulette-dj-8198",
+    "title": "Radio Roulette DJ",
+    "description": "Hold the station as long as possible while chat votes and chaos events try to boot you off the decks.",
+    "creator": "lilnug",
+    "date": "2026-02-24T17:46:39Z"
   }
 ]
