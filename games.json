@@ -72,24 +72,6 @@
     "archived": true
   },
   {
-    "slug": "eggplant-juice-4e8f",
-    "title": "Eggplant Juicer",
-    "description": "Drag vigorously to juice eggplants. 5 levels of increasingly thicc eggplants.",
-    "creator": "billyhoho",
-    "date": "2026-02-20T06:02:48.100Z",
-    "model": "codex",
-    "archived": true
-  },
-  {
-    "slug": "isla-ng-anino-e73e",
-    "title": "Isla ng Anino",
-    "description": "Cozy Philippine island farming by day, hardcore 2D soulslike survival by night. Play as Godwin Pang (pixel-art inspired).",
-    "creator": "jgoodo",
-    "date": "2026-02-20T06:41:48.256Z",
-    "model": "codex",
-    "archived": true
-  },
-  {
     "slug": "lane-surge-326e",
     "title": "Lane Surge",
     "description": "Lane-based auto-shooter roguelite with fighter tiers, merges, gates, weapon modifiers, boss fight, and permanent upgrades.",
@@ -104,15 +86,6 @@
     "description": "Chaotic SFW hotdog survival game. Runners eat hotdogs, split into new runners, and dodge hazards for score.",
     "creator": "jeison",
     "date": "2026-02-20T07:04:39.968Z",
-    "model": "codex",
-    "archived": true
-  },
-  {
-    "slug": "island-front-377f",
-    "title": "Island Front: Keenan",
-    "description": "Island survival fighter with amphibious enemy landings, weapon unlock progression, and rally callouts.",
-    "creator": "jgoodo",
-    "date": "2026-02-20T07:08:04.795Z",
     "model": "codex",
     "archived": true
   },
