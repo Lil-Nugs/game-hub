@@ -428,5 +428,12 @@
     "creator": "codex-gamehub",
     "model": "gpt-5.3-codex",
     "date": "2026-02-24T22:27:02.425Z"
+  },
+  {
+    "slug": "pinball-rogue-78ab",
+    "title": "Pinball Rogue",
+    "description": "Cosmic survival pinball meets roguelike. Hit pegs, choose upgrades, survive as long as you can!",
+    "creator": "lilnug",
+    "date": "2026-02-24"
   }
 ]

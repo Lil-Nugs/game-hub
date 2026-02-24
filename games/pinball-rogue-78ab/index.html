@@ -1,0 +1,1209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Pinball Rogue</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #050510;
+  display: flex; justify-content: center; align-items: center;
+  height: 100vh; overflow: hidden; touch-action: none;
+  font-family: 'Orbitron', sans-serif;
+}
+#ui-overlay {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  display: none; justify-content: center; align-items: center;
+  z-index: 20; background: rgba(2, 2, 20, 0.93);
+  font-family: 'Orbitron', sans-serif;
+}
+#overlay-panel {
+  background: linear-gradient(135deg, #0d0d2e 0%, #1a0533 100%);
+  border: 2px solid #7b2fff; border-radius: 18px;
+  padding: 28px 36px; text-align: center; max-width: 380px; width: 92%;
+  box-shadow: 0 0 50px rgba(123,47,255,0.5), 0 0 100px rgba(123,47,255,0.15);
+}
+#overlay-panel h2 { color: #c080ff; font-size: 26px; margin-bottom: 6px; letter-spacing: 3px; text-shadow: 0 0 20px rgba(192,128,255,0.8); }
+.score-display { font-size: 52px; color: #ffd700; margin: 14px 0 8px; font-weight: 900; text-shadow: 0 0 24px rgba(255,215,0,0.7); }
+#rank-display { color: #9966ff; font-size: 13px; margin-bottom: 12px; min-height: 18px; }
+#overlay-panel input {
+  background: rgba(255,255,255,0.06); border: 1px solid #7b2fff; border-radius: 8px;
+  color: #fff; font-family: 'Orbitron', sans-serif; font-size: 15px;
+  padding: 10px 14px; width: 100%; margin: 8px 0 14px; text-align: center; outline: none;
+}
+#overlay-panel input:focus { border-color: #b060ff; box-shadow: 0 0 14px rgba(176,96,255,0.4); }
+.btn {
+  background: linear-gradient(135deg, #7b2fff, #4400cc); color: #fff;
+  border: none; border-radius: 8px; font-family: 'Orbitron', sans-serif;
+  font-size: 13px; font-weight: 700; padding: 11px 24px; cursor: pointer;
+  margin: 5px; text-transform: uppercase; letter-spacing: 2px;
+  transition: all 0.2s; box-shadow: 0 0 16px rgba(123,47,255,0.5);
+}
+.btn:hover { transform: scale(1.05); box-shadow: 0 0 26px rgba(123,47,255,0.8); }
+.btn:disabled { opacity: 0.5; cursor: default; transform: none; }
+.btn.gold { background: linear-gradient(135deg, #ffd700, #ff9900); box-shadow: 0 0 16px rgba(255,215,0,0.5); }
+.btn.gold:hover { box-shadow: 0 0 28px rgba(255,215,0,0.8); }
+#leaderboard-list { text-align: left; margin: 14px 0 8px; max-height: 160px; overflow-y: auto; }
+.lb-row { display: flex; justify-content: space-between; padding: 5px 8px; color: #aaa; font-size: 11px; border-bottom: 1px solid rgba(123,47,255,0.2); }
+.lb-row:nth-child(1) { color: #ffd700; }
+.lb-row:nth-child(2) { color: #c0c0c0; }
+.lb-row:nth-child(3) { color: #cd7f32; }
+#lb-title { color: #7b2fff; font-size: 11px; letter-spacing: 2px; margin-bottom: 6px; }
+
+/* Upgrade overlay */
+#upgrade-overlay {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  display: none; justify-content: center; align-items: center;
+  z-index: 20; background: rgba(2, 2, 20, 0.90);
+  font-family: 'Orbitron', sans-serif;
+}
+#upgrade-panel { text-align: center; max-width: 540px; width: 96%; padding: 10px; }
+#upgrade-panel h2 { color: #c080ff; font-size: 20px; margin-bottom: 4px; letter-spacing: 2px; }
+#upgrade-panel .sub { color: #6644aa; font-size: 10px; margin-bottom: 20px; }
+.upgrade-cards { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.upgrade-card {
+  background: linear-gradient(160deg, #0d0d30, #1a0540);
+  border: 2px solid #7b2fff; border-radius: 14px;
+  padding: 22px 14px; cursor: pointer; width: 148px;
+  transition: all 0.22s; text-align: center;
+  box-shadow: 0 0 20px rgba(123,47,255,0.25);
+}
+.upgrade-card:hover { transform: scale(1.09) translateY(-6px); border-color: #c080ff; box-shadow: 0 0 36px rgba(192,128,255,0.6); }
+.upgrade-card .card-icon { font-size: 38px; margin-bottom: 10px; }
+.upgrade-card .card-name { color: #e0b0ff; font-size: 10px; font-weight: 700; letter-spacing: 1px; margin-bottom: 8px; }
+.upgrade-card .card-desc { color: #776699; font-size: 9px; line-height: 1.5; }
+.upgrade-card.gold-card { border-color: #ffd700; box-shadow: 0 0 20px rgba(255,215,0,0.25); }
+.upgrade-card.gold-card:hover { box-shadow: 0 0 36px rgba(255,215,0,0.7); }
+.upgrade-card.gold-card .card-name { color: #ffd700; }
+</style>
+</head>
+<body>
+
+<!-- Game Over overlay -->
+<div id="ui-overlay">
+  <div id="overlay-panel">
+    <h2>⚡ GAME OVER</h2>
+    <div class="score-display" id="final-score">0</div>
+    <div id="rank-display"></div>
+    <input type="text" id="player-name" placeholder="YOUR CALLSIGN" maxlength="20" autocomplete="off">
+    <div>
+      <button class="btn gold" id="submit-btn" onclick="handleSubmitScore()">SUBMIT SCORE</button>
+    </div>
+    <div id="lb-title">— LEADERBOARD —</div>
+    <div id="leaderboard-list"></div>
+    <button class="btn" onclick="handleReplay()">PLAY AGAIN</button>
+  </div>
+</div>
+
+<!-- Upgrade selection overlay -->
+<div id="upgrade-overlay">
+  <div id="upgrade-panel">
+    <h2>⚡ UPGRADE ACQUIRED</h2>
+    <p class="sub">Choose your enhancement, Commander</p>
+    <div class="upgrade-cards" id="upgrade-cards-container"></div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// DESIGN HEADER — Pinball Rogue
+//
+// Controls: SPACE/click to launch ball; A/Left arrow = left flipper;
+//           D/Right arrow = right flipper; tap left/right screen halves on mobile
+//
+// Core Loop: Ball bounces off pegs in a cosmic arena scoring points.
+//   Ball draining = lose a life → choose 1 of 3 upgrade cards.
+//   Lose all 3 lives = Game Over.
+//
+// Hazards/Pegs:
+//   Normal (blue)  → +25 × multiplier
+//   Gold (gold)    → +100 × multiplier, big flash
+//   Bomb (orange)  → +75 × multiplier, chain explodes nearby pegs
+//   Hazard (red)   → 0 points, -1 life
+//
+// Upgrades (roguelike shop): Multi-ball, Magnet Flipper, Score 2x,
+//   Bigger Flippers, Peg Refresh, Shield (+1 life), Gold Rush, Turbo Ball
+//
+// Scoring: Math.floor(timeAlive × 10 + bonusPoints)
+//   bonusPoints = pegsHit×25 + goldPegs×100 + bombChains×50 (scaled by multiplier)
+//
+// Difficulty: Round number drives more pegs, more hazard pegs, faster gravity ramp
+//
+// Visual: Cosmic/Space — deep space BG, parallax stars, nebula, purple/blue/gold accents
+//   Font: Orbitron. Ball: glowing energy orb with trail. Pegs: colored glowing circles.
+//
+// Audio: Web Audio API — synth pings per peg type, woosh launch, deep bass drain,
+//   arpeggio upgrade pick, explosion on bomb chain
+// ============================================================
+
+const GAME_ID = 'pinball-rogue-78ab';
+const SUPABASE_URL = 'https://lecyuhectrddtbjfyarm.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_gEX7QnQ24XzV6t0eNuWnVQ_ud19UxxJ';
+
+// ─── WEB AUDIO ─────────────────────────────────────────────────────────
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function resumeAudio() { if (audioCtx.state === 'suspended') audioCtx.resume(); }
+
+function playTone(type, freq, dur, vol = 0.25, freqEnd = null, delay = 0) {
+  if (audioCtx.state === 'suspended') return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.type = type;
+  const t = audioCtx.currentTime + delay;
+  osc.frequency.setValueAtTime(freq, t);
+  if (freqEnd) osc.frequency.exponentialRampToValueAtTime(freqEnd, t + dur);
+  gain.gain.setValueAtTime(vol, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  osc.start(t); osc.stop(t + dur);
+}
+
+function sfxPegNormal()  { playTone('sine', 440, 0.12, 0.22, 700); }
+function sfxPegGold()    { playTone('sine', 880, 0.15, 0.28, 1400); playTone('triangle', 1100, 0.1, 0.2); }
+function sfxPegBomb()    { playTone('sawtooth', 220, 0.2, 0.3, 80); playTone('square', 180, 0.15, 0.25, 60); }
+function sfxPegHazard()  { playTone('sawtooth', 120, 0.35, 0.35, 40); playTone('square', 80, 0.3, 0.25, 40); }
+function sfxBombChain(i) { playTone('sawtooth', 200 - i*20, 0.15, 0.2, 50, i * 0.05); }
+
+function sfxLaunch() {
+  playTone('sine', 300, 0.06, 0.18, 900);
+  playTone('sine', 600, 0.08, 0.12, 1200);
+}
+function sfxFlipper() { playTone('sine', 700, 0.05, 0.12, 450); }
+function sfxDrain() {
+  playTone('sawtooth', 280, 0.08, 0.3, 60);
+  playTone('sine', 100, 0.7, 0.22, 35, 0.05);
+  playTone('square', 55, 0.9, 0.18, 30, 0.1);
+}
+function sfxUpgradePick() {
+  [400, 600, 800, 1050].forEach((f, i) => playTone('sine', f, 0.18, 0.22, null, i * 0.1));
+}
+function sfxExtraLife() {
+  [880, 1100, 1320, 1760].forEach((f, i) => playTone('sine', f, 0.16, 0.25, null, i * 0.08));
+}
+
+// ─── LEADERBOARD ────────────────────────────────────────────────────────
+function getClientFingerprint() {
+  const key = 'gamehub.client-fingerprint.v1';
+  const ex = localStorage.getItem(key);
+  if (ex) return ex;
+  const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  localStorage.setItem(key, id); return id;
+}
+
+async function supabaseRequest(path, { method = 'GET', body, prefer } = {}) {
+  const headers = {
+    apikey: SUPABASE_PUBLISHABLE_KEY,
+    Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+    'Content-Type': 'application/json'
+  };
+  if (prefer) headers.Prefer = prefer;
+  const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
+    method, headers, body: body ? JSON.stringify(body) : undefined
+  });
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) throw new Error((data && (data.message || data.error)) || `Supabase ${res.status}`);
+  return data;
+}
+
+async function submitScore(playerName, score) {
+  try {
+    await supabaseRequest('/leaderboard_scores', {
+      method: 'POST', prefer: 'return=minimal',
+      body: { game_slug: GAME_ID, player_name: String(playerName || 'Anonymous').slice(0, 20),
+              score: Math.round(score), client_fingerprint: getClientFingerprint() }
+    });
+    const scores = await getLeaderboard(100);
+    const pname = String(playerName || 'Anonymous').slice(0, 20);
+    const rank = scores.findIndex(r => r.playerName === pname && r.score === Math.round(score)) + 1;
+    return { ok: true, rank: rank > 0 ? rank : null, totalScores: scores.length };
+  } catch (e) { console.warn('Leaderboard unavailable:', e); return null; }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const rows = await supabaseRequest('/rpc/get_game_leaderboard', {
+      method: 'POST', body: { p_game_slug: GAME_ID, p_limit: Math.min(Math.max(parseInt(limit) || 10, 1), 100) }
+    });
+    return (rows || []).map(r => ({ playerName: r.player_name, score: Number(r.score) || 0, date: r.created_at }));
+  } catch (e) { console.warn('Leaderboard unavailable:', e); return []; }
+}
+
+// ─── GAME STATE ─────────────────────────────────────────────────────────
+let currentScene = null;
+let finalScoreVal = 0;
+
+function displayLeaderboard(scores) {
+  const el = document.getElementById('leaderboard-list');
+  if (!scores.length) {
+    el.innerHTML = '<div style="color:#554466;font-size:10px;text-align:center;padding:10px">No scores yet — be the first!</div>';
+    return;
+  }
+  const medals = ['🥇','🥈','🥉'];
+  el.innerHTML = scores.slice(0, 10).map((s, i) =>
+    `<div class="lb-row"><span>${medals[i] || (i + 1) + '.'} ${s.playerName}</span><span>${s.score.toLocaleString()}</span></div>`
+  ).join('');
+}
+
+function showGameOverUI(score) {
+  finalScoreVal = score;
+  document.getElementById('final-score').textContent = score.toLocaleString();
+  document.getElementById('rank-display').textContent = '';
+  document.getElementById('leaderboard-list').innerHTML = '';
+  const btn = document.getElementById('submit-btn');
+  btn.textContent = 'SUBMIT SCORE'; btn.disabled = false;
+  document.getElementById('ui-overlay').style.display = 'flex';
+  getLeaderboard(10).then(displayLeaderboard);
+}
+
+async function handleSubmitScore() {
+  const name = document.getElementById('player-name').value.trim() || 'Anonymous';
+  const btn = document.getElementById('submit-btn');
+  btn.textContent = 'TRANSMITTING...'; btn.disabled = true;
+  const result = await submitScore(name, finalScoreVal);
+  btn.textContent = 'SUBMITTED ✓';
+  if (result && result.rank) {
+    document.getElementById('rank-display').textContent = `⭐ Rank #${result.rank} of ${result.totalScores}`;
+  }
+  displayLeaderboard(await getLeaderboard(10));
+}
+
+function handleReplay() {
+  document.getElementById('ui-overlay').style.display = 'none';
+  if (currentScene) currentScene.scene.restart();
+}
+
+// ─── UPGRADES ────────────────────────────────────────────────────────────
+const ALL_UPGRADES = [
+  { id: 'multiball',    icon: '🔮', name: 'MULTI-BALL',     desc: 'Next launch fires 2 balls at once', rarity: 'purple' },
+  { id: 'magnet',       icon: '🧲', name: 'MAGNET FLIPPER',  desc: 'Flippers attract the ball for 8 seconds', rarity: 'purple' },
+  { id: 'multiplier',   icon: '✨', name: '2× MULTIPLIER',   desc: 'Double all peg scores permanently', rarity: 'gold' },
+  { id: 'big_flippers', icon: '🏓', name: 'BIG FLIPPERS',    desc: 'Flippers grow 35% wider', rarity: 'purple' },
+  { id: 'peg_refresh',  icon: '♻️', name: 'PEG REFRESH',     desc: 'Restore all spent pegs', rarity: 'purple' },
+  { id: 'shield',       icon: '🛡️', name: 'SHIELD',         desc: 'Gain +1 extra life', rarity: 'gold' },
+  { id: 'gold_rush',    icon: '💰', name: 'GOLD RUSH',       desc: 'All pegs become gold for next round', rarity: 'gold' },
+  { id: 'turbo_ball',   icon: '⚡', name: 'TURBO BALL',      desc: 'Ball moves 30% faster this round', rarity: 'purple' },
+];
+
+function getRandomUpgrades(n = 3) {
+  return [...ALL_UPGRADES].sort(() => Math.random() - 0.5).slice(0, n);
+}
+
+function showUpgradeOverlay(upgrades, callback) {
+  const container = document.getElementById('upgrade-cards-container');
+  container.innerHTML = '';
+  upgrades.forEach(upg => {
+    const card = document.createElement('div');
+    card.className = `upgrade-card${upg.rarity === 'gold' ? ' gold-card' : ''}`;
+    card.innerHTML = `<div class="card-icon">${upg.icon}</div><div class="card-name">${upg.name}</div><div class="card-desc">${upg.desc}</div>`;
+    card.addEventListener('click', () => {
+      sfxUpgradePick();
+      document.getElementById('upgrade-overlay').style.display = 'none';
+      callback(upg.id);
+    });
+    container.appendChild(card);
+  });
+  document.getElementById('upgrade-overlay').style.display = 'flex';
+}
+
+// ─── PHASER SCENES ────────────────────────────────────────────────────────
+
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+
+  create() {
+    currentScene = this;
+    const W = this.scale.width, H = this.scale.height;
+
+    // Deep space background
+    const bg = this.add.graphics();
+    bg.fillGradientStyle(0x030312, 0x030312, 0x080525, 0x080525, 1);
+    bg.fillRect(0, 0, W, H);
+
+    // Nebula
+    const neb = this.add.graphics();
+    neb.fillStyle(0x2a0055, 0.12); neb.fillEllipse(W * 0.3, H * 0.35, 220, 150);
+    neb.fillStyle(0x001a55, 0.10); neb.fillEllipse(W * 0.72, H * 0.6, 200, 130);
+    neb.fillStyle(0x440055, 0.08); neb.fillEllipse(W * 0.5, H * 0.7, 180, 120);
+
+    // Stars
+    const stars = this.add.graphics();
+    for (let i = 0; i < 160; i++) {
+      const x = Math.random() * W, y = Math.random() * H;
+      const r = Math.random() * 1.4 + 0.2;
+      stars.fillStyle(0xffffff, Math.random() * 0.7 + 0.1);
+      stars.fillCircle(x, y, r);
+    }
+
+    // Twinkling stars
+    for (let i = 0; i < 18; i++) {
+      const sg = this.add.graphics();
+      const x = Math.random() * W, y = Math.random() * H;
+      sg.fillStyle(0xffffff, 0.9); sg.fillCircle(x, y, 2);
+      this.tweens.add({ targets: sg, alpha: 0.1, duration: 800 + Math.random() * 1200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    }
+
+    // Title
+    this.add.text(W/2, H * 0.22, 'PINBALL', {
+      fontFamily: 'Orbitron, sans-serif', fontSize: '56px', fontStyle: 'bold',
+      color: '#c080ff', stroke: '#3a008a', strokeThickness: 10
+    }).setOrigin(0.5);
+
+    this.add.text(W/2, H * 0.34, 'ROGUE', {
+      fontFamily: 'Orbitron, sans-serif', fontSize: '46px', fontStyle: 'bold',
+      color: '#ffd700', stroke: '#885500', strokeThickness: 6
+    }).setOrigin(0.5);
+
+    this.add.text(W/2, H * 0.44, 'COSMIC SURVIVAL PINBALL', {
+      fontFamily: 'Orbitron, sans-serif', fontSize: '11px', color: '#6644aa', letterSpacing: 3
+    }).setOrigin(0.5);
+
+    // Decorative pegs
+    const pegColors = [0x4466ff, 0xffd700, 0xff6600, 0xff2244, 0x4466ff, 0xffd700];
+    const pegPos = [{x:W*0.12,y:H*0.52},{x:W*0.88,y:H*0.52},{x:W*0.08,y:H*0.64},{x:W*0.92,y:H*0.64},{x:W*0.15,y:H*0.76},{x:W*0.85,y:H*0.76}];
+    pegPos.forEach((p, i) => {
+      const g = this.add.graphics();
+      const c = pegColors[i];
+      g.fillStyle(c, 0.7); g.fillCircle(p.x, p.y, 9);
+      g.lineStyle(2, 0xffffff, 0.5); g.strokeCircle(p.x, p.y, 9);
+      g.fillStyle(0xffffff, 0.4); g.fillCircle(p.x - 2, p.y - 2, 3);
+      this.tweens.add({ targets: g, alpha: 0.2, duration: 900 + Math.random() * 600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    });
+
+    // Instructions
+    const lines = [
+      '🚀 SPACE / CLICK to launch',
+      '🏓 A / ← Left Flipper',
+      '🏓 D / → Right Flipper',
+      '💎 Hit pegs to score',
+      '⚡ Choose upgrades each drain',
+      '❤️ Start with 3 lives',
+    ];
+    lines.forEach((line, i) => {
+      this.add.text(W/2, H * 0.56 + i * 23, line, {
+        fontFamily: 'Orbitron, sans-serif', fontSize: '11px', color: '#9977bb'
+      }).setOrigin(0.5);
+    });
+
+    const startTxt = this.add.text(W/2, H * 0.93, '— TAP TO START —', {
+      fontFamily: 'Orbitron, sans-serif', fontSize: '14px', color: '#ffd700'
+    }).setOrigin(0.5);
+    this.tweens.add({ targets: startTxt, alpha: 0.15, duration: 750, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+
+    this.input.once('pointerdown', () => { resumeAudio(); this.scene.start('GameScene'); });
+    this.input.keyboard.once('keydown', () => { resumeAudio(); this.scene.start('GameScene'); });
+  }
+}
+
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  init() {
+    // All state reset here for clean replay
+    this.score = 0;
+    this.lives = 3;
+    this.round = 0;
+    this.bonusPoints = 0;
+    this.gameStartTime = 0;
+    this.ballInPlay = false;
+    this.launching = true;
+    this.ballCount = 1;
+    this.scoreMultiplier = 1;
+    this.flipperWidthMult = 1.0;
+    this.magnetActive = false;
+    this.turboActive = false;
+    this.goldRushActive = false;
+    this.drainPending = false;
+    this.pegsHitCount = 0;
+    this.goldPegsHit = 0;
+    this.bombChains = 0;
+    this.leftTouchDown = false;
+    this.rightTouchDown = false;
+    this.gameActive = false;
+  }
+
+  create() {
+    currentScene = this;
+    resumeAudio();
+
+    const W = this.scale.width, H = this.scale.height;
+    this.W = W; this.H = H;
+
+    // Gravity
+    this.matter.world.setGravity(0, 2.8);
+
+    // Build scene
+    this.createBackground();
+    this.createWalls();
+    this.createFlippers();
+
+    this.pegList = [];
+    this.pegBodyMap = new Map(); // body.id -> pegData
+    this.createPegs();
+
+    this.ballList = [];
+    this.createBalls();
+
+    this.createUI();
+    this.setupInput();
+    this.setupCollisions();
+    this.createAmbientParticles();
+
+    this.gameStartTime = this.time.now;
+    this.gameActive = true;
+  }
+
+  // ── BACKGROUND ──────────────────────────────────────────────────────
+  createBackground() {
+    const W = this.W, H = this.H;
+    const bg = this.add.graphics();
+    bg.fillGradientStyle(0x030312, 0x030312, 0x080525, 0x080525, 1);
+    bg.fillRect(0, 0, W, H);
+
+    const neb = this.add.graphics();
+    neb.fillStyle(0x2a0055, 0.10); neb.fillEllipse(W * 0.28, H * 0.3, 200, 140);
+    neb.fillStyle(0x001a55, 0.09); neb.fillEllipse(W * 0.72, H * 0.55, 180, 120);
+    neb.fillStyle(0x330044, 0.08); neb.fillEllipse(W * 0.5, H * 0.75, 160, 100);
+
+    // Stars layer 1 (static dim)
+    const sg1 = this.add.graphics();
+    for (let i = 0; i < 90; i++) {
+      const x = Math.random() * W, y = Math.random() * H, r = Math.random() * 1 + 0.2;
+      sg1.fillStyle(0xffffff, Math.random() * 0.4 + 0.1);
+      sg1.fillCircle(x, y, r);
+    }
+
+    // Stars layer 2 (twinkling)
+    this.twinkleStars = [];
+    for (let i = 0; i < 14; i++) {
+      const sg = this.add.graphics();
+      sg.fillStyle(0xffffff, 0.9);
+      const x = Math.random() * W, y = Math.random() * H;
+      sg.fillCircle(x, y, 1.5 + Math.random());
+      this.tweens.add({ targets: sg, alpha: 0.1, duration: 700 + Math.random() * 1000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+      this.twinkleStars.push(sg);
+    }
+  }
+
+  // ── WALLS ───────────────────────────────────────────────────────────
+  createWalls() {
+    const W = this.W, H = this.H;
+    const WW = 16; // wall width
+
+    // Physics walls
+    this.matter.add.rectangle(WW/2, H/2, WW, H, { isStatic: true, label: 'wall', restitution: 0.7, friction: 0 });
+    this.matter.add.rectangle(W - WW/2, H/2, WW, H, { isStatic: true, label: 'wall', restitution: 0.7, friction: 0 });
+    this.matter.add.rectangle(W/2, WW/2, W, WW, { isStatic: true, label: 'wall', restitution: 0.5, friction: 0 });
+
+    // Left gutter angled wall
+    const lgx = WW, lgy1 = H * 0.74, lgy2 = H - 44, lgx2 = W * 0.22;
+    const lgcx = (lgx + lgx2) / 2, lgcy = (lgy1 + lgy2) / 2;
+    const lglen = Math.hypot(lgx2 - lgx, lgy2 - lgy1);
+    const lgangle = Math.atan2(lgy2 - lgy1, lgx2 - lgx);
+    this.matter.add.rectangle(lgcx, lgcy, lglen, 10, { isStatic: true, angle: lgangle, label: 'wall', restitution: 0.5, friction: 0 });
+
+    // Right gutter angled wall
+    const rgx = W - WW, rgy1 = H * 0.74, rgy2 = H - 44, rgx2 = W * 0.78;
+    const rgcx = (rgx + rgx2) / 2, rgcy = (rgy1 + rgy2) / 2;
+    const rglen = Math.hypot(rgx - rgx2, rgy2 - rgy1);
+    const rgangle = Math.atan2(rgy2 - rgy1, rgx2 - rgx);
+    this.matter.add.rectangle(rgcx, rgcy, rglen, 10, { isStatic: true, angle: rgangle, label: 'wall', restitution: 0.5, friction: 0 });
+
+    // Visual walls
+    const wg = this.add.graphics();
+    wg.setDepth(2);
+
+    // Side walls
+    wg.fillStyle(0x1a0533, 1);
+    wg.fillRect(0, 0, WW, H);
+    wg.fillRect(W - WW, 0, WW, H);
+    wg.lineStyle(2, 0x8844ff, 0.8);
+    wg.strokeRect(0, 0, WW, H);
+    wg.strokeRect(W - WW, 0, WW, H);
+    // Top
+    wg.fillRect(0, 0, W, WW);
+    wg.strokeRect(0, 0, W, WW);
+
+    // Gutter diagonals
+    wg.lineStyle(3, 0x7b2fff, 0.9);
+    wg.beginPath(); wg.moveTo(lgx, lgy1); wg.lineTo(lgx2, lgy2); wg.strokePath();
+    wg.beginPath(); wg.moveTo(rgx, rgy1); wg.lineTo(rgx2, rgy2); wg.strokePath();
+
+    this.wallWidth = WW;
+    this.gutterLeftX2 = lgx2;
+    this.gutterRightX2 = rgx2;
+  }
+
+  // ── FLIPPERS ────────────────────────────────────────────────────────
+  createFlippers() {
+    const { Bodies, Constraint, World } = Phaser.Physics.Matter.Matter;
+    const mWorld = this.matter.world.engine.world;
+    const W = this.W, H = this.H;
+
+    const FW = Math.round(100 * this.flipperWidthMult);
+    const FH = 14;
+    const FY = H - 52;
+    this.FLIPPER_Y = FY;
+    this.FLIPPER_W = FW;
+
+    // LEFT flipper: pivot at left end (x = gutterLeftX2)
+    const LPX = this.gutterLeftX2 || W * 0.22;
+    const LPY = FY;
+    const lfcx = LPX + FW / 2;
+
+    this.lfBody = Bodies.rectangle(lfcx, LPY, FW, FH, {
+      label: 'leftFlipper', friction: 0.05, frictionAir: 0.08,
+      restitution: 0.15, density: 0.06,
+      collisionFilter: { category: 0x0002, mask: 0x0001 }
+    });
+    Phaser.Physics.Matter.Matter.Body.setAngle(this.lfBody, 0.38);
+
+    const lfPivot = Bodies.circle(LPX, LPY, 3, {
+      isStatic: true, collisionFilter: { category: 0x0004, mask: 0x0000 }
+    });
+    const lfCon = Constraint.create({
+      bodyA: this.lfBody, bodyB: lfPivot,
+      pointA: { x: -FW / 2, y: 0 }, pointB: { x: 0, y: 0 },
+      stiffness: 1, length: 0
+    });
+    World.add(mWorld, [this.lfBody, lfPivot, lfCon]);
+    this.lfPivotX = LPX; this.lfPivotY = LPY;
+
+    // RIGHT flipper: pivot at right end
+    const RPX = this.gutterRightX2 || W * 0.78;
+    const RPY = FY;
+    const rfcx = RPX - FW / 2;
+
+    this.rfBody = Bodies.rectangle(rfcx, RPY, FW, FH, {
+      label: 'rightFlipper', friction: 0.05, frictionAir: 0.08,
+      restitution: 0.15, density: 0.06,
+      collisionFilter: { category: 0x0002, mask: 0x0001 }
+    });
+    Phaser.Physics.Matter.Matter.Body.setAngle(this.rfBody, -0.38);
+
+    const rfPivot = Bodies.circle(RPX, RPY, 3, {
+      isStatic: true, collisionFilter: { category: 0x0004, mask: 0x0000 }
+    });
+    const rfCon = Constraint.create({
+      bodyA: this.rfBody, bodyB: rfPivot,
+      pointA: { x: FW / 2, y: 0 }, pointB: { x: 0, y: 0 },
+      stiffness: 1, length: 0
+    });
+    World.add(mWorld, [this.rfBody, rfPivot, rfCon]);
+    this.rfPivotX = RPX; this.rfPivotY = RPY;
+
+    // Graphics (drawn per frame using body vertices)
+    this.lfGfx = this.add.graphics().setDepth(3);
+    this.rfGfx = this.add.graphics().setDepth(3);
+
+    // Pivot decorations
+    const pvGfx = this.add.graphics().setDepth(3);
+    pvGfx.fillStyle(0x9966ff, 1);
+    pvGfx.fillCircle(LPX, LPY, 5);
+    pvGfx.fillCircle(RPX, RPY, 5);
+
+    this.leftFlipperUp = false;
+    this.rightFlipperUp = false;
+  }
+
+  rebuildFlippers() {
+    const { World } = Phaser.Physics.Matter.Matter;
+    const mWorld = this.matter.world.engine.world;
+    World.remove(mWorld, this.lfBody);
+    World.remove(mWorld, this.rfBody);
+    this.lfGfx.destroy(); this.rfGfx.destroy();
+    this.createFlippers();
+  }
+
+  drawFlippers() {
+    [
+      { gfx: this.lfGfx, body: this.lfBody },
+      { gfx: this.rfGfx, body: this.rfBody }
+    ].forEach(({ gfx, body }) => {
+      gfx.clear();
+      const verts = body.vertices;
+      if (!verts || verts.length < 3) return;
+
+      // Glow
+      gfx.lineStyle(8, 0x4488ff, 0.2);
+      gfx.beginPath();
+      gfx.moveTo(verts[0].x, verts[0].y);
+      for (let i = 1; i < verts.length; i++) gfx.lineTo(verts[i].x, verts[i].y);
+      gfx.closePath(); gfx.strokePath();
+
+      // Fill
+      gfx.fillStyle(0x2255dd, 1);
+      gfx.beginPath();
+      gfx.moveTo(verts[0].x, verts[0].y);
+      for (let i = 1; i < verts.length; i++) gfx.lineTo(verts[i].x, verts[i].y);
+      gfx.closePath(); gfx.fillPath();
+
+      // Border
+      gfx.lineStyle(2, 0x66aaff, 0.95);
+      gfx.beginPath();
+      gfx.moveTo(verts[0].x, verts[0].y);
+      for (let i = 1; i < verts.length; i++) gfx.lineTo(verts[i].x, verts[i].y);
+      gfx.closePath(); gfx.strokePath();
+    });
+  }
+
+  updateFlipperPhysics() {
+    const { Body } = Phaser.Physics.Matter.Matter;
+    const LF_REST = 0.42, LF_UP = -0.42;
+    const RF_REST = -0.42, RF_UP = 0.42;
+    const FLIP = 0.28, RETURN = 0.14;
+
+    if (this.leftFlipperUp) {
+      Body.setAngularVelocity(this.lfBody, -FLIP);
+      if (this.lfBody.angle < LF_UP) { Body.setAngle(this.lfBody, LF_UP); Body.setAngularVelocity(this.lfBody, 0); }
+    } else {
+      Body.setAngularVelocity(this.lfBody, RETURN);
+      if (this.lfBody.angle > LF_REST) { Body.setAngle(this.lfBody, LF_REST); Body.setAngularVelocity(this.lfBody, 0); }
+    }
+
+    if (this.rightFlipperUp) {
+      Body.setAngularVelocity(this.rfBody, FLIP);
+      if (this.rfBody.angle > RF_UP) { Body.setAngle(this.rfBody, RF_UP); Body.setAngularVelocity(this.rfBody, 0); }
+    } else {
+      Body.setAngularVelocity(this.rfBody, -RETURN);
+      if (this.rfBody.angle < RF_REST) { Body.setAngle(this.rfBody, RF_REST); Body.setAngularVelocity(this.rfBody, 0); }
+    }
+  }
+
+  // ── PEGS ────────────────────────────────────────────────────────────
+  createPegs() {
+    const W = this.W, H = this.H;
+    const round = this.round;
+
+    const TOP = 38, BOT = H - 120;
+    const LEFT = 28, RIGHT = W - 28;
+    const PW = RIGHT - LEFT, PH = BOT - TOP;
+
+    const cols = 7 + Math.min(round, 3);
+    const rows = 8 + Math.min(round, 3);
+    const sx = PW / (cols + 0.5);
+    const sy = PH / (rows + 1);
+
+    for (let r = 0; r < rows; r++) {
+      const rowOffset = r % 2 === 0 ? 0 : sx / 2;
+      for (let c = 0; c < cols; c++) {
+        const x = LEFT + rowOffset + (c + 0.5) * sx + (Math.random() - 0.5) * 8;
+        const y = TOP + (r + 0.5) * sy;
+
+        // Skip ball launch corridor on round 0
+        if (round === 0 && Math.abs(x - W / 2) < 35 && y < H * 0.38) continue;
+
+        let type = 'normal';
+        const rnd = Math.random();
+        if (round >= 3 && rnd < 0.06 + round * 0.012) { type = 'hazard'; }
+        else if (rnd < 0.09 + round * 0.015) { type = 'bomb'; }
+        else if (rnd < 0.24 + round * 0.01) { type = 'gold'; }
+
+        if (this.goldRushActive && type === 'normal') type = 'gold';
+
+        this.spawnPeg(x, y, type);
+      }
+    }
+
+    // Extra triangle pegs at bottom
+    const triPegs = [
+      { x: W * 0.38, y: BOT - 20, type: 'normal' },
+      { x: W * 0.50, y: BOT - 10, type: this.round >= 2 ? 'gold' : 'normal' },
+      { x: W * 0.62, y: BOT - 20, type: 'normal' },
+    ];
+    triPegs.forEach(p => this.spawnPeg(p.x, p.y, p.type));
+  }
+
+  spawnPeg(x, y, type) {
+    const R = 8;
+    const cfg = {
+      normal: { fill: 0x223399, stroke: 0x5599ff, glow: 0x4466ff },
+      gold:   { fill: 0x775500, stroke: 0xffd700, glow: 0xffcc00 },
+      bomb:   { fill: 0x772200, stroke: 0xff6600, glow: 0xff5500 },
+      hazard: { fill: 0x880022, stroke: 0xff1144, glow: 0xff2244 },
+    };
+    const c = cfg[type] || cfg.normal;
+
+    const body = this.matter.add.circle(x, y, R * 0.88, {
+      isStatic: true, restitution: 0.65, friction: 0,
+      label: `peg_${type}`,
+      collisionFilter: { category: 0x0008, mask: 0x0001 }
+    });
+
+    const glowGfx = this.add.graphics().setDepth(1);
+    glowGfx.fillStyle(c.glow, 0.12); glowGfx.fillCircle(x, y, R + 7);
+
+    const gfx = this.add.graphics().setDepth(2);
+    gfx.fillStyle(c.fill, 1); gfx.fillCircle(x, y, R);
+    gfx.lineStyle(2, c.stroke, 1); gfx.strokeCircle(x, y, R);
+    gfx.fillStyle(0xffffff, 0.45); gfx.fillCircle(x - 2.5, y - 2.5, 3.5);
+
+    const pegData = { body, x, y, type, R, gfx, glowGfx, hit: false };
+    this.pegList.push(pegData);
+    this.pegBodyMap.set(body.id, pegData);
+  }
+
+  // ── BALL ────────────────────────────────────────────────────────────
+  createBalls() {
+    const W = this.W, H = this.H;
+    const launchX = W / 2, launchY = H - 80;
+
+    for (let i = 0; i < this.ballCount; i++) {
+      const ox = this.ballCount > 1 ? (i === 0 ? -18 : 18) : 0;
+      const body = this.matter.add.circle(launchX + ox, launchY, 10, {
+        restitution: 0.72, friction: 0.001, frictionAir: 0.003, density: 0.012,
+        label: 'ball',
+        collisionFilter: { category: 0x0001, mask: 0x0002 | 0x0010 | 0x0008 }
+      });
+      Phaser.Physics.Matter.Matter.Body.setVelocity(body, { x: 0, y: 0 });
+
+      const gfx = this.add.graphics().setDepth(5);
+      this.ballList.push({ body, gfx, trail: [], alive: true });
+    }
+
+    this.ballInPlay = false;
+    this.launching = true;
+  }
+
+  drawBall(bd) {
+    const { body, gfx, trail } = bd;
+    const x = body.position.x, y = body.position.y;
+    gfx.clear();
+
+    // Trail
+    trail.forEach((pt, i) => {
+      const t = i / trail.length;
+      gfx.fillStyle(0x8844ff, t * 0.35);
+      gfx.fillCircle(pt.x, pt.y, 4 * t + 1);
+    });
+
+    // Outer glow layers
+    gfx.fillStyle(0x5522ff, 0.10); gfx.fillCircle(x, y, 22);
+    gfx.fillStyle(0x8844ff, 0.18); gfx.fillCircle(x, y, 16);
+    gfx.fillStyle(0xbb77ff, 0.25); gfx.fillCircle(x, y, 13);
+
+    // Core
+    gfx.fillStyle(0xddbcff, 1); gfx.fillCircle(x, y, 10);
+    gfx.fillStyle(0xffffff, 0.75); gfx.fillCircle(x - 2, y - 2, 5.5);
+    gfx.fillStyle(0xffffff, 0.95); gfx.fillCircle(x - 3, y - 3, 2.5);
+
+    // Magnet ring
+    if (this.magnetActive) {
+      const t = (this.time.now % 1200) / 1200;
+      gfx.lineStyle(2, 0x00ffff, 0.5 + 0.5 * Math.sin(t * Math.PI * 2));
+      gfx.strokeCircle(x, y, 14 + 4 * Math.sin(t * Math.PI * 2));
+    }
+
+    // Update trail
+    trail.push({ x, y });
+    if (trail.length > 14) trail.shift();
+  }
+
+  // ── UI ────────────────────────────────────────────────────────────
+  createUI() {
+    const W = this.W;
+
+    const panelBg = this.add.graphics().setDepth(9);
+    panelBg.fillStyle(0x050510, 0.8);
+    panelBg.fillRect(0, 0, W, 36);
+
+    this.scoreTxt = this.add.text(W / 2, 18, '0', {
+      fontFamily: 'Orbitron, sans-serif', fontSize: '22px', fontStyle: 'bold',
+      color: '#ffd700', stroke: '#000', strokeThickness: 4
+    }).setOrigin(0.5).setDepth(10);
+
+    this.livesTxt = this.add.text(18, 18, '❤️❤️❤️', {
+      fontFamily: 'Orbitron, sans-serif', fontSize: '16px'
+    }).setOrigin(0, 0.5).setDepth(10);
+
+    this.roundTxt = this.add.text(W - 14, 18, 'RND 1', {
+      fontFamily: 'Orbitron, sans-serif', fontSize: '11px', color: '#9966ff'
+    }).setOrigin(1, 0.5).setDepth(10);
+
+    this.multTxt = this.add.text(W / 2, 48, '', {
+      fontFamily: 'Orbitron, sans-serif', fontSize: '10px', color: '#ffaa00'
+    }).setOrigin(0.5).setDepth(10);
+
+    this.launchHint = this.add.text(W / 2, this.H - 84, 'PRESS SPACE TO LAUNCH', {
+      fontFamily: 'Orbitron, sans-serif', fontSize: '10px', color: '#7755aa'
+    }).setOrigin(0.5).setDepth(10);
+    this.tweens.add({ targets: this.launchHint, alpha: 0.2, duration: 680, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+  }
+
+  updateLives() {
+    const h = ['💀', '❤️', '❤️❤️', '❤️❤️❤️', '❤️❤️❤️❤️', '❤️❤️❤️❤️❤️'];
+    this.livesTxt.setText(h[Math.max(0, Math.min(this.lives, 5))]);
+  }
+
+  updateScore() {
+    const elapsed = (this.time.now - this.gameStartTime) / 1000;
+    this.score = Math.floor(elapsed * 10 + this.bonusPoints);
+    this.scoreTxt.setText(this.score.toLocaleString());
+    this.multTxt.setText(this.scoreMultiplier > 1 ? `${this.scoreMultiplier}× SCORE ACTIVE` : '');
+  }
+
+  // ── INPUT ─────────────────────────────────────────────────────────
+  setupInput() {
+    this.leftKey  = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.LEFT);
+    this.rightKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.RIGHT);
+    this.aKey     = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
+    this.dKey     = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
+    this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+
+    this.spaceKey.on('down', () => { if (this.launching && this.gameActive) this.doLaunch(); });
+
+    this.input.on('pointerdown', (ptr) => {
+      resumeAudio();
+      if (this.launching && this.gameActive) { this.doLaunch(); return; }
+      if (ptr.x < this.W / 2) this.leftTouchDown = true;
+      else this.rightTouchDown = true;
+    });
+    this.input.on('pointerup', () => { this.leftTouchDown = false; this.rightTouchDown = false; });
+  }
+
+  doLaunch() {
+    if (!this.launching) return;
+    sfxLaunch();
+    this.launching = false;
+    this.ballInPlay = true;
+    this.launchHint.setVisible(false);
+
+    const SPEED = this.turboActive ? 14 : 11;
+    this.ballList.forEach((bd, i) => {
+      const angleOffset = this.ballList.length > 1 ? (i === 0 ? -0.22 : 0.22) : 0;
+      const angle = -Math.PI / 2 + angleOffset;
+      Phaser.Physics.Matter.Matter.Body.setVelocity(bd.body, {
+        x: Math.cos(angle) * SPEED, y: Math.sin(angle) * SPEED
+      });
+    });
+  }
+
+  // ── COLLISIONS ────────────────────────────────────────────────────
+  setupCollisions() {
+    this.matter.world.on('collisionstart', (event) => {
+      if (!this.gameActive) return;
+      event.pairs.forEach(pair => {
+        const { bodyA, bodyB } = pair;
+        const ball = bodyA.label === 'ball' ? bodyA : (bodyB.label === 'ball' ? bodyB : null);
+        if (!ball) return;
+        const other = ball === bodyA ? bodyB : bodyA;
+
+        if (other.label === 'leftFlipper' || other.label === 'rightFlipper') {
+          sfxFlipper();
+        } else if (other.label && other.label.startsWith('peg_')) {
+          const type = other.label.slice(4);
+          this.hitPeg(other, type);
+        }
+      });
+    });
+  }
+
+  hitPeg(pegBody, type) {
+    const pd = this.pegBodyMap.get(pegBody.id);
+    if (!pd || pd.hit) return;
+    pd.hit = true;
+    this.pegsHitCount++;
+
+    let pts = 0;
+    switch (type) {
+      case 'normal': pts = 25 * this.scoreMultiplier; sfxPegNormal(); break;
+      case 'gold':   pts = 100 * this.scoreMultiplier; this.goldPegsHit++; sfxPegGold(); break;
+      case 'bomb':   pts = 75 * this.scoreMultiplier; this.bombChains++; sfxPegBomb(); break;
+      case 'hazard': pts = 0; sfxPegHazard(); break;
+    }
+    this.bonusPoints += pts;
+    if (pts > 0) this.spawnScorePopup(pd.x, pd.y, pts);
+
+    // Visual: flash then hide
+    this.tweens.add({
+      targets: pd.gfx, alpha: 0, scaleX: 1.5, scaleY: 1.5,
+      duration: 180, ease: 'Power2',
+      onComplete: () => { pd.gfx.setVisible(false); pd.glowGfx.setVisible(false); this.matter.world.remove(pegBody); }
+    });
+
+    this.emitParticles(pd.x, pd.y, type);
+
+    if (type === 'bomb') this.triggerBombChain(pd.x, pd.y);
+    if (type === 'hazard') this.hitHazard();
+    if (type === 'gold') { this.cameras.main.shake(60, 0.002); }
+  }
+
+  triggerBombChain(x, y) {
+    sfxBombExplode && sfxBombExplode ? sfxBombExplode() : null;
+    const blastR = 85;
+    this.cameras.main.shake(160, 0.008);
+    this.cameras.main.flash(80, 255, 100, 0, false);
+
+    // Explosion ring visual
+    const ring = this.add.graphics().setDepth(6);
+    ring.lineStyle(3, 0xff6600, 0.9);
+    ring.strokeCircle(x, y, 10);
+    this.tweens.add({
+      targets: ring, scaleX: blastR/10, scaleY: blastR/10, alpha: 0,
+      duration: 350, ease: 'Power2', onComplete: () => ring.destroy()
+    });
+
+    let chainCount = 0;
+    this.pegList.forEach(pd => {
+      if (pd.hit) return;
+      const d = Phaser.Math.Distance.Between(x, y, pd.x, pd.y);
+      if (d < blastR) {
+        chainCount++;
+        this.time.delayedCall(d * 2.5, () => {
+          sfxBombChain(chainCount);
+          this.hitPeg(pd.body, pd.type);
+        });
+      }
+    });
+  }
+
+  hitHazard() {
+    this.cameras.main.flash(220, 255, 0, 0, false);
+    this.cameras.main.shake(220, 0.014);
+    this.lives = Math.max(0, this.lives - 1);
+    this.updateLives();
+    this.tweens.add({ targets: this.livesTxt, scaleX: 1.4, scaleY: 1.4, duration: 140, yoyo: true });
+    if (this.lives <= 0) {
+      this.time.delayedCall(600, () => this.doGameOver());
+    }
+  }
+
+  emitParticles(x, y, type) {
+    const cols = {
+      normal: [0x4466ff, 0x88aaff],
+      gold:   [0xffd700, 0xffaa00, 0xffee88],
+      bomb:   [0xff6600, 0xff3300, 0xffbb00],
+      hazard: [0xff1144, 0xff66aa, 0xcc0033],
+    };
+    const c = cols[type] || cols.normal;
+    for (let i = 0; i < 10; i++) {
+      const angle = (i / 10) * Math.PI * 2 + Math.random() * 0.5;
+      const spd = 50 + Math.random() * 60;
+      const p = this.add.graphics().setDepth(7);
+      p.fillStyle(c[Math.floor(Math.random() * c.length)], 1);
+      p.fillCircle(0, 0, 2.5 + Math.random() * 1.5);
+      p.x = x; p.y = y;
+      this.tweens.add({
+        targets: p, x: x + Math.cos(angle) * spd, y: y + Math.sin(angle) * spd,
+        alpha: 0, scaleX: 0.2, scaleY: 0.2, duration: 380 + Math.random() * 200,
+        ease: 'Power2', onComplete: () => p.destroy()
+      });
+    }
+  }
+
+  spawnScorePopup(x, y, pts) {
+    const col = pts >= 100 ? '#ffd700' : pts >= 75 ? '#ff9900' : '#ffffff';
+    const txt = this.add.text(x, y - 4, `+${pts}`, {
+      fontFamily: 'Orbitron, sans-serif', fontSize: '13px', fontStyle: 'bold',
+      color: col, stroke: '#000', strokeThickness: 3
+    }).setOrigin(0.5).setDepth(12);
+    this.tweens.add({ targets: txt, y: y - 45, alpha: 0, duration: 750, ease: 'Power2', onComplete: () => txt.destroy() });
+  }
+
+  // ── DRAIN ─────────────────────────────────────────────────────────
+  checkDrain() {
+    if (this.drainPending || !this.ballInPlay) return;
+    let anyAlive = false;
+    this.ballList.forEach(bd => {
+      if (!bd.alive) return;
+      if (bd.body.position.y > this.H + 30) {
+        bd.alive = false;
+        bd.gfx.destroy();
+        this.matter.world.remove(bd.body);
+      } else {
+        anyAlive = true;
+      }
+    });
+    if (!anyAlive) {
+      this.drainPending = true;
+      this.onDrain();
+    }
+  }
+
+  onDrain() {
+    sfxDrain();
+    this.cameras.main.shake(280, 0.013);
+    this.cameras.main.flash(120, 80, 0, 150, false);
+    this.lives--;
+    this.updateLives();
+
+    if (this.lives <= 0) {
+      this.time.delayedCall(650, () => this.doGameOver());
+      return;
+    }
+
+    this.time.delayedCall(600, () => {
+      const upgrades = getRandomUpgrades(3);
+      showUpgradeOverlay(upgrades, (id) => this.applyUpgrade(id));
+    });
+  }
+
+  applyUpgrade(id) {
+    switch (id) {
+      case 'multiball':    this.ballCount = 2; break;
+      case 'magnet':       this.magnetActive = true; this.time.delayedCall(8000, () => { this.magnetActive = false; }); break;
+      case 'multiplier':   this.scoreMultiplier = Math.min(this.scoreMultiplier * 2, 8); break;
+      case 'big_flippers': this.flipperWidthMult = Math.min(this.flipperWidthMult + 0.35, 2.0); this.rebuildFlippers(); break;
+      case 'peg_refresh':  this.refreshPegs(); break;
+      case 'shield':       this.lives++; this.updateLives(); sfxExtraLife(); break;
+      case 'gold_rush':    this.goldRushActive = true; break;
+      case 'turbo_ball':   this.turboActive = true; break;
+    }
+    this.round++;
+    this.roundTxt.setText(`RND ${this.round + 1}`);
+    this.startNextRound();
+  }
+
+  refreshPegs() {
+    this.pegList.forEach(pd => {
+      if (!pd.hit) { this.matter.world.remove(pd.body); pd.gfx.destroy(); pd.glowGfx.destroy(); }
+    });
+    this.pegList = []; this.pegBodyMap.clear();
+  }
+
+  startNextRound() {
+    // Remove remaining pegs
+    this.pegList.forEach(pd => {
+      if (!pd.hit) { this.matter.world.remove(pd.body); pd.gfx.destroy(); pd.glowGfx.destroy(); }
+    });
+    this.pegList = []; this.pegBodyMap.clear();
+
+    // Remove old balls
+    this.ballList.forEach(bd => { if (bd.alive) this.matter.world.remove(bd.body); bd.gfx.destroy(); });
+    this.ballList = [];
+
+    // Spawn new
+    this.createPegs();
+    this.createBalls();
+
+    this.ballInPlay = false;
+    this.launching = true;
+    this.drainPending = false;
+    this.launchHint.setVisible(true);
+
+    // Slightly increase gravity each round
+    const grav = Math.min(2.8 + this.round * 0.08, 3.8);
+    this.matter.world.setGravity(0, grav);
+  }
+
+  // ── GAME OVER ────────────────────────────────────────────────────
+  doGameOver() {
+    this.gameActive = false;
+    this.cameras.main.shake(400, 0.02);
+    this.cameras.main.flash(200, 180, 0, 255, false);
+
+    const elapsed = (this.time.now - this.gameStartTime) / 1000;
+    const fs = Math.floor(elapsed * 10 + this.bonusPoints);
+
+    this.time.delayedCall(500, () => {
+      this.scene.pause();
+      showGameOverUI(fs);
+    });
+  }
+
+  // ── AMBIENT PARTICLES ────────────────────────────────────────────
+  createAmbientParticles() {
+    this.ambParts = [];
+    for (let i = 0; i < 12; i++) {
+      const g = this.add.graphics().setDepth(0);
+      g.fillStyle(0x8844ff, 0.35);
+      g.fillCircle(0, 0, 1.5);
+      g.x = Math.random() * this.W;
+      g.y = Math.random() * this.H;
+      g.vx = (Math.random() - 0.5) * 0.25;
+      g.vy = -0.08 - Math.random() * 0.15;
+      this.ambParts.push(g);
+    }
+  }
+
+  updateAmbientParticles() {
+    this.ambParts.forEach(p => {
+      p.x += p.vx; p.y += p.vy;
+      if (p.y < 0) { p.y = this.H; p.x = Math.random() * this.W; }
+      if (p.x < 0) p.x = this.W;
+      if (p.x > this.W) p.x = 0;
+    });
+  }
+
+  // ── MAGNET ───────────────────────────────────────────────────────
+  updateMagnet() {
+    if (!this.magnetActive || !this.ballInPlay) return;
+    this.ballList.forEach(bd => {
+      if (!bd.alive) return;
+      const bx = bd.body.position.x, by = bd.body.position.y;
+      if (by < this.H * 0.65) return;
+
+      const ldist = Phaser.Math.Distance.Between(bx, by, this.lfPivotX + 50, this.FLIPPER_Y);
+      const rdist = Phaser.Math.Distance.Between(bx, by, this.rfPivotX - 50, this.FLIPPER_Y);
+      const target = ldist < rdist
+        ? { x: this.lfPivotX + 55, y: this.FLIPPER_Y - 10 }
+        : { x: this.rfPivotX - 55, y: this.FLIPPER_Y - 10 };
+
+      if (Math.min(ldist, rdist) < 110) {
+        const dx = target.x - bx, dy = target.y - by;
+        const dist = Math.sqrt(dx * dx + dy * dy) + 1;
+        Phaser.Physics.Matter.Matter.Body.applyForce(bd.body, bd.body.position, { x: dx * 0.00018 / dist, y: dy * 0.00018 / dist });
+      }
+    });
+  }
+
+  // ── UPDATE ───────────────────────────────────────────────────────
+  update(time, delta) {
+    if (!this.gameActive) return;
+
+    // Flipper input
+    const lk = this.leftKey.isDown || this.aKey.isDown;
+    const rk = this.rightKey.isDown || this.dKey.isDown;
+    this.leftFlipperUp  = lk || this.leftTouchDown;
+    this.rightFlipperUp = rk || this.rightTouchDown;
+
+    this.updateFlipperPhysics();
+    this.drawFlippers();
+
+    // Balls
+    this.ballList.forEach(bd => { if (bd.alive) this.drawBall(bd); });
+
+    // Clamp ball speed
+    const MAX_SPD = this.turboActive ? 20 : 16;
+    this.ballList.forEach(bd => {
+      if (!bd.alive) return;
+      const { x, y } = bd.body.velocity;
+      const spd = Math.sqrt(x * x + y * y);
+      if (spd > MAX_SPD) {
+        const s = MAX_SPD / spd;
+        Phaser.Physics.Matter.Matter.Body.setVelocity(bd.body, { x: x * s, y: y * s });
+      }
+    });
+
+    this.updateMagnet();
+    this.checkDrain();
+    this.updateAmbientParticles();
+    this.updateScore();
+  }
+}
+
+// ─── PHASER CONFIG ──────────────────────────────────────────────────────
+const config = {
+  type: Phaser.AUTO,
+  width: 480,
+  height: 800,
+  backgroundColor: '#030312',
+  physics: {
+    default: 'matter',
+    matter: { gravity: { y: 2.8 }, debug: false }
+  },
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
+  scene: [MenuScene, GameScene]
+};
+
+const game = new Phaser.Game(config);
+</script>
+</body>
+</html>
