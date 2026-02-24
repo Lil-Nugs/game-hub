@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Doge vs. Hornet Swarm</title>
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: radial-gradient(circle at 50% 20%, #3a3124 0%, #17120d 70%);
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+      touch-action: none;
+      font-family: 'Trebuchet MS', 'Segoe UI', sans-serif;
+    }
+    #game-wrap { width: 100vw; height: 100vh; }
+    .hub-link {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      z-index: 100;
+      font-family: sans-serif;
+      font-size: 12px;
+      color: #ffe8af;
+      text-decoration: none;
+      background: rgba(0,0,0,.35);
+      padding: 4px 10px;
+      border-radius: 20px;
+      border: 1px solid rgba(255,232,175,0.35);
+    }
+    #overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.72);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 90;
+    }
+    #card {
+      width: min(540px, 92vw);
+      background: linear-gradient(180deg, #2f2518, #1d1610);
+      border: 2px solid #f4c35c;
+      border-radius: 14px;
+      padding: 18px;
+      color: #fff1d2;
+      box-shadow: 0 12px 34px rgba(0,0,0,0.45);
+    }
+    #card h2 { font-size: 30px; margin-bottom: 8px; }
+    #final-score { font-size: 22px; margin-bottom: 8px; }
+    #name-input {
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #f4c35c;
+      background: #120d09;
+      color: #fff;
+      margin: 8px 0;
+    }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    button {
+      border: none;
+      padding: 10px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+    #submit-btn { background: #ffca63; color: #281b08; }
+    #replay-btn { background: #95df98; color: #08210a; }
+    #leaderboard { margin-top: 10px; max-height: 220px; overflow: auto; font-size: 14px; }
+    #leaderboard .entry {
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      padding: 4px 0;
+    }
+  </style>
+</head>
+<body>
+  <a class="hub-link" href="../../index.html">← Hub</a>
+  <div id="game-wrap"></div>
+
+  <div id="overlay">
+    <div id="card">
+      <h2>Doge got stung...</h2>
+      <div id="final-score">Score: 0</div>
+      <div style="font-size:14px;opacity:.9;margin-bottom:4px;">Draw walls to block hornets. Walls decay, so keep sketching!</div>
+      <input id="name-input" maxlength="18" placeholder="Your name" />
+      <div class="row">
+        <button id="submit-btn">Submit Score</button>
+        <button id="replay-btn">Play Again</button>
+      </div>
+      <div id="leaderboard">Loading leaderboard...</div>
+    </div>
+  </div>
+
+<script src='../../shared/supabase-config.js'></script><script src='../../shared/supabase-client.js'></script>
+<script>
+const GAME_ID = 'doge-hornet-ward-6f2d';
+const LEADERBOARD_API = window.GAME_HUB_API_BASE;
+
+async function submitScore(playerName, score) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId: GAME_ID, playerName, score })
+    });
+    return await res.json();
+  } catch (e) {
+    console.warn('submitScore failed', e);
+    return null;
+  }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const res = await fetch(`${LEADERBOARD_API}/api/scores?gameId=${GAME_ID}&limit=${limit}`);
+    const data = await res.json();
+    return data.scores || [];
+  } catch (e) {
+    console.warn('getLeaderboard failed', e);
+    return [];
+  }
+}
+
+const AC = new (window.AudioContext || window.webkitAudioContext)();
+function beep(type, freq, dur, vol = 0.12, to = null) {
+  if (AC.state === 'suspended') AC.resume();
+  const o = AC.createOscillator();
+  const g = AC.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, AC.currentTime);
+  if (to) o.frequency.exponentialRampToValueAtTime(to, AC.currentTime + dur);
+  g.gain.setValueAtTime(vol, AC.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime + dur);
+  o.connect(g); g.connect(AC.destination);
+  o.start(); o.stop(AC.currentTime + dur);
+}
+
+let currentScene = null;
+let lastScore = 0;
+
+class GameScene extends Phaser.Scene {
+  constructor() { super('Game'); }
+
+  create() {
+    currentScene = this;
+    this.gameOverFlag = false;
+    this.startTime = this.time.now;
+    this.score = 0;
+    this.ink = 100;
+    this.maxInk = 100;
+    this.drawCostPerPx = 0.075;
+    this.barriers = [];
+    this.spawnMeter = 0;
+
+    const w = this.scale.width;
+    const h = this.scale.height;
+
+    this.add.rectangle(w/2, h/2, w, h, 0x20160d).setDepth(-10);
+
+    const g = this.make.graphics({x:0,y:0,add:false});
+    g.fillStyle(0x9f6b2f,1); g.fillEllipse(46,42,88,68);
+    g.fillStyle(0xd89f4f,1); g.fillEllipse(46,38,72,52);
+    g.fillStyle(0x5a3b18,1); g.fillCircle(32,32,5); g.fillCircle(46,30,5); g.fillCircle(59,35,5);
+    g.generateTexture('nest',92,84); g.clear();
+
+    g.fillStyle(0xf2be76,1); g.fillCircle(36,36,28);
+    g.fillStyle(0x472611,1); g.fillCircle(27,31,4); g.fillCircle(45,31,4);
+    g.lineStyle(3,0x472611,1); g.strokeEllipse(36,45,22,10);
+    g.fillStyle(0xffffff,0.24); g.fillCircle(28,26,6);
+    g.generateTexture('doge',72,72); g.clear();
+
+    g.fillStyle(0xf8d447,1); g.fillEllipse(20,14,36,20);
+    g.fillStyle(0x2e1d0d,1); g.fillRect(6,10,28,3); g.fillRect(8,15,24,3);
+    g.fillStyle(0xe9f3ff,0.45); g.fillEllipse(16,9,14,6); g.fillEllipse(25,8,10,5);
+    g.fillStyle(0x282828,1); g.fillCircle(31,14,2);
+    g.generateTexture('hornet',40,28); g.destroy();
+
+    this.nest = this.add.image(w/2, 92, 'nest').setScale(1.1);
+    this.doge = this.physics.add.sprite(w/2, h - 96, 'doge');
+    this.doge.setCircle(24, 12, 12).setImmovable(true);
+
+    this.hornets = this.physics.add.group();
+    this.physics.add.overlap(this.hornets, this.doge, this.hitDoge, null, this);
+
+    this.barrierGraphics = this.add.graphics();
+    this.uiText = this.add.text(14, 10, '', {fontSize:'22px', color:'#ffe4ad'}).setDepth(30);
+    this.tipText = this.add.text(w/2, h-24, 'Drag to draw barrier walls', {fontSize:'18px', color:'#ffda92'}).setOrigin(0.5).setDepth(30);
+    this.time.delayedCall(3200, ()=> this.tipText.setVisible(false));
+
+    this.input.on('pointerdown', (p) => {
+      if (this.gameOverFlag) return;
+      this.currentStroke = [{x:p.worldX, y:p.worldY}];
+    });
+
+    this.input.on('pointermove', (p) => {
+      if (this.gameOverFlag || !p.isDown || !this.currentStroke) return;
+      const prev = this.currentStroke[this.currentStroke.length - 1];
+      const dx = p.worldX - prev.x, dy = p.worldY - prev.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 4) return;
+      const cost = dist * this.drawCostPerPx;
+      if (this.ink <= 0 || this.ink - cost < 0) return;
+      this.ink -= cost;
+      this.currentStroke.push({x:p.worldX, y:p.worldY});
+    });
+
+    this.input.on('pointerup', () => {
+      if (!this.currentStroke || this.currentStroke.length < 2) {
+        this.currentStroke = null;
+        return;
+      }
+      this.barriers.push({
+        points: this.currentStroke,
+        life: 3800,
+        maxLife: 3800,
+        width: 8
+      });
+      beep('square', 380, 0.05, 0.08, 260);
+      this.currentStroke = null;
+    });
+  }
+
+  hornetSpec(diff) {
+    const r = Math.random();
+    if (diff > 0.7 && r < 0.18) return {type:'crusher', hp:3, speed: 110 + diff*120, zig: 0};
+    if (diff > 0.4 && r < 0.46) return {type:'zigzag', hp:2, speed: 100 + diff*130, zig: 40 + diff*60};
+    return {type:'scout', hp:1, speed: 90 + diff*115, zig: 0};
+  }
+
+  spawnHornet(diff) {
+    const x = this.nest.x + Phaser.Math.Between(-28, 28);
+    const y = this.nest.y + Phaser.Math.Between(-12, 12);
+    const spec = this.hornetSpec(diff);
+    const h = this.hornets.create(x, y, 'hornet');
+    h.type = spec.type;
+    h.hp = spec.hp;
+    h.baseSpeed = spec.speed;
+    h.zig = spec.zig;
+    h.born = this.time.now;
+    h.phase = Math.random() * Math.PI * 2;
+    if (spec.type === 'crusher') h.setTint(0xff8f5f);
+    if (spec.type === 'zigzag') h.setTint(0xb3ff63);
+    h.setScale(spec.type === 'crusher' ? 1.18 : 1);
+    h.body.setSize(22, 16, true);
+  }
+
+  hitDoge(hornet) {
+    if (this.gameOverFlag) return;
+    hornet.destroy();
+    beep('sawtooth', 190, 0.2, 0.15, 110);
+    this.endGame();
+  }
+
+  segmentDistanceSquared(px, py, ax, ay, bx, by) {
+    const abx = bx - ax, aby = by - ay;
+    const apx = px - ax, apy = py - ay;
+    const ab2 = abx*abx + aby*aby;
+    let t = ab2 === 0 ? 0 : (apx*abx + apy*aby) / ab2;
+    t = Math.max(0, Math.min(1, t));
+    const cx = ax + t*abx, cy = ay + t*aby;
+    const dx = px - cx, dy = py - cy;
+    return dx*dx + dy*dy;
+  }
+
+  collideWithBarriers(hornet, dt) {
+    const pad = hornet.type === 'crusher' ? 9 : 10;
+    for (const b of this.barriers) {
+      const pts = b.points;
+      for (let i = 1; i < pts.length; i++) {
+        const p0 = pts[i-1], p1 = pts[i];
+        const d2 = this.segmentDistanceSquared(hornet.x, hornet.y, p0.x, p0.y, p1.x, p1.y);
+        const threshold = (b.width + pad) * (b.width + pad);
+        if (d2 <= threshold) {
+          if (hornet.type === 'crusher') {
+            b.life -= 520 * dt;
+            hornet.hp -= 0.025 * dt;
+            if (hornet.hp <= 0) {
+              this.score += 25;
+              beep('triangle', 660, 0.06, 0.08, 840);
+              hornet.destroy();
+            }
+          } else {
+            const vx = hornet.body.velocity.x;
+            const vy = hornet.body.velocity.y;
+            hornet.body.setVelocity(-vx * 0.88, -vy * 0.88);
+            hornet.x += (-vx) * 0.010;
+            hornet.y += (-vy) * 0.010;
+            b.life -= 260 * dt;
+            this.score += 1;
+            if (Math.random() < 0.06) beep('square', 520, 0.03, 0.04, 360);
+          }
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  endGame() {
+    this.gameOverFlag = true;
+    this.physics.pause();
+    this.time.delayedCall(320, () => showGameOverUI(Math.floor(this.score)));
+  }
+
+  update(time, delta) {
+    if (this.gameOverFlag) return;
+
+    const dt = delta / 16.6667;
+    const elapsed = (time - this.startTime) / 1000;
+    const diff = Math.min(1, elapsed / 95);
+
+    this.ink = Math.min(this.maxInk, this.ink + (10 + diff * 6) * (delta / 1000));
+
+    const spawnRate = 1.4 + diff * 4.1 + Math.max(0, (elapsed - 60)) * 0.012;
+    this.spawnMeter += (delta / 1000) * spawnRate;
+    while (this.spawnMeter >= 1) {
+      this.spawnMeter -= 1;
+      this.spawnHornet(diff);
+    }
+
+    this.barriers = this.barriers.filter(b => b.life > 0);
+    for (const b of this.barriers) b.life -= delta;
+
+    const dogeX = this.doge.x, dogeY = this.doge.y;
+
+    this.hornets.children.each((h) => {
+      if (!h.active) return;
+      const age = (time - h.born) / 1000;
+      let tx = dogeX;
+      let ty = dogeY;
+      if (h.type === 'zigzag') {
+        const side = Math.sin(age * 8 + h.phase) * h.zig;
+        tx += side;
+      }
+      const dx = tx - h.x;
+      const dy = ty - h.y;
+      const d = Math.max(1, Math.hypot(dx, dy));
+      const speedBoost = h.type === 'crusher' ? (1 + Math.min(0.6, age * 0.05)) : 1;
+      const sp = h.baseSpeed * speedBoost;
+      h.body.setVelocity((dx / d) * sp, (dy / d) * sp);
+      h.rotation = Phaser.Math.Angle.Between(0, 0, h.body.velocity.x, h.body.velocity.y);
+
+      this.collideWithBarriers(h, dt);
+
+      if (h.y > this.scale.height + 40 || h.x < -40 || h.x > this.scale.width + 40) {
+        h.destroy();
+      }
+    });
+
+    this.score += delta * 0.025 + this.hornets.countActive(true) * 0.002;
+
+    this.barrierGraphics.clear();
+    for (const b of this.barriers) {
+      if (b.points.length < 2) continue;
+      const alpha = Phaser.Math.Clamp(b.life / b.maxLife, 0.16, 1);
+      this.barrierGraphics.lineStyle(b.width, 0x8cd5ff, alpha);
+      this.barrierGraphics.beginPath();
+      this.barrierGraphics.moveTo(b.points[0].x, b.points[0].y);
+      for (let i = 1; i < b.points.length; i++) this.barrierGraphics.lineTo(b.points[i].x, b.points[i].y);
+      this.barrierGraphics.strokePath();
+      this.barrierGraphics.lineStyle(2, 0xffffff, alpha * 0.4);
+      this.barrierGraphics.strokePath();
+    }
+
+    if (this.currentStroke && this.currentStroke.length >= 2) {
+      this.barrierGraphics.lineStyle(7, 0xb6e7ff, 0.8);
+      this.barrierGraphics.beginPath();
+      this.barrierGraphics.moveTo(this.currentStroke[0].x, this.currentStroke[0].y);
+      for (let i = 1; i < this.currentStroke.length; i++) this.barrierGraphics.lineTo(this.currentStroke[i].x, this.currentStroke[i].y);
+      this.barrierGraphics.strokePath();
+    }
+
+    const active = this.hornets.countActive(true);
+    this.uiText.setText(`Score: ${Math.floor(this.score)}   Ink: ${Math.floor(this.ink)}%   Swarm: ${active}`);
+  }
+}
+
+const game = new Phaser.Game({
+  type: Phaser.AUTO,
+  parent: 'game-wrap',
+  width: 960,
+  height: 640,
+  backgroundColor: '#1b140d',
+  physics: { default: 'arcade', arcade: { gravity: {y: 0}, debug: false } },
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: [GameScene]
+});
+
+const overlay = document.getElementById('overlay');
+const finalScoreEl = document.getElementById('final-score');
+const nameInput = document.getElementById('name-input');
+const leaderboardEl = document.getElementById('leaderboard');
+
+document.getElementById('replay-btn').addEventListener('click', () => {
+  overlay.style.display = 'none';
+  if (currentScene) currentScene.scene.restart();
+});
+
+document.getElementById('submit-btn').addEventListener('click', async () => {
+  const name = (nameInput.value || 'DogeDefender').trim().slice(0,18) || 'DogeDefender';
+  await submitScore(name, lastScore);
+  renderLeaderboard();
+});
+
+async function renderLeaderboard() {
+  const scores = await getLeaderboard(10);
+  leaderboardEl.innerHTML = scores.length
+    ? '<b>Top Doge Defenders</b>' + scores.map((s, i) =>
+      `<div class="entry"><span>${i+1}. ${String(s.playerName || 'Anon').replace(/[<>]/g,'')}</span><span>${s.score}</span></div>`).join('')
+    : 'No scores yet — be the first!';
+}
+
+async function showGameOverUI(score) {
+  lastScore = score;
+  finalScoreEl.textContent = `Score: ${score}`;
+  overlay.style.display = 'flex';
+  nameInput.focus();
+  renderLeaderboard();
+}
+</script>
+</body>
+</html>
