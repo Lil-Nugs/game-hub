@@ -4,7 +4,7 @@
     "title": "Game Generator Determinism Plan (Hybrid Scaffold + Deferred Smoke)",
     "date": "2026-02-24",
     "author": "Codex Gamehub",
-    "summary": "Harden the game generation/deploy pipeline with deterministic scripts and contract validators while preserving gameplay/theme variety via a hybrid scaffold; move Pages URL smoke checks to deferred async verification.",
+    "summary": "Prioritize experiment traceability first: version and track game-generation skill prompts and stamp each generated game with its exact skill prompt version, then implement deterministic pipeline hardening with a hybrid scaffold and deferred smoke checks.",
     "tags": [
       "game-generator",
       "determinism",
@@ -19,8 +19,12 @@
         "body": "Increase predictability and reliability of game generation and publishing without reducing gameplay creativity. Lock brittle plumbing, keep mechanics/theme open-ended, and make verification resilient to GitHub Pages build latency."
       },
       {
+        "heading": "Priority Shift (Do First)",
+        "body": "Before any reliability/scaffold work, implement experiment traceability for skill evolution. The top priority is to version game-generation prompt/skill changes and record, for every generated game, which exact skill prompt version produced it. This is required for valid comparison of skill improvements over time."
+      },
+      {
         "heading": "Design Principles",
-        "body": "1) Deterministic where fragility is high (deploy, manifest, required wiring).\n2) Flexible where creativity matters (mechanics, art direction, progression flavor).\n3) Validators enforce contracts, not aesthetics.\n4) Deployment success and Pages availability are separate phases."
+        "body": "1) Experiment traceability is mandatory: every generated game must be attributable to an exact skill prompt version.\n2) Deterministic where fragility is high (deploy, manifest, required wiring).\n3) Flexible where creativity matters (mechanics, art direction, progression flavor).\n4) Validators enforce contracts, not aesthetics.\n5) Deployment success and Pages availability are separate phases."
       },
       {
         "heading": "Phase 1 — Deterministic Pipeline Foundations",
@@ -48,19 +52,35 @@
       },
       {
         "heading": "Execution Order",
-        "body": "1) Preflight + manifest + publish CLI\n2) Game HTML contract validator\n3) Hybrid scaffold template\n4) Prompt/spec normalizer\n5) Deferred smoke verifier\n6) Orchestrator wrapper and metrics reporting"
+        "body": "0) Skill prompt versioning + per-game provenance stamping (required first)\n1) Preflight + manifest + publish CLI\n2) Game HTML contract validator\n3) Hybrid scaffold template\n4) Prompt/spec normalizer\n5) Deferred smoke verifier\n6) Orchestrator wrapper and metrics reporting"
       },
       {
         "heading": "Acceptance Criteria",
-        "body": "• Zero deploys performed via ad-hoc deploy scripts once migration completes.\n• Zero new games missing required hub link or leaderboard plumbing contracts.\n• No immediate false-negative deploy failures caused by GitHub Pages propagation delay.\n• Gameplay/theme variance remains high (validators do not reject on creative differences).\n• Pipeline produces machine-readable artifacts for task tracking and postmortems."
+        "body": "• 100% of newly generated games include required skill prompt provenance fields (`skill_prompt_version`, `skill_prompt_commit`).\n• Historical games are either backfilled with provenance or explicitly marked unknown (no silent nulls).\n• Zero deploys performed via ad-hoc deploy scripts once migration completes.\n• Zero new games missing required hub link or leaderboard plumbing contracts.\n• No immediate false-negative deploy failures caused by GitHub Pages propagation delay.\n• Gameplay/theme variance remains high (validators do not reject on creative differences).\n• Pipeline produces machine-readable artifacts for task tracking and postmortems."
       },
       {
         "heading": "Risks + Mitigations",
-        "body": "• Risk: scaffold over-constrains style. Mitigation: lock only brittle plumbing and keep gameplay/theme blocks fully open.\n• Risk: deferred checks get ignored. Mitigation: make deferred result post mandatory follow-up status.\n• Risk: validator drift with evolving game conventions. Mitigation: keep validator focused on stable interface contracts and version it with template updates."
+        "body": "• Risk: missing/inaccurate provenance invalidates experiment conclusions. Mitigation: make provenance fields required in publish path and block release when absent.\n• Risk: scaffold over-constrains style. Mitigation: lock only brittle plumbing and keep gameplay/theme blocks fully open.\n• Risk: deferred checks get ignored. Mitigation: make deferred result post mandatory follow-up status.\n• Risk: validator drift with evolving game conventions. Mitigation: keep validator focused on stable interface contracts and version it with template updates."
       },
       {
         "heading": "Next Step",
         "body": "Convert phases into Linear tasks with explicit dependencies and ownership, then implement Phase 1 first as highest reliability ROI."
+      },
+      {
+        "heading": "Skill Prompt Versioning System (Phase 0 — Required First)",
+        "body": "Implement immutable prompt version tracking for the game generation skill:\n• Add a canonical `skillPromptVersion` identifier (e.g., semver or date+hash) for each meaningful skill/prompt revision.\n• Store version metadata in-repo (changelog + mapping to commit hash).\n• Require each generation run to resolve and emit the active prompt version from source-of-truth files, not manual entry.\n• Treat prompt version changes as first-class experimental events with audit trail."
+      },
+      {
+        "heading": "Per-Game Provenance Stamping (Phase 0 — Required First)",
+        "body": "Extend game metadata contract so every game record includes generation provenance fields:\n• `skill_prompt_version` (required)\n• `skill_prompt_commit` (required, commit hash that contained prompt/skill logic)\n• optional `generation_run_id` / `generator_pipeline_version` for deeper debugging\nUpdate `games.json` validation + upsert scripts to hard-fail if required provenance fields are missing for new games."
+      },
+      {
+        "heading": "Historical Backfill + Unknown Handling",
+        "body": "For existing games, backfill provenance where confidently reconstructable from git history/records. For unresolvable cases, set explicit sentinel values (e.g., `skill_prompt_version: \"unknown\"`) plus notes, never silent omission. Analysis queries must distinguish known vs unknown provenance."
+      },
+      {
+        "heading": "Experiment Reporting Requirements",
+        "body": "All experiment comparisons and quality summaries must segment by `skill_prompt_version`. Any cross-version aggregate must disclose version mix and sample sizes. No claim of improvement should be made without provenance-complete slices."
       }
     ],
     "implementationStatus": "draft",
