@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Doge Defender 🐕</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #a8d8ea;
+    display: flex; justify-content: center; align-items: center;
+    height: 100vh; overflow: hidden; touch-action: none;
+  }
+  #ui-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    display: none; justify-content: center; align-items: center;
+    z-index: 10; background: rgba(0,0,0,0.78);
+    font-family: 'Fredoka One', cursive;
+  }
+  #game-over-box {
+    background: linear-gradient(135deg, #fff9c4 0%, #ffe0b2 100%);
+    border: 4px solid #ff9800; border-radius: 24px;
+    padding: 28px 32px; text-align: center;
+    max-width: 400px; width: 90%; color: #5d4037;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  #game-over-box h1 { font-size: 38px; color: #d32f2f; margin-bottom: 4px; }
+  #game-over-box .sub { font-size: 16px; color: #795548; margin-bottom: 12px; }
+  #final-score-display { font-size: 52px; color: #e65100; line-height: 1; }
+  #score-label { font-size: 14px; color: #8d6e63; margin-bottom: 14px; }
+  #player-name-input {
+    width: 100%; padding: 10px 14px; font-size: 18px;
+    font-family: 'Fredoka One', cursive;
+    border: 3px solid #ff9800; border-radius: 12px;
+    background: #fff8e1; color: #5d4037;
+    text-align: center; outline: none; margin-bottom: 10px;
+  }
+  .btn-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .game-btn {
+    padding: 11px 26px; font-size: 18px;
+    font-family: 'Fredoka One', cursive;
+    border: none; border-radius: 14px; cursor: pointer;
+    transition: transform 0.1s, box-shadow 0.1s;
+    box-shadow: 0 4px 0 rgba(0,0,0,0.2);
+  }
+  .game-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 0 rgba(0,0,0,0.2); }
+  .game-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 rgba(0,0,0,0.2); }
+  #submit-score-btn { background: #ff9800; color: #fff; }
+  #play-again-btn  { background: #4caf50; color: #fff; }
+  #rank-display { font-size: 17px; color: #388e3c; margin: 10px 0 4px; min-height: 24px; }
+  #leaderboard-section { margin-top: 12px; }
+  #leaderboard-section h3 { font-size: 18px; color: #ff6f00; margin-bottom: 6px; }
+  #leaderboard-list { list-style: none; text-align: left; padding: 0; }
+  #leaderboard-list li {
+    padding: 3px 6px; font-size: 14px; color: #4e342e;
+    border-bottom: 1px dashed #ffcc80;
+  }
+  #leaderboard-list li:first-child { color: #f57f17; font-size: 16px; }
+</style>
+</head>
+<body>
+
+<div id="ui-overlay">
+  <div id="game-over-box">
+    <h1>🐝 Swarmed!</h1>
+    <div class="sub">The hornets got the very good boy… 😢</div>
+    <div id="final-score-display">0</div>
+    <div id="score-label">points</div>
+    <input type="text" id="player-name-input" placeholder="Your name (for the leaderboard)" maxlength="20">
+    <div class="btn-row">
+      <button class="game-btn" id="submit-score-btn" onclick="handleSubmitScore()">📋 Submit Score</button>
+      <button class="game-btn" id="play-again-btn"  onclick="handlePlayAgain()">🐕 Play Again!</button>
+    </div>
+    <div id="rank-display"></div>
+    <div id="leaderboard-section" style="display:none">
+      <h3>🏆 Top Defenders</h3>
+      <ol id="leaderboard-list"></ol>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// DESIGN HEADER
+// Controls:  Left-click + drag to draw ink barriers anywhere on field
+// Core loop: Draw walls blocking hornet path; hornets chew through walls;
+//            doge loses HP when hornets reach him; survive as long as possible
+// Death:     Doge HP hits 0 → he runs away (game over)
+// Hazards:   Normal hornets (charge), Flankers (sneak around), Speeders (fast)
+// Pickups:   Ink regenerates over time; longer lines cost more ink
+// Risk/Reward: Long barriers = better coverage but high ink cost; short ones
+//             cheap but leave gaps flankers can exploit
+// Scoring:   Math.floor(timeAlive * 10 + bonusPoints)
+//            bonusPoints += 3 per hornet blocked/killed while attacking barriers
+// Difficulty: Time-based lerp over 120s — spawn rate, speed, wave size
+// Visual:    Candy/Pastel warm meadow — green grass, sunny sky, pastel flowers
+//            Cute shiba doge on left, papery hornet nest on right
+// Audio:     Web Audio API procedural SFX: buzz, draw, damage, break, bark
+// ============================================================
+
+const GAME_ID = 'doge-defender-9f3a';
+const SUPABASE_URL = 'https://lecyuhectrddtbjfyarm.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_gEX7QnQ24XzV6t0eNuWnVQ_ud19UxxJ';
+
+// ─── Web Audio ────────────────────────────────────────────────
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playTone(type, freq, dur, vol = 0.25, freqEnd = null) {
+  try {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc  = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    if (freqEnd) osc.frequency.linearRampToValueAtTime(freqEnd, audioCtx.currentTime + dur);
+    gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+    osc.start(); osc.stop(audioCtx.currentTime + dur);
+  } catch(e) {}
+}
+
+function sfxDraw()        { playTone('triangle', 900, 0.04, 0.07); }
+function sfxBuzz()        { playTone('sawtooth', 240, 0.09, 0.06, 340); }
+function sfxHit()         { playTone('square', 160, 0.12, 0.18); playTone('sawtooth', 90, 0.18, 0.1); }
+function sfxBarrierBreak(){ playTone('sawtooth', 380, 0.28, 0.22, 110); playTone('square', 200, 0.15, 0.12); }
+function sfxDogeDamage()  { playTone('sine', 280, 0.35, 0.28, 90); playTone('square', 180, 0.2, 0.18); }
+function sfxDeath()       { playTone('sawtooth', 320, 0.6, 0.3, 70); playTone('sine', 120, 0.8, 0.18); }
+function sfxWaveStart()   { playTone('triangle', 550, 0.08, 0.18); playTone('triangle', 820, 0.12, 0.18); }
+function sfxInkDraw()     { playTone('sine', 700, 0.05, 0.08, 1000); }
+
+// ─── Leaderboard ─────────────────────────────────────────────
+function getClientFingerprint() {
+  const key = 'gamehub.client-fingerprint.v1';
+  const ex  = localStorage.getItem(key);
+  if (ex) return ex;
+  const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  localStorage.setItem(key, id);
+  return id;
+}
+async function supabaseRequest(path, { method='GET', body, prefer }={}) {
+  const headers = {
+    apikey: SUPABASE_PUBLISHABLE_KEY,
+    Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+    'Content-Type': 'application/json'
+  };
+  if (prefer) headers.Prefer = prefer;
+  const res  = await fetch(`${SUPABASE_URL}/rest/v1${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) throw new Error((data && (data.message || data.error)) || `Supabase ${res.status}`);
+  return data;
+}
+async function submitScore(playerName, score) {
+  try {
+    await supabaseRequest('/leaderboard_scores', {
+      method: 'POST', prefer: 'return=minimal',
+      body: { game_slug: GAME_ID, player_name: String(playerName||'Anonymous').slice(0,20),
+              score: Math.round(score), client_fingerprint: getClientFingerprint() }
+    });
+    const scores = await getLeaderboard(100);
+    const rank = scores.findIndex(r => r.playerName === String(playerName||'Anonymous').slice(0,20) && r.score === Math.round(score)) + 1;
+    return { ok: true, rank: rank > 0 ? rank : null, totalScores: scores.length };
+  } catch(e) { console.warn('Leaderboard:', e); return null; }
+}
+async function getLeaderboard(limit = 10) {
+  try {
+    const rows = await supabaseRequest('/rpc/get_game_leaderboard', {
+      method: 'POST',
+      body: { p_game_slug: GAME_ID, p_limit: Math.min(Math.max(parseInt(limit,10)||10,1),100) }
+    });
+    return (rows||[]).map(r => ({ playerName: r.player_name, score: Number(r.score)||0, date: r.created_at }));
+  } catch(e) { console.warn('Leaderboard:', e); return []; }
+}
+
+// ─── Game Over UI ─────────────────────────────────────────────
+let _finalScore = 0;
+function showGameOverUI(score) {
+  _finalScore = score;
+  document.getElementById('final-score-display').textContent = score;
+  document.getElementById('rank-display').textContent = '';
+  document.getElementById('leaderboard-section').style.display = 'none';
+  const btn = document.getElementById('submit-score-btn');
+  btn.textContent = '📋 Submit Score'; btn.disabled = false;
+  document.getElementById('ui-overlay').style.display = 'flex';
+}
+async function handleSubmitScore() {
+  const name = (document.getElementById('player-name-input').value.trim()) || 'Anonymous';
+  const btn  = document.getElementById('submit-score-btn');
+  btn.textContent = '⏳ Submitting…'; btn.disabled = true;
+  const result = await submitScore(name, _finalScore);
+  if (result && result.rank) {
+    document.getElementById('rank-display').textContent = `🎖️ You ranked #${result.rank} of ${result.totalScores}!`;
+  }
+  const scores = await getLeaderboard(10);
+  if (scores.length > 0) {
+    document.getElementById('leaderboard-list').innerHTML = scores.map((s,i) =>
+      `<li>${['🥇','🥈','🥉'][i] || (i+1)+'.'} ${esc(s.playerName)} — ${s.score}</li>`).join('');
+    document.getElementById('leaderboard-section').style.display = 'block';
+  }
+  btn.textContent = '✅ Submitted!';
+}
+function handlePlayAgain() {
+  document.getElementById('ui-overlay').style.display = 'none';
+  game.scene.getScene('GameScene').scene.restart();
+}
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ─── Math helpers ─────────────────────────────────────────────
+function lerp(a,b,t) { return a + (b-a)*t; }
+function easeIn(t)   { return t*t; }
+function clamp(v,lo,hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function distPointToSegment(px, py, ax, ay, bx, by) {
+  const dx = bx-ax, dy = by-ay;
+  const lenSq = dx*dx + dy*dy;
+  if (lenSq === 0) return Math.hypot(px-ax, py-ay);
+  const t = clamp(((px-ax)*dx + (py-ay)*dy) / lenSq, 0, 1);
+  return Math.hypot(px-(ax+t*dx), py-(ay+t*dy));
+}
+
+// Returns true if segment AB intersects segment CD
+function segmentsIntersect(ax,ay,bx,by,cx,cy,dx,dy) {
+  function cross(ox,oy,px,py,qx,qy) { return (px-ox)*(qy-oy)-(py-oy)*(qx-ox); }
+  const d1=cross(cx,cy,dx,dy,ax,ay), d2=cross(cx,cy,dx,dy,bx,by);
+  const d3=cross(ax,ay,bx,by,cx,cy), d4=cross(ax,ay,bx,by,dx,dy);
+  return ((d1>0&&d2<0)||(d1<0&&d2>0)) && ((d3>0&&d4<0)||(d3<0&&d4>0));
+}
+
+// ─── Constants ────────────────────────────────────────────────
+const W = 800, H = 600;
+const DOGE_X = 95, DOGE_Y = 370;
+const NEST_X = 705, NEST_Y = 195;
+const MAX_INK = 600;
+const INK_COST_PER_PX = 0.9;
+const BARRIER_HP_MAX  = 6;
+const ATTACK_DPH = 1.0; // hornet HP damage per second to barrier
+const HORNET_TOUCH_RANGE = 16;
+const DOGE_SAFE_R = 55;
+
+// ─── Texture Generators ───────────────────────────────────────
+function genDogeTexture(scene) {
+  const g = scene.make.graphics({ add: false });
+  const cx = 64, cy = 70;
+  // Tail
+  g.fillStyle(0xe8b86d, 1);
+  g.fillEllipse(cx+40, cy-10, 22, 12);
+  g.fillEllipse(cx+48, cy-18, 14, 10);
+  // Body
+  g.fillStyle(0xe8b86d, 1);
+  g.fillRoundedRect(cx-28, cy-20, 56, 50, 14);
+  // Belly
+  g.fillStyle(0xf5dfa0, 1);
+  g.fillEllipse(cx, cy+10, 34, 28);
+  // Back paws
+  g.fillStyle(0xd4a062, 1);
+  g.fillEllipse(cx-18, cy+30, 18, 11);
+  g.fillEllipse(cx+18, cy+30, 18, 11);
+  // Toes
+  g.fillStyle(0xb8885e, 1);
+  [-7,-2,3].forEach(tx => { g.fillCircle(cx-18+tx, cy+34, 3); });
+  [-7,-2,3].forEach(tx => { g.fillCircle(cx+18+tx, cy+34, 3); });
+  // Head
+  g.fillStyle(0xe8b86d, 1);
+  g.fillCircle(cx, cy-34, 30);
+  // Ears
+  g.fillStyle(0xe8b86d, 1);
+  g.fillTriangle(cx-22, cy-58, cx-36, cy-40, cx-6, cy-40);
+  g.fillTriangle(cx+22, cy-58, cx+36, cy-40, cx+6, cy-40);
+  g.fillStyle(0xc97b4c, 1);
+  g.fillTriangle(cx-22, cy-54, cx-30, cy-43, cx-10, cy-43);
+  g.fillTriangle(cx+22, cy-54, cx+30, cy-43, cx+10, cy-43);
+  // Snout
+  g.fillStyle(0xf5dfa0, 1);
+  g.fillEllipse(cx, cy-25, 26, 18);
+  // Nose
+  g.fillStyle(0x3a1800, 1);
+  g.fillEllipse(cx, cy-32, 12, 8);
+  // Nostrils
+  g.fillStyle(0x1a0800, 1);
+  g.fillCircle(cx-3, cy-32, 2);
+  g.fillCircle(cx+3, cy-32, 2);
+  // Eyes
+  g.fillStyle(0x2a1500, 1);
+  g.fillCircle(cx-11, cy-41, 6);
+  g.fillCircle(cx+11, cy-41, 6);
+  g.fillStyle(0xffffff, 1);
+  g.fillCircle(cx-9, cy-43, 2.5);
+  g.fillCircle(cx+13, cy-43, 2.5);
+  // Blush
+  g.fillStyle(0xff9999, 0.45);
+  g.fillCircle(cx-17, cy-29, 7);
+  g.fillCircle(cx+17, cy-29, 7);
+  // Collar
+  g.fillStyle(0xff4444, 1);
+  g.fillRect(cx-20, cy-12, 40, 6);
+  g.fillStyle(0xffd700, 1);
+  g.fillCircle(cx, cy-9, 4);
+  g.generateTexture('doge', 128, 140);
+  g.destroy();
+}
+
+function genHornetTexture(scene) {
+  const g = scene.make.graphics({ add: false });
+  const cx = 20, cy = 22;
+  // Wings (semi-transparent)
+  g.fillStyle(0xbbddff, 0.6);
+  g.fillEllipse(cx-10, cy-10, 22, 12);
+  g.fillEllipse(cx+10, cy-10, 22, 12);
+  g.fillStyle(0xddeeFF, 0.3);
+  g.fillEllipse(cx-9, cy-4, 16, 8);
+  g.fillEllipse(cx+9, cy-4, 16, 8);
+  // Abdomen stripes (body)
+  g.fillStyle(0xf5c200, 1);
+  g.fillEllipse(cx, cy+2, 16, 22);
+  g.fillStyle(0x1a1a1a, 1);
+  g.fillRect(cx-7, cy-2, 14, 4);
+  g.fillRect(cx-7, cy+4, 14, 4);
+  g.fillRect(cx-6, cy+9, 12, 3);
+  // Thorax
+  g.fillStyle(0x2d2d00, 1);
+  g.fillEllipse(cx, cy-10, 12, 10);
+  // Head
+  g.fillStyle(0x1a1a1a, 1);
+  g.fillCircle(cx, cy-17, 7);
+  // Eyes
+  g.fillStyle(0xff3300, 1);
+  g.fillEllipse(cx-3, cy-18, 4, 4);
+  g.fillEllipse(cx+3, cy-18, 4, 4);
+  // Stinger
+  g.fillStyle(0xdd7700, 1);
+  g.fillTriangle(cx-2, cy+12, cx+2, cy+12, cx, cy+19);
+  // Antennae
+  g.lineStyle(1.5, 0x111111, 1);
+  g.beginPath(); g.moveTo(cx-2, cy-23); g.lineTo(cx-6, cy-31); g.strokePath();
+  g.beginPath(); g.moveTo(cx+2, cy-23); g.lineTo(cx+6, cy-31); g.strokePath();
+  g.fillStyle(0x111111, 1);
+  g.fillCircle(cx-6, cy-31, 2);
+  g.fillCircle(cx+6, cy-31, 2);
+  g.generateTexture('hornet', 40, 44);
+  g.destroy();
+}
+
+function genNestTexture(scene) {
+  const g = scene.make.graphics({ add: false });
+  const cx = 52, cy = 48;
+  // Outer shell
+  g.fillStyle(0xc4964c, 1);
+  g.fillEllipse(cx, cy, 90, 78);
+  // Inner (paper layers)
+  g.fillStyle(0xd4a862, 1);
+  g.fillEllipse(cx, cy+2, 76, 62);
+  g.fillStyle(0xe0bc78, 1);
+  g.fillEllipse(cx, cy+4, 62, 48);
+  // Hexagonal cells
+  g.lineStyle(2, 0x8b6830, 0.7);
+  for (let row = -2; row <= 2; row++) {
+    for (let col = -3; col <= 3; col++) {
+      const hx = cx + col*14 + (row%2===0 ? 0 : 7);
+      const hy = cy + row*11 + 4;
+      if (Math.hypot(hx-cx, hy-cy) < 28) {
+        // Draw mini hexagon
+        g.beginPath();
+        for (let i=0; i<6; i++) {
+          const a = (i/6)*Math.PI*2 - Math.PI/6;
+          if (i===0) g.moveTo(hx+Math.cos(a)*6, hy+Math.sin(a)*6);
+          else g.lineTo(hx+Math.cos(a)*6, hy+Math.sin(a)*6);
+        }
+        g.closePath(); g.strokePath();
+        // cell fill
+        g.fillStyle(0xc89840, 0.5);
+        g.fillCircle(hx, hy, 4);
+      }
+    }
+  }
+  // Opening
+  g.fillStyle(0x2a1500, 1);
+  g.fillEllipse(cx, cy+30, 32, 16);
+  g.fillStyle(0x1a0d00, 1);
+  g.fillEllipse(cx, cy+31, 22, 10);
+  g.generateTexture('nest', 104, 96);
+  g.destroy();
+}
+
+function genCloudTexture(scene) {
+  const g = scene.make.graphics({ add: false });
+  g.fillStyle(0xffffff, 0.88);
+  g.fillEllipse(50, 32, 68, 40);
+  g.fillEllipse(72, 26, 54, 34);
+  g.fillEllipse(30, 34, 48, 30);
+  g.fillEllipse(88, 32, 42, 28);
+  g.generateTexture('cloud', 130, 60);
+  g.destroy();
+}
+
+function genBgTexture(scene) {
+  const g = scene.make.graphics({ add: false });
+  // Sky gradient — row by row
+  for (let y = 0; y < Math.ceil(H * 0.62); y++) {
+    const t = y / (H * 0.62);
+    const r = Math.floor(lerp(135, 210, t));
+    const gv = Math.floor(lerp(206, 232, t));
+    const b = Math.floor(lerp(235, 210, t));
+    g.fillStyle(Phaser.Display.Color.GetColor(r, gv, b));
+    g.fillRect(0, y, W, 1);
+  }
+  // Ground gradient
+  const groundTop = Math.floor(H * 0.62);
+  for (let y = 0; y < H - groundTop; y++) {
+    const t = y / (H - groundTop);
+    const r = Math.floor(lerp(95, 72, t));
+    const gv = Math.floor(lerp(190, 145, t));
+    const b = Math.floor(lerp(88, 58, t));
+    g.fillStyle(Phaser.Display.Color.GetColor(r, gv, b));
+    g.fillRect(0, groundTop + y, W, 1);
+  }
+  // Horizon blend strip
+  g.fillStyle(0x8bc34a, 0.4);
+  g.fillRect(0, groundTop - 4, W, 10);
+  g.generateTexture('bg', W, H);
+  g.destroy();
+}
+
+// ─── MenuScene ────────────────────────────────────────────────
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+
+  create() {
+    // Generate all textures
+    genBgTexture(this);
+    genDogeTexture(this);
+    genHornetTexture(this);
+    genNestTexture(this);
+    genCloudTexture(this);
+
+    // Background
+    this.add.image(W/2, H/2, 'bg');
+    this._drawFlowers(this);
+
+    // Clouds
+    this.add.image(130, 72, 'cloud').setAlpha(0.9);
+    this.add.image(480, 58, 'cloud').setAlpha(0.8).setScale(1.2);
+    this.add.image(700, 88, 'cloud').setAlpha(0.85).setScale(0.85);
+
+    // Title banner
+    const banner = this.add.graphics();
+    banner.fillStyle(0xfffde7, 0.92);
+    banner.fillRoundedRect(W/2-260, 30, 520, 90, 20);
+    banner.lineStyle(4, 0xff9800, 1);
+    banner.strokeRoundedRect(W/2-260, 30, 520, 90, 20);
+
+    this.add.text(W/2, 78, '🐕 DOGE DEFENDER', {
+      fontFamily: 'Fredoka One', fontSize: '46px', color: '#e65100',
+      stroke: '#fff3e0', strokeThickness: 6,
+    }).setOrigin(0.5);
+
+    this.add.text(W/2, 128, 'Protect the very good boy from the hornet swarm!', {
+      fontFamily: 'Fredoka One', fontSize: '18px', color: '#795548',
+    }).setOrigin(0.5);
+
+    // Doge (left)
+    const dogeImg = this.add.image(130, 380, 'doge').setScale(0.85);
+    this.tweens.add({
+      targets: dogeImg, y: 370,
+      duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+
+    // Nest + preview hornets (right)
+    this.add.image(640, 290, 'nest').setScale(1.1);
+    for (let i = 0; i < 4; i++) {
+      const hx = 610 + i * 24, hy = 250 + (i%2)*22;
+      const h = this.add.image(hx, hy, 'hornet').setScale(0.75);
+      this.tweens.add({
+        targets: h, y: hy - 18,
+        duration: 700 + i*150, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+      });
+    }
+
+    // Instruction panel
+    const panel = this.add.graphics();
+    panel.fillStyle(0xfffde7, 0.93);
+    panel.fillRoundedRect(W/2 - 220, 165, 440, 195, 16);
+    panel.lineStyle(3, 0xff9800, 0.8);
+    panel.strokeRoundedRect(W/2 - 220, 165, 440, 195, 16);
+
+    const lines = [
+      '🖱️ Click & drag to draw ink barriers',
+      '💧 Barriers cost ink — it slowly regenerates',
+      '🐝 Hornets chew through barriers — stop them!',
+      '💥 If 3 hornets reach doge, he runs away',
+      '🏆 Score = time × 10 + hornets blocked × 3',
+    ];
+    lines.forEach((l, i) => {
+      this.add.text(W/2, 188 + i * 32, l, {
+        fontFamily: 'Fredoka One', fontSize: '15px', color: '#5d4037',
+      }).setOrigin(0.5);
+    });
+
+    // Start prompt
+    const startTxt = this.add.text(W/2, 395, '— TAP OR PRESS ANY KEY TO START —', {
+      fontFamily: 'Fredoka One', fontSize: '22px', color: '#e65100',
+      stroke: '#fff3e0', strokeThickness: 4,
+    }).setOrigin(0.5);
+    this.tweens.add({
+      targets: startTxt, alpha: 0.3,
+      duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+
+    // Doge speech bubble
+    const speech = this.add.text(200, 305, ' wow\n much barrier ', {
+      fontFamily: 'Fredoka One', fontSize: '14px', color: '#5d4037',
+      backgroundColor: '#fffde7', padding: { x: 6, y: 4 },
+    }).setOrigin(0.5);
+    this.tweens.add({
+      targets: speech, y: 300, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+
+    this.input.once('pointerdown', this._startGame, this);
+    this.input.keyboard.once('keydown', this._startGame, this);
+  }
+
+  _startGame() {
+    audioCtx.resume();
+    this.scene.start('GameScene');
+  }
+
+  _drawFlowers(scene) {
+    const g = scene.add.graphics();
+    const palette = [0xff6b9d, 0xffd93d, 0xff6b6b, 0xc44dff, 0x6bcf6b, 0xff9800, 0x00bcd4, 0xf06292];
+    const pos = [[55,488],[130,494],[240,490],[360,492],[480,488],[590,491],[700,489],[770,485]];
+    pos.forEach(([fx,fy], i) => {
+      const c = palette[i % palette.length];
+      g.fillStyle(c, 1);
+      for (let p = 0; p < 5; p++) {
+        const a = (p/5)*Math.PI*2;
+        g.fillCircle(fx+Math.cos(a)*7, fy+Math.sin(a)*7, 5);
+      }
+      g.fillStyle(0xffd700, 1);
+      g.fillCircle(fx, fy, 4);
+      g.lineStyle(2, 0x388e3c, 1);
+      g.beginPath(); g.moveTo(fx, fy+4); g.lineTo(fx, fy+18); g.strokePath();
+    });
+    // Grass tufts
+    g.lineStyle(2, 0x4caf50, 0.6);
+    for (let x = 30; x < W; x += 22) {
+      const h2 = 6 + Math.random()*8;
+      g.beginPath(); g.moveTo(x, 500); g.lineTo(x-4, 500-h2); g.strokePath();
+      g.beginPath(); g.moveTo(x+6, 500); g.lineTo(x+10, 500-h2+2); g.strokePath();
+    }
+  }
+}
+
+// ─── GameScene ────────────────────────────────────────────────
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  create() {
+    // State
+    this.score        = 0;
+    this.bonusPoints  = 0;
+    this.gameStartTime = this.time.now;
+    this.dogeHP       = 3;
+    this.ink          = MAX_INK;
+    this.barriers     = [];   // { x1,y1,x2,y2, hp, maxHp }
+    this.hornets      = [];   // hornet objects
+    this.isDead       = false;
+    this.isDrawing    = false;
+    this.drawStart    = null;
+    this.drawSfxThrottle = 0;
+    this.waveNumber   = 0;
+
+    audioCtx.resume();
+
+    // Background & decor
+    this.add.image(W/2, H/2, 'bg');
+    this._drawFlowers();
+
+    // Clouds (will be moved in update)
+    this.clouds = [
+      this.add.image(120, 65, 'cloud').setAlpha(0.88),
+      this.add.image(460, 50, 'cloud').setAlpha(0.78).setScale(1.2),
+      this.add.image(710, 80, 'cloud').setAlpha(0.85).setScale(0.82),
+    ];
+
+    // Sun
+    const sunG = this.add.graphics();
+    sunG.fillStyle(0xffd740, 0.9);
+    sunG.fillCircle(W-65, 55, 30);
+    sunG.fillStyle(0xffee58, 0.6);
+    sunG.fillCircle(W-65, 55, 40);
+
+    // Nest
+    this.nestSprite = this.add.image(NEST_X, NEST_Y, 'nest').setScale(1.15).setDepth(2);
+    this.tweens.add({
+      targets: this.nestSprite, angle: 4,
+      duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+
+    // Barrier graphics layer
+    this.barrierGfx   = this.add.graphics().setDepth(5);
+    // Drawing preview
+    this.drawPreview  = this.add.graphics().setDepth(6);
+
+    // Doge
+    this.dogeSprite = this.add.image(DOGE_X, DOGE_Y, 'doge').setScale(0.78).setDepth(3);
+    this.dogeBobTween = this.tweens.add({
+      targets: this.dogeSprite, y: DOGE_Y - 6,
+      duration: 1300, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+
+    // Doge "safe zone" glow
+    this.safeGlow = this.add.graphics().setDepth(2);
+    this.safeGlow.fillStyle(0xffd740, 0.12);
+    this.safeGlow.fillCircle(DOGE_X, DOGE_Y, DOGE_SAFE_R + 10);
+
+    // HUD depth 10
+    // Score
+    this.scoreTxt = this.add.text(W/2, 10, 'Score: 0', {
+      fontFamily: 'Fredoka One', fontSize: '24px',
+      color: '#fff9c4', stroke: '#5d4037', strokeThickness: 5,
+    }).setOrigin(0.5, 0).setDepth(10);
+
+    // Wave label
+    this.waveTxt = this.add.text(W/2, 38, '', {
+      fontFamily: 'Fredoka One', fontSize: '16px',
+      color: '#ffe082', stroke: '#5d4037', strokeThickness: 3,
+    }).setOrigin(0.5, 0).setDepth(10);
+
+    // Ink bar
+    this.add.text(10, 10, '💧 INK', {
+      fontFamily: 'Fredoka One', fontSize: '13px',
+      color: '#e0f7fa', stroke: '#006064', strokeThickness: 3,
+    }).setDepth(10);
+    this.add.rectangle(10, 27, 130, 13, 0x01579b, 0.8).setOrigin(0,0).setDepth(10);
+    this.inkBarFg = this.add.rectangle(10, 27, 130, 13, 0x00e5ff).setOrigin(0,0).setDepth(10);
+
+    // Hearts
+    this.heartTxts = [];
+    for (let i = 0; i < 3; i++) {
+      this.heartTxts.push(this.add.text(W - 28 - i*34, 12, '❤️', {
+        fontSize: '24px'
+      }).setDepth(10));
+    }
+
+    // Input
+    this.input.on('pointerdown',  this._onDown, this);
+    this.input.on('pointermove',  this._onMove, this);
+    this.input.on('pointerup',    this._onUp,   this);
+
+    // Wave start (slight delay so player can prepare)
+    this.time.delayedCall(2500, () => this._startNextWave());
+  }
+
+  _drawFlowers() {
+    const g = this.add.graphics().setDepth(1);
+    const palette = [0xff6b9d, 0xffd93d, 0xff6b6b, 0xc44dff, 0x6bcf6b, 0xff9800, 0x00bcd4, 0xf06292];
+    const pos = [[55,488],[130,494],[240,490],[360,492],[480,488],[590,491],[700,489],[770,485]];
+    pos.forEach(([fx,fy], i) => {
+      const c = palette[i % palette.length];
+      g.fillStyle(c, 1);
+      for (let p = 0; p < 5; p++) {
+        const a = (p/5)*Math.PI*2;
+        g.fillCircle(fx+Math.cos(a)*7, fy+Math.sin(a)*7, 5);
+      }
+      g.fillStyle(0xffd700, 1);
+      g.fillCircle(fx, fy, 4);
+      g.lineStyle(2, 0x388e3c, 1);
+      g.beginPath(); g.moveTo(fx, fy+4); g.lineTo(fx, fy+18); g.strokePath();
+    });
+  }
+
+  // ── Wave management ─────────────────────────────────────────
+  _startNextWave() {
+    if (this.isDead) return;
+    this.waveNumber++;
+    sfxWaveStart();
+
+    const elapsed = (this.time.now - this.gameStartTime) / 1000;
+    const diff    = Math.min(elapsed / 90, 1);
+
+    const count = Math.floor(lerp(3, 14, easeIn(diff)));
+
+    this.waveTxt.setText(`🐝 Wave ${this.waveNumber} — ${count} hornets!`);
+    this._showMeme(W/2, H/2 - 60, `Wave ${this.waveNumber} incoming! 🐝`, '#ff6f00', 28, true);
+
+    for (let i = 0; i < count; i++) {
+      const spawnDelay = i * lerp(900, 280, diff);
+      this.time.delayedCall(spawnDelay, () => this._spawnHornet(diff));
+    }
+
+    // Schedule next wave
+    const nextDelay = lerp(14000, 7000, diff);
+    this.time.delayedCall(nextDelay + count * lerp(900, 280, diff), () => this._startNextWave());
+  }
+
+  _spawnHornet(diff) {
+    if (this.isDead) return;
+    const sx = NEST_X + Phaser.Math.Between(-28, 28);
+    const sy = NEST_Y + Phaser.Math.Between(-16, 16);
+
+    const sprite = this.add.image(sx, sy, 'hornet').setScale(0.82).setDepth(7);
+
+    // Type: 0=normal, 1=flanker (goes around), 2=speedy
+    let type = 0;
+    const r = Math.random();
+    if (diff > 0.25 && r < 0.22) type = 1;
+    if (diff > 0.45 && r < 0.08) type = 2;
+
+    const speed = lerp(48, 105, easeIn(diff)) * (type === 2 ? 1.75 : 1);
+    if (type === 1) sprite.setTint(0xff88cc); // pink flanker
+    if (type === 2) sprite.setTint(0xff4400); // red speedy
+
+    const h = {
+      sprite, type, speed,
+      hp: type === 1 ? 2 : 1,
+      state: 'flying', // 'flying' | 'attacking' | 'dead'
+      attackingBarrier: null,
+      attackPos: null,
+      flankDir: (Math.random() < 0.5) ? 1 : -1,
+      flankTimer: 0,
+      buzzPhase: Math.random() * Math.PI * 2,
+      bonusAwarded: false,
+    };
+    this.hornets.push(h);
+    sfxBuzz();
+  }
+
+  // ── Input ───────────────────────────────────────────────────
+  _onDown(ptr) {
+    if (this.isDead) return;
+    if (Math.hypot(ptr.x - DOGE_X, ptr.y - DOGE_Y) < DOGE_SAFE_R) return;
+    this.isDrawing = true;
+    this.drawStart = { x: ptr.x, y: ptr.y };
+  }
+
+  _onMove(ptr) {
+    if (!this.isDrawing || this.isDead) return;
+    const len  = Math.hypot(ptr.x - this.drawStart.x, ptr.y - this.drawStart.y);
+    const cost = len * INK_COST_PER_PX;
+    const ok   = this.ink >= cost;
+
+    this.drawPreview.clear();
+    this.drawPreview.lineStyle(5, ok ? 0x00e5ff : 0xff5252, ok ? 0.85 : 0.5);
+    this.drawPreview.beginPath();
+    this.drawPreview.moveTo(this.drawStart.x, this.drawStart.y);
+    this.drawPreview.lineTo(ptr.x, ptr.y);
+    this.drawPreview.strokePath();
+
+    // Throttle sfx
+    this.drawSfxThrottle--;
+    if (this.drawSfxThrottle <= 0 && len > 12) {
+      sfxInkDraw();
+      this.drawSfxThrottle = 8;
+    }
+  }
+
+  _onUp(ptr) {
+    if (!this.isDrawing || this.isDead) return;
+    this.isDrawing = false;
+    this.drawPreview.clear();
+
+    const x1 = this.drawStart.x, y1 = this.drawStart.y;
+    const x2 = ptr.x, y2 = ptr.y;
+    const len = Math.hypot(x2-x1, y2-y1);
+
+    if (len < 8) return;
+    const cost = len * INK_COST_PER_PX;
+    if (this.ink < cost) {
+      this._showMeme(W/2, H/2, 'no ink! 💧', '#2196f3', 22, true);
+      return;
+    }
+
+    this.ink = Math.max(0, this.ink - cost);
+    this.barriers.push({ x1, y1, x2, y2, hp: BARRIER_HP_MAX, maxHp: BARRIER_HP_MAX });
+    this._redrawBarriers();
+    this._showMeme((x1+x2)/2, (y1+y2)/2 - 22, 'much protect! 🛡️', '#4caf50', 16);
+  }
+
+  // ── Barrier rendering ────────────────────────────────────────
+  _redrawBarriers() {
+    this.barrierGfx.clear();
+    this.barriers.forEach(b => {
+      if (b.hp <= 0) return;
+      const t = b.hp / b.maxHp;
+      let color;
+      if (t > 0.67)       color = 0x00e676;
+      else if (t > 0.34)  color = 0xffd740;
+      else                color = 0xff5252;
+
+      const thick = lerp(3, 9, t);
+      // Shadow
+      this.barrierGfx.lineStyle(thick + 3, 0x000000, 0.22);
+      this.barrierGfx.beginPath();
+      this.barrierGfx.moveTo(b.x1+2, b.y1+2); this.barrierGfx.lineTo(b.x2+2, b.y2+2);
+      this.barrierGfx.strokePath();
+      // Main line
+      this.barrierGfx.lineStyle(thick, color, 0.92);
+      this.barrierGfx.beginPath();
+      this.barrierGfx.moveTo(b.x1, b.y1); this.barrierGfx.lineTo(b.x2, b.y2);
+      this.barrierGfx.strokePath();
+
+      // HP pip dots along line
+      const steps = b.maxHp;
+      for (let i = 1; i < steps; i++) {
+        const ft = i / steps;
+        const px = b.x1 + (b.x2 - b.x1) * ft;
+        const py = b.y1 + (b.y2 - b.y1) * ft;
+        const filled = (i / steps) < t;
+        this.barrierGfx.fillStyle(filled ? color : 0x333333, filled ? 0.9 : 0.4);
+        this.barrierGfx.fillCircle(px, py, 4);
+      }
+    });
+  }
+
+  // ── Main update ──────────────────────────────────────────────
+  update(time, delta) {
+    if (this.isDead) return;
+    const dt      = delta / 16.667;
+    const elapsed = (time - this.gameStartTime) / 1000;
+    const diff    = Math.min(elapsed / 90, 1);
+
+    // Score
+    this.score = Math.floor(elapsed * 10 + this.bonusPoints);
+    this.scoreTxt.setText(`Score: ${this.score}`);
+
+    // Ink regen
+    const regen = lerp(45, 30, diff) * (delta / 1000);
+    this.ink = Math.min(MAX_INK, this.ink + regen);
+    this.inkBarFg.setSize(130 * (this.ink / MAX_INK), 13);
+
+    // Cloud drift
+    this.clouds.forEach((c, i) => {
+      c.x += (0.18 + i * 0.06) * dt;
+      if (c.x > W + 80) c.x = -80;
+    });
+
+    // Update hornets
+    this._updateHornets(time, delta, diff);
+  }
+
+  _updateHornets(time, delta, diff) {
+    const ds = delta / 1000;
+
+    // Make a shallow copy to avoid mutation issues during loop
+    for (let i = this.hornets.length - 1; i >= 0; i--) {
+      const h = this.hornets[i];
+      if (h.state === 'dead') continue;
+
+      const hx = h.sprite.x;
+      const hy = h.sprite.y;
+
+      // Buzz wing/body animation
+      h.sprite.angle = Math.sin(time * 0.025 + h.buzzPhase) * 12;
+
+      // Out-of-bounds guard
+      if (hx < -50 || hx > W + 50 || hy < -50 || hy > H + 50) {
+        h.state = 'dead';
+        h.sprite.destroy();
+        this.hornets.splice(i, 1);
+        continue;
+      }
+
+      // Check if hornet reached doge
+      if (Math.hypot(hx - DOGE_X, hy - DOGE_Y) < DOGE_SAFE_R + 5) {
+        this._hornetHitsDoge(h);
+        this.hornets.splice(i, 1);
+        continue;
+      }
+
+      if (h.state === 'flying') {
+        // Does the direct path to doge cross a barrier?
+        const blocker = this._findBlocker(hx, hy);
+
+        if (blocker) {
+          const distToB = distPointToSegment(hx, hy, blocker.x1, blocker.y1, blocker.x2, blocker.y2);
+          if (distToB <= HORNET_TOUCH_RANGE) {
+            // Start attacking
+            h.state = 'attacking';
+            h.attackingBarrier = blocker;
+            h.attackPos = { x: hx, y: hy };
+            h.flankTimer = 0;
+          } else {
+            // Move toward blocker intersection point (approximately its midpoint)
+            const mx = (blocker.x1 + blocker.x2) / 2;
+            const my = (blocker.y1 + blocker.y2) / 2;
+            this._moveToward(h, mx, my, ds, 0.9);
+          }
+        } else {
+          // Path clear — head toward doge
+          this._moveToward(h, DOGE_X, DOGE_Y, ds, 1.0);
+        }
+
+      } else if (h.state === 'attacking') {
+        const barrier = h.attackingBarrier;
+
+        if (!barrier || barrier.hp <= 0 || !this.barriers.includes(barrier)) {
+          h.state = 'flying';
+          h.attackingBarrier = null;
+          h.attackPos = null;
+          continue;
+        }
+
+        // Vibrate near attack pos
+        if (h.attackPos) {
+          h.sprite.x = h.attackPos.x + Math.sin(time * 0.06 + h.buzzPhase) * 3;
+          h.sprite.y = h.attackPos.y + Math.cos(time * 0.04 + h.buzzPhase) * 2;
+        }
+
+        // Deal damage to barrier
+        barrier.hp -= ATTACK_DPH * ds;
+        this._redrawBarriers();
+
+        // Award bonus for blocking
+        if (!h.bonusAwarded) {
+          h.bonusAwarded = true;
+          this.bonusPoints += 3;
+          this._showMeme(hx, hy - 24, '+3 🛡️', '#ffd740', 14);
+        }
+
+        if (barrier.hp <= 0) {
+          barrier.hp = 0;
+          this._breakBarrier(barrier);
+          h.state = 'flying';
+          h.attackingBarrier = null;
+          h.attackPos = null;
+          h.bonusAwarded = false;
+          continue;
+        }
+
+        // Flankers try to path around after 2.5 seconds
+        if (h.type === 1) {
+          h.flankTimer += delta;
+          if (h.flankTimer > 2500) {
+            // Move perpendicular to the barrier direction
+            const bdx = barrier.x2 - barrier.x1;
+            const bdy = barrier.y2 - barrier.y1;
+            const bLen = Math.hypot(bdx, bdy) || 1;
+            // Perpendicular
+            const perpX = (-bdy / bLen) * h.flankDir;
+            const perpY = ( bdx / bLen) * h.flankDir;
+
+            h.sprite.x = hx + perpX * h.speed * ds * 2.2;
+            h.sprite.y = hy + perpY * h.speed * ds * 2.2;
+
+            // Check if we've cleared the barrier
+            const newDist = distPointToSegment(h.sprite.x, h.sprite.y, barrier.x1, barrier.y1, barrier.x2, barrier.y2);
+            const newBlock = this._findBlocker(h.sprite.x, h.sprite.y);
+            if (newDist > HORNET_TOUCH_RANGE + 10 && !newBlock) {
+              h.state = 'flying';
+              h.attackingBarrier = null;
+              h.attackPos = null;
+              h.flankTimer = 0;
+            } else {
+              // Tried to flank but hit another barrier — switch flank direction
+              if (newBlock && newBlock !== barrier) {
+                h.flankDir *= -1;
+                h.flankTimer = 1500;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  _moveToward(h, tx, ty, ds, speedMult = 1) {
+    const hx = h.sprite.x, hy = h.sprite.y;
+    const dx = tx - hx, dy = ty - hy;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 1) return;
+    const nx = dx / dist, ny = dy / dist;
+    h.sprite.x += nx * h.speed * speedMult * ds;
+    h.sprite.y += ny * h.speed * speedMult * ds;
+    h.sprite.setFlipX(nx < 0);
+  }
+
+  _findBlocker(fromX, fromY) {
+    let nearest = null, nearestDist = Infinity;
+    this.barriers.forEach(b => {
+      if (b.hp <= 0) return;
+      if (segmentsIntersect(fromX, fromY, DOGE_X, DOGE_Y, b.x1, b.y1, b.x2, b.y2)) {
+        const mid = Math.hypot(fromX - (b.x1+b.x2)/2, fromY - (b.y1+b.y2)/2);
+        if (mid < nearestDist) { nearestDist = mid; nearest = b; }
+      }
+    });
+    return nearest;
+  }
+
+  _breakBarrier(barrier) {
+    sfxBarrierBreak();
+    const mx = (barrier.x1 + barrier.x2) / 2;
+    const my = (barrier.y1 + barrier.y2) / 2;
+    this._showMeme(mx, my, '💥 barrier broken!', '#ff5252', 18, true);
+    this.cameras.main.shake(120, 0.005);
+
+    const idx = this.barriers.indexOf(barrier);
+    if (idx !== -1) this.barriers.splice(idx, 1);
+    this._redrawBarriers();
+  }
+
+  _hornetHitsDoge(h) {
+    h.state = 'dead';
+    h.sprite.destroy();
+
+    this.dogeHP--;
+    sfxDogeDamage();
+    this.cameras.main.shake(220, 0.012);
+    this.cameras.main.flash(180, 255, 80, 80);
+
+    // Update hearts
+    this.heartTxts.forEach((ht, i) => ht.setText(i < this.dogeHP ? '❤️' : '🖤'));
+
+    // Doge tint flash
+    this.dogeSprite.setTint(0xff4444);
+    this.time.delayedCall(320, () => { if (!this.isDead) this.dogeSprite.clearTint(); });
+
+    // Meme text
+    const memes = ['very sting! 🐝', 'ow ow ow!', 'much hurt!', 'wow such buzz!', 'pls no hornet'];
+    this._showMeme(DOGE_X + 40, DOGE_Y - 70, memes[Math.floor(Math.random() * memes.length)], '#ff5252', 20, true);
+
+    if (this.dogeHP <= 0) this._triggerDeath();
+  }
+
+  _triggerDeath() {
+    this.isDead = true;
+    sfxDeath();
+    this.cameras.main.shake(450, 0.022);
+    this.cameras.main.flash(280, 255, 0, 0);
+
+    // Meme
+    this._showMeme(W/2, H/2 - 80, 'wow such flee! 😱', '#ff9800', 30, true);
+
+    // Doge runs off-screen
+    this.dogeBobTween.stop();
+    this.tweens.add({
+      targets: this.dogeSprite, x: -120, y: DOGE_Y + 40,
+      duration: 1100, ease: 'Back.In',
+    });
+
+    this.time.delayedCall(1400, () => {
+      this.scene.pause();
+      showGameOverUI(this.score);
+    });
+  }
+
+  _showMeme(x, y, text, color, size = 20, center = false) {
+    const t = this.add.text(x, y, text, {
+      fontFamily: 'Fredoka One', fontSize: `${size}px`,
+      color, stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(center ? 0.5 : 0.5, 0.5).setDepth(20);
+    this.tweens.add({
+      targets: t, y: y - 48, alpha: 0,
+      duration: 1600, ease: 'Quad.Out',
+      onComplete: () => t.destroy()
+    });
+  }
+}
+
+// ─── Phaser Config ────────────────────────────────────────────
+const config = {
+  type: Phaser.AUTO,
+  width: W, height: H,
+  backgroundColor: '#a8d8ea',
+  physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: false } },
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: [MenuScene, GameScene],
+};
+
+const game = new Phaser.Game(config);
+</script>
+</body>
+</html>
