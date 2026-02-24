@@ -1,5 +1,69 @@
 [
   {
+    "id": "unified-subagent-orchestration-platform-v1",
+    "title": "Unified Subagent Orchestration Platform Plan (Skill + Runtime + Recurring Jobs)",
+    "date": "2026-02-24",
+    "author": "Codex Gamehub",
+    "summary": "Build a generalized orchestration platform for OpenClaw subagents with durable run-state, standardized completion contracts, centralized Linear state mutations, and reusable recurring job pipelines (standup, janitor, bug scanner).",
+    "tags": [
+      "skills",
+      "orchestration",
+      "subagents",
+      "linear",
+      "automation",
+      "cron",
+      "operations"
+    ],
+    "sections": [
+      {
+        "heading": "Goal",
+        "body": "Replace brittle ad-hoc subagent spawning with a reusable orchestration platform that is deterministic, observable, and safe for one-shot, long-running, and recurring automation."
+      },
+      {
+        "heading": "Target Outcomes",
+        "body": "1) Reliable run completion signaling with durable artifacts\n2) Correct Linear transitions with evidence gates\n3) Graceful handling of session/pairing disruptions\n4) Shared orchestration path for project execution and recurring operations"
+      },
+      {
+        "heading": "Architecture",
+        "body": "1) Orchestrator Core (scripts + run ledger): owns lifecycle states `queued/running/blocked/done`, retries, backoff, and escalation.\n2) Orchestrator Skill: codifies worker prompts/contracts, guardrails, and reporting templates.\n3) Job Modes: one-shot execution, queue-worker mode, and cron-driven recurring pipelines."
+      },
+      {
+        "heading": "Run Contract (Required)",
+        "body": "A task is only `done` when completion payload + required evidence validates. Workers must emit structured outputs (task id, session key, outcome, artifacts, blocker reason). Orchestrator applies Linear mutations centrally after validation."
+      },
+      {
+        "heading": "Linear Safety Model",
+        "body": "Use read-fresh before mutation, idempotent transitions, and explicit policy checks. Workers propose state changes; orchestrator performs final update/comment to prevent status drift and split-brain updates."
+      },
+      {
+        "heading": "Failure + Recovery",
+        "body": "When session lookup/pairing is unavailable, move tasks to deferred queue with reason code, notify ops channel, and retry with bounded exponential backoff. Never lose task ownership metadata."
+      },
+      {
+        "heading": "Recurring Pipeline Model",
+        "body": "Use staged recurring jobs: capture jobs write section artifacts, merge job composes combined signal, standup publisher posts once on schedule. Each stage is independently rerunnable and observable."
+      },
+      {
+        "heading": "Mapping to Delivery Flow",
+        "body": "1) Plan is published to GameHub planning data\n2) Task-breakdown worker converts plan to task graph + acceptance criteria\n3) Orchestrator runs execution workers against eligible tasks with dependency-aware scheduling\n4) Ops reporting posts run summaries and blockers"
+      },
+      {
+        "heading": "Implementation Phases",
+        "body": "Phase 1: contracts + state machine spec\nPhase 2: skill + orchestrator script MVP\nPhase 3: Linear-integrated executor + locks/dependencies\nPhase 4: recurring-job framework (standup/janitor/bug scanner)\nPhase 5: hardening (chaos tests, SLOs, alerting)"
+      },
+      {
+        "heading": "Acceptance Criteria",
+        "body": "• No task marked done without evidence payload\n• Linear state mismatch incidents reduced to near-zero\n• Session/pairing outage does not orphan runs\n• Recurring jobs produce inspectable artifacts and deterministic morning output\n• Orchestrator can manage both ad-hoc and scheduled workflows from one contract"
+      },
+      {
+        "heading": "Next Step",
+        "body": "Break this plan into Linear epic + dependency-linked tasks, then implement Phase 1 contracts before additional automation expansion."
+      }
+    ],
+    "implementationStatus": "draft",
+    "taskTrackerStatus": "not-converted"
+  },
+  {
     "id": "game-generator-determinism-hybrid-v1",
     "title": "Game Generator Determinism Plan (Hybrid Scaffold + Deferred Smoke)",
     "date": "2026-02-24",
@@ -101,6 +165,10 @@
     ],
     "sections": [
       {
+        "heading": "Disposition (2026-02-24)",
+        "body": "Status: RETIRED / SUPERSEDED. Superseded by `unified-subagent-orchestration-platform-v1` as the unified orchestration model. Keep for historical reference only; do not execute as active plan unless explicitly re-approved."
+      },
+      {
         "heading": "Goal",
         "body": "Create a reusable skill that can run a user-specified set of tasks as a controlled batch, using subagents while preventing concurrency drift and state desync."
       },
@@ -141,8 +209,8 @@
         "body": "Task selection must use dependency graph in-degree: only pick tasks with unresolved blocker count (in-degree) = 0. Use Linear `blocked by` relations as graph edges. Tasks with in-degree > 0 are blocked and cannot be started. In windowed mode, schedule from the in-degree=0 frontier only."
       }
     ],
-    "implementationStatus": "draft",
-    "taskTrackerStatus": "not-converted"
+    "implementationStatus": "retired",
+    "taskTrackerStatus": "canceled"
   },
   {
     "id": "janitor-sync-v1",
@@ -158,6 +226,10 @@
       "planning"
     ],
     "sections": [
+      {
+        "heading": "Disposition (2026-02-24)",
+        "body": "Status: RETIRED / SUPERSEDED. Superseded by `unified-subagent-orchestration-platform-v1` as the unified orchestration model. Keep for historical reference only; do not execute as active plan unless explicitly re-approved."
+      },
       {
         "heading": "Goal",
         "body": "Eliminate status/plan/routing drift across Linear, repo planning docs, and agent execution by introducing a deterministic janitor-sync loop."
@@ -396,7 +468,7 @@
     "sections": [
       {
         "heading": "Disposition (2026-02-24)",
-        "body": "Status: FAILED / DO NOT IMPLEMENT. This approach was retired by explicit owner direction after repeated orchestration friction and unacceptable operational overhead. All related automation cron jobs were removed, related Linear tasks were canceled, and runtime artifacts/prompts were purged. This plan is retained only as historical record and should not be revived without a new approved plan id."
+        "body": "Status: RETIRED / SUPERSEDED. Superseded by `unified-subagent-orchestration-platform-v1` as the unified orchestration model. Keep for historical reference only; do not execute as active plan unless explicitly re-approved."
       },
       {
         "heading": "Goal",
@@ -455,7 +527,7 @@
         "body": "Suggested future subagent tasks:\nA) Artifact library + date-key helper\nB) Janitor capture job\nC) Bug scanner capture job\nD) Linear capture job (yesterday done + today next + stale)\nE) Messenger formatter/poster\nF) Cron wiring + smoke checklist"
       }
     ],
-    "implementationStatus": "failed",
+    "implementationStatus": "retired",
     "taskTrackerStatus": "canceled"
   }
 ]
