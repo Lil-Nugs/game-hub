@@ -1,10 +1,10 @@
 [
   {
     "id": "unified-subagent-orchestration-platform-v1",
-    "title": "Unified Subagent Orchestration Platform Plan (Skill + Runtime + Recurring Jobs)",
+    "title": "Unified Subagent Orchestration Platform Plan (Full Spec v1)",
     "date": "2026-02-24",
     "author": "Codex Gamehub",
-    "summary": "Build a generalized orchestration platform for OpenClaw subagents with durable run-state, standardized completion contracts, centralized Linear state mutations, and reusable recurring job pipelines (standup, janitor, bug scanner).",
+    "summary": "Full-spec architecture and operating model for OpenClaw subagent orchestration: durable run state machine, strict worker contracts, centralized Linear mutation safety, failure recovery for session/pairing disruptions, recurring pipeline jobs, observability, and rollout guardrails.",
     "tags": [
       "skills",
       "orchestration",
@@ -12,52 +12,126 @@
       "linear",
       "automation",
       "cron",
-      "operations"
+      "operations",
+      "reliability",
+      "spec"
     ],
     "sections": [
       {
         "heading": "Goal",
-        "body": "Replace brittle ad-hoc subagent spawning with a reusable orchestration platform that is deterministic, observable, and safe for one-shot, long-running, and recurring automation."
+        "body": "Provide a single generalized orchestration system that can reliably execute ad-hoc task batches, long-running queues, and recurring operational jobs with deterministic state, observable artifacts, and safe integrations."
       },
       {
-        "heading": "Target Outcomes",
-        "body": "1) Reliable run completion signaling with durable artifacts\n2) Correct Linear transitions with evidence gates\n3) Graceful handling of session/pairing disruptions\n4) Shared orchestration path for project execution and recurring operations"
+        "heading": "Problem Statement",
+        "body": "Current ad-hoc subagent orchestration suffers from completion signaling gaps, inconsistent Linear transitions, fragmented retry behavior, and occasional session lookup/pairing failures that block execution. This produces status drift and operational overhead."
       },
       {
-        "heading": "Architecture",
-        "body": "1) Orchestrator Core (scripts + run ledger): owns lifecycle states `queued/running/blocked/done`, retries, backoff, and escalation.\n2) Orchestrator Skill: codifies worker prompts/contracts, guardrails, and reporting templates.\n3) Job Modes: one-shot execution, queue-worker mode, and cron-driven recurring pipelines."
+        "heading": "Scope (In)",
+        "body": "• Subagent lifecycle orchestration\n• Task scheduling + dependency handling\n• Linear update safety model\n• Recurring job pipeline framework\n• Run artifacts, metrics, and operator reporting\n• Failure handling for session/pairing/API disruptions"
       },
       {
-        "heading": "Run Contract (Required)",
-        "body": "A task is only `done` when completion payload + required evidence validates. Workers must emit structured outputs (task id, session key, outcome, artifacts, blocker reason). Orchestrator applies Linear mutations centrally after validation."
+        "heading": "Scope (Out, v1)",
+        "body": "• Fully autonomous product strategy decisions\n• Cross-org multi-tenant scheduling\n• Complex priority optimization engines\n• Deep anti-cheat/security enforcement beyond current operational needs"
       },
       {
-        "heading": "Linear Safety Model",
-        "body": "Use read-fresh before mutation, idempotent transitions, and explicit policy checks. Workers propose state changes; orchestrator performs final update/comment to prevent status drift and split-brain updates."
+        "heading": "Design Principles",
+        "body": "1) Deterministic orchestration state over conversational memory.\n2) Evidence-gated completion, never trust plain-text success claims.\n3) Centralized mutator model for external state systems (Linear).\n4) Idempotent operations first; retries should be safe by default.\n5) Fail-soft for recurring jobs: partial data still yields useful output.\n6) Clear operator visibility with concise but complete status artifacts."
       },
       {
-        "heading": "Failure + Recovery",
-        "body": "When session lookup/pairing is unavailable, move tasks to deferred queue with reason code, notify ops channel, and retry with bounded exponential backoff. Never lose task ownership metadata."
+        "heading": "Reference Architecture",
+        "body": "A) Orchestrator Core (runtime scripts + state store)\nB) Orchestrator Skill (agent contract, prompts, guardrails)\nC) Worker Sessions (spawned subagents, bounded task scope)\nD) Integrations (Linear, Discord reporting, repo artifacts)\nE) Scheduler Modes (one-shot, queue, recurring cron)"
       },
       {
-        "heading": "Recurring Pipeline Model",
-        "body": "Use staged recurring jobs: capture jobs write section artifacts, merge job composes combined signal, standup publisher posts once on schedule. Each stage is independently rerunnable and observable."
+        "heading": "State Machine (Run-Level)",
+        "body": "Run states: `queued -> preparing -> running -> blocked -> recovering -> done|failed|canceled`.\nRules:\n• `queued -> preparing`: inputs validated, lock acquired.\n• `preparing -> running`: at least one eligible task dispatched.\n• `running -> blocked`: frontier empty due to blockers/dependency/policy conflict.\n• `blocked -> recovering`: recovery action or retry window starts.\n• `recovering -> running`: recovery clears blocker.\n• Terminal states: `done` (all required tasks complete with evidence), `failed` (unrecoverable policy/runtime error), `canceled` (operator/user stop)."
       },
       {
-        "heading": "Mapping to Delivery Flow",
-        "body": "1) Plan is published to GameHub planning data\n2) Task-breakdown worker converts plan to task graph + acceptance criteria\n3) Orchestrator runs execution workers against eligible tasks with dependency-aware scheduling\n4) Ops reporting posts run summaries and blockers"
+        "heading": "State Machine (Task-Level)",
+        "body": "Task states: `ready -> claimed -> executing -> validating -> done|blocked|failed|canceled`.\n`done` requires validator pass + evidence schema complete.\n`failed` indicates retry budget exhausted or hard policy violation.\n`blocked` requires reason code + next action hint."
       },
       {
-        "heading": "Implementation Phases",
-        "body": "Phase 1: contracts + state machine spec\nPhase 2: skill + orchestrator script MVP\nPhase 3: Linear-integrated executor + locks/dependencies\nPhase 4: recurring-job framework (standup/janitor/bug scanner)\nPhase 5: hardening (chaos tests, SLOs, alerting)"
+        "heading": "Worker Input Contract (Required)",
+        "body": "Each worker receives structured JSON input: `run_id`, `task_id`, `objective`, `acceptance_criteria[]`, `allowed_paths[]`, `disallowed_actions[]`, `linear_issue_id`, `reporting_channel`, `timeout_s`, `retry_index`, `dependency_context`, `policy_refs[]`."
+      },
+      {
+        "heading": "Worker Output Contract (Required)",
+        "body": "Each worker must emit structured result JSON: `run_id`, `task_id`, `session_key`, `outcome` (`done|blocked|failed`), `summary`, `evidence` (commit hashes, file paths, test/check outputs), `linear_proposal` (requested transition/comment), `blocker` (reason code + remediation), `timestamps` (start/end). Free-form completion text is non-authoritative."
+      },
+      {
+        "heading": "Evidence Validation Gates",
+        "body": "A task cannot transition to `done` unless all gates pass:\n1) Required evidence fields present\n2) Acceptance criteria mapped to evidence entries\n3) Repo/check commands (if specified) pass\n4) Any required artifact files exist\n5) Proposed Linear transition is policy-valid for current issue state."
+      },
+      {
+        "heading": "Linear Mutation Safety Model",
+        "body": "Centralize all Linear writes in orchestrator-core mutator. Workers only propose transitions. Mutator enforces: read-fresh-before-write, idempotency keys, allowed transition matrix, policy references, and race detection (issue changed since read). On race, re-read and re-evaluate before mutating."
+      },
+      {
+        "heading": "Dependency Scheduling (DAG Frontier)",
+        "body": "Scheduler computes in-degree from dependency relations. Eligible set = tasks with unresolved blocker count = 0 and status `ready`. Queue mode draws from frontier only. Completion of a task decrements dependent in-degree and may unlock new frontier nodes."
+      },
+      {
+        "heading": "Execution Modes",
+        "body": "• Sequential: max active workers = 1 (default safety mode).\n• Windowed: max active workers = N (bounded, explicit).\n• Queue Worker: long-running runner polls eligible frontier repeatedly with sleep interval and lock checks.\nAll modes use same contracts/state machine."
+      },
+      {
+        "heading": "Failure Taxonomy + Reason Codes",
+        "body": "Standard reason codes: `session_lookup_unavailable`, `pairing_required`, `api_timeout`, `policy_violation`, `dependency_blocked`, `validation_failed`, `repo_conflict`, `unknown_runtime_error`.\nAll non-done outcomes require reason code."
+      },
+      {
+        "heading": "Recovery + Retry Policy",
+        "body": "• Retry classes: transient vs persistent.\n• Transient (lookup timeout/API): bounded exponential backoff with jitter.\n• Persistent (policy violation/missing required input): no blind retry, escalate immediately.\n• Per-task retry budget default: 2 attempts after initial run.\n• Per-run circuit-breaker: fail run if failure ratio exceeds threshold or repeated identical failures occur."
+      },
+      {
+        "heading": "Session/Pairing Disruption Handling",
+        "body": "If session lookup/pairing blocks dispatch, move task to `blocked` with reason `pairing_required` or `session_lookup_unavailable`, emit operator alert, and queue for retry window. Preserve claim metadata to avoid orphaned ownership. Never silently drop task context."
+      },
+      {
+        "heading": "Recurring Pipeline Framework",
+        "body": "Implement recurring jobs as staged pipelines:\n1) Capture stage(s): collect scoped source signals into normalized artifacts\n2) Merge stage: combine artifacts, resolve conflicts, compute summary objects\n3) Publish stage: post formatted output once per schedule\nEach stage has deterministic input/output schema and independent retries."
+      },
+      {
+        "heading": "Morning Standup Reference Pipeline (Example)",
+        "body": "A) Source capture jobs (janitor, bug scanner, Linear digest)\nB) Merge job composes final standup object\nC) Publisher posts to standup channel once\nBehavior on missing source: degrade gracefully with explicit unavailable note, do not skip standup post."
+      },
+      {
+        "heading": "Artifact and Storage Contract",
+        "body": "Store run artifacts under a dedicated orchestration path with per-run folder: metadata, task events, worker outputs, validation results, final summary. Include immutable run id and timestamps. Artifacts are source of truth for audits and postmortems."
+      },
+      {
+        "heading": "Observability + Metrics",
+        "body": "Track at minimum:\n• Run success rate\n• Task success/block/fail counts\n• Mean time to done\n• Retry counts by reason code\n• Linear mutation conflict rate\n• Recurring pipeline completion rate\nPublish concise ops summary each run and maintain machine-readable logs."
+      },
+      {
+        "heading": "Operational Reporting Contract",
+        "body": "For each run, post lifecycle updates (started / completed / blocked / failed) to configured ops channel. Completion summary includes run id, completed tasks, blocked tasks with reason codes, key evidence links, and recommended next actions."
+      },
+      {
+        "heading": "Security + Guardrails",
+        "body": "• Restrict worker file write scope to approved repo paths per task.\n• Require explicit approval for destructive operations.\n• Do not auto-close issues without evidence gates.\n• Reject ambiguous policy states; escalate instead.\n• Keep secrets out of worker output artifacts."
+      },
+      {
+        "heading": "Implementation Plan (Phased)",
+        "body": "Phase 1 — Contracts + state machine + artifact schema\nPhase 2 — Core runtime scripts (`start-run`, `dispatch`, `validate`, `close-run`)\nPhase 3 — Linear mutator integration + dependency scheduler\nPhase 4 — Recurring pipeline toolkit + standup reference implementation\nPhase 5 — Hardening: failure injection tests, alert thresholds, operator runbooks"
       },
       {
         "heading": "Acceptance Criteria",
-        "body": "• No task marked done without evidence payload\n• Linear state mismatch incidents reduced to near-zero\n• Session/pairing outage does not orphan runs\n• Recurring jobs produce inspectable artifacts and deterministic morning output\n• Orchestrator can manage both ad-hoc and scheduled workflows from one contract"
+        "body": "• 100% of done tasks include valid evidence payloads\n• Linear status drift incidents approach zero under orchestrated runs\n• Session/pairing disruptions create recoverable blocked states, not orphaned work\n• Recurring pipelines produce deterministic artifacts and single publish events\n• Operators can reconstruct any run from artifacts without chat history dependence"
+      },
+      {
+        "heading": "Risks + Mitigations",
+        "body": "• Risk: Contract overhead slows small tasks. Mitigation: lightweight sequential mode presets.\n• Risk: Validator false negatives. Mitigation: narrow invariant checks + versioned validator updates.\n• Risk: Reporting noise. Mitigation: concise summaries + channel scoping.\n• Risk: Integration drift with Linear. Mitigation: centralized mutator + freshness checks."
+      },
+      {
+        "heading": "Task Breakdown Guidance (for Linear conversion)",
+        "body": "Create one epic plus dependency-linked tasks:\n1) Spec + contracts\n2) Core runtime scripts\n3) Validator + evidence gating\n4) Linear mutator\n5) DAG scheduler\n6) Recurring pipeline primitives\n7) Standup reference pipeline\n8) Observability + alerting\n9) Hardening + docs"
+      },
+      {
+        "heading": "Disposition of Superseded Plans",
+        "body": "This plan supersedes previous fragmented orchestration plans (`batch-sequencer-skill-v1`, `morning-standup-capture-and-post-v1`, and related runner fragments) for active execution design. Historical plans remain for audit context only."
       },
       {
         "heading": "Next Step",
-        "body": "Break this plan into Linear epic + dependency-linked tasks, then implement Phase 1 contracts before additional automation expansion."
+        "body": "Convert this full spec into Linear epic/tasks with explicit dependencies, then start implementation at Phase 1 with contract tests before enabling new orchestrated production runs."
       }
     ],
     "implementationStatus": "draft",
