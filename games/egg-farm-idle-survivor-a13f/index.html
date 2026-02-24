@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Egg Farm Idle Survivor</title>
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: linear-gradient(180deg,#7ec9ff 0%, #bdeca7 60%, #88c86e 100%); overflow: hidden; font-family: Verdana, system-ui, sans-serif; touch-action: none; color: #142515; }
+    #game-root { width: 100vw; height: 100vh; }
+    #hud { position: fixed; top: 10px; left: 10px; z-index: 30; width: min(390px, 52vw); background: rgba(255,255,255,0.88); border: 1px solid rgba(0,0,0,0.2); border-radius: 12px; padding: 10px; backdrop-filter: blur(3px); }
+    #stats { font-size: 13px; line-height: 1.35; }
+    #actions { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+    .buyBtn { border: 1px solid #2f5a31; background: #e7f9dd; color: #1f3a20; border-radius: 8px; padding: 7px 9px; font-size: 12px; cursor: pointer; font-weight: 700; }
+    .buyBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+    #leaderWrap { position: fixed; top: 10px; right: 10px; z-index: 30; width: min(320px, 43vw); background: rgba(25,34,26,0.78); color: #f4fff4; border-radius: 12px; padding: 10px; border: 1px solid rgba(255,255,255,0.2); }
+    #leaderWrap h3 { font-size: 15px; margin-bottom: 4px; }
+    #leaderboard li { margin-left: 18px; font-size: 13px; }
+    #gameOverPanel { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 60; background: rgba(0,0,0,0.55); }
+    #gameOverCard { width: min(420px, 92vw); background: #0f1d13; color: #fff; border-radius: 14px; padding: 16px; }
+    .row { display: flex; gap: 8px; margin-top: 10px; }
+    input, button { border-radius: 8px; border: 1px solid rgba(255,255,255,.3); background: rgba(255,255,255,.12); color: #fff; padding: 9px 10px; font-weight: 700; }
+    input { flex: 1; }
+    #touch { position: fixed; bottom: 10px; right: 10px; z-index: 40; display: flex; gap: 10px; }
+    .touchBtn { width: 66px; height: 66px; border-radius: 50%; border: 1px solid rgba(255,255,255,.5); background: rgba(12,18,12,.45); color:#fff; font-size: 17px; font-weight: 800; }
+    .touchBtn:active { background: rgba(201,255,188,.5); }
+    .hint { opacity: .85; font-size: 11px; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <div id="game-root"></div>
+  <div id="hud">
+    <div id="stats"></div>
+    <div id="actions">
+      <button class="buyBtn" id="sellBtn">Sell Eggs (+$)</button>
+      <button class="buyBtn" id="workerBtn">Hire Worker</button>
+      <button class="buyBtn" id="coopBtn">Upgrade Coop</button>
+      <button class="buyBtn" id="tractorBtn">Buy Tractor</button>
+      <button class="buyBtn" id="cornBtn">Corn Field</button>
+      <button class="buyBtn" id="fenceBtn">Fence Level</button>
+    </div>
+    <div class="hint">Move: A/D or ◀/▶ · Collect eggs by touching them · Survive fox raids as threat rises.</div>
+  </div>
+  <div id="leaderWrap">
+    <h3>Global Leaderboard</h3>
+    <ol id="leaderboard"></ol>
+    <div class="hint">Run Score = money earned + total eggs sold + survival bonus.</div>
+  </div>
+  <div id="gameOverPanel">
+    <div id="gameOverCard">
+      <h2>Farm Overrun 🦊</h2>
+      <div id="finalText"></div>
+      <div class="row">
+        <input id="nameInput" maxlength="20" value="Player" />
+        <button id="submitBtn">Submit</button>
+        <button id="restartBtn">Restart</button>
+      </div>
+      <div id="submitStatus" class="hint"></div>
+    </div>
+  </div>
+  <div id="touch">
+    <button class="touchBtn" id="leftBtn">◀</button>
+    <button class="touchBtn" id="rightBtn">▶</button>
+  </div>
+<script>
+const GAME_ID = 'egg-farm-idle-survivor-a13f';
+const SUPABASE_URL = 'https://lecyuhectrddtbjfyarm.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_gEX7QnQ24XzV6t0eNuWnVQ_ud19UxxJ';
+
+let latestScore = 0;
+
+class FarmScene extends Phaser.Scene {
+  constructor(){ super('FarmScene'); }
+  create(){
+    this.dead = false;
+    this.touch = { left:false, right:false };
+    this.moveDir = 0;
+    this.timeAlive = 0;
+
+    this.eggs = 0;
+    this.totalEggsSold = 0;
+    this.money = 0;
+    this.earnedMoney = 0;
+    this.workers = 0;
+    this.coopLevel = 1;
+    this.tractorLevel = 0;
+    this.cornLevel = 0;
+    this.fenceLevel = 0;
+    this.hens = 5;
+    this.farmHP = 100;
+    this.maxFarmHP = 100;
+    this.threat = 0;
+
+    this.baseEggRate = 0.9;
+    this.workerRate = 0.45;
+    this.tractorBonus = 0.0;
+    this.cornBonus = 0.0;
+
+    this.add.rectangle(480,520,960,130,0x5f9e44);
+    this.add.rectangle(480,460,820,180,0x77bc59).setStrokeStyle(3,0x487338);
+    this.add.rectangle(480,120,960,220,0xffffff,0.18);
+
+    this.barn = this.add.rectangle(125,375,155,150,0xcd5d4f).setStrokeStyle(4,0x7a261f);
+    this.add.rectangle(125,408,52,82,0x5f2d18);
+
+    this.player = this.add.rectangle(300,438,28,42,0x19356f);
+    this.physics.add.existing(this.player);
+    this.player.body.setCollideWorldBounds(true);
+    this.player.body.allowGravity = false;
+
+    this.eggGroup = this.physics.add.group();
+    this.workerGroup = this.add.group();
+    this.foxGroup = this.physics.add.group();
+
+    this.inputKeys = this.input.keyboard.addKeys({left:Phaser.Input.Keyboard.KeyCodes.A,right:Phaser.Input.Keyboard.KeyCodes.D,left2:Phaser.Input.Keyboard.KeyCodes.LEFT,right2:Phaser.Input.Keyboard.KeyCodes.RIGHT});
+
+    const bindTouch=(id,key)=>{
+      const el=document.getElementById(id);
+      const d=()=>{ this.touch[key]=true; };
+      const u=()=>{ this.touch[key]=false; };
+      el.addEventListener('pointerdown', d);
+      el.addEventListener('pointerup', u);
+      el.addEventListener('pointerleave', u);
+      el.addEventListener('pointercancel', u);
+    };
+    bindTouch('leftBtn','left'); bindTouch('rightBtn','right');
+
+    this.physics.add.overlap(this.player,this.eggGroup,(_,egg)=>this.collectEgg(egg));
+    this.physics.add.overlap(this.player,this.foxGroup,(_,fox)=>this.bumpFox(fox));
+
+    this.time.addEvent({ delay: 550, loop:true, callback: ()=>this.spawnEggTick() });
+    this.time.addEvent({ delay: 1400, loop:true, callback: ()=>this.workerTick() });
+    this.time.addEvent({ delay: 1700, loop:true, callback: ()=>this.foxRaidTick() });
+    this.time.addEvent({ delay: 500, loop:true, callback: ()=>this.foxMoveTick() });
+
+    this.statsEl = document.getElementById('stats');
+    this.bindButtons();
+    this.refreshLeaderboard();
+  }
+
+  bindButtons(){
+    const costWorker = () => Math.floor(20 * Math.pow(1.38, this.workers));
+    const costCoop = () => Math.floor(40 * Math.pow(1.6, this.coopLevel-1));
+    const costTractor = () => Math.floor(80 * Math.pow(1.95, this.tractorLevel));
+    const costCorn = () => Math.floor(55 * Math.pow(1.75, this.cornLevel));
+    const costFence = () => Math.floor(45 * Math.pow(1.7, this.fenceLevel));
+
+    const spend=(amount)=>{ if(this.money < amount) return false; this.money -= amount; return true; };
+
+    document.getElementById('sellBtn').onclick = ()=>{
+      const sold = this.eggs;
+      if(sold <= 0) return;
+      const price = 1 + this.cornLevel * 0.2;
+      const gain = Math.floor(sold * price);
+      this.eggs = 0;
+      this.totalEggsSold += sold;
+      this.money += gain;
+      this.earnedMoney += gain;
+    };
+
+    document.getElementById('workerBtn').onclick = ()=>{
+      const c = costWorker();
+      if(!spend(c)) return;
+      this.workers += 1;
+      const dot = this.add.circle(440 + (this.workers%9)*20, 350 + Math.floor(this.workers/9)*18, 7, 0xeadf9d);
+      this.workerGroup.add(dot);
+    };
+
+    document.getElementById('coopBtn').onclick = ()=>{
+      const c = costCoop();
+      if(!spend(c)) return;
+      this.coopLevel += 1;
+      this.hens += 2;
+      this.maxFarmHP += 8;
+      this.farmHP = Math.min(this.maxFarmHP, this.farmHP + 10);
+    };
+
+    document.getElementById('tractorBtn').onclick = ()=>{
+      const c = costTractor();
+      if(!spend(c)) return;
+      this.tractorLevel += 1;
+      this.tractorBonus += 0.3;
+    };
+
+    document.getElementById('cornBtn').onclick = ()=>{
+      const c = costCorn();
+      if(!spend(c)) return;
+      this.cornLevel += 1;
+      this.cornBonus += 0.22;
+    };
+
+    document.getElementById('fenceBtn').onclick = ()=>{
+      const c = costFence();
+      if(!spend(c)) return;
+      this.fenceLevel += 1;
+    };
+
+    this.costFns = { costWorker, costCoop, costTractor, costCorn, costFence };
+  }
+
+  spawnEggTick(){
+    if(this.dead) return;
+    const rate = this.baseEggRate + this.hens*0.07 + this.tractorBonus + this.cornBonus;
+    const amt = rate * 0.55;
+    this.eggs += amt;
+    if(Math.random() < 0.9){
+      const x = Phaser.Math.Between(220, 840);
+      const y = Phaser.Math.Between(305, 458);
+      const egg = this.add.ellipse(x,y,13,17,0xfff9df).setStrokeStyle(2,0xd9cca6);
+      this.physics.add.existing(egg);
+      egg.body.allowGravity = false;
+      this.eggGroup.add(egg);
+      if(this.eggGroup.getLength() > 65){
+        const first = this.eggGroup.getFirstAlive(); if(first) first.destroy();
+      }
+    }
+  }
+
+  workerTick(){
+    if(this.dead) return;
+    if(this.workers <= 0) return;
+    const auto = this.workers * (this.workerRate + this.cornLevel*0.08);
+    const collected = Math.min(this.eggs, auto);
+    this.eggs -= collected;
+    const gain = Math.floor(collected * (1 + this.cornLevel*0.2));
+    this.money += gain;
+    this.earnedMoney += gain;
+    this.totalEggsSold += Math.floor(collected);
+  }
+
+  foxRaidTick(){
+    if(this.dead) return;
+    this.timeAlive += 1.7;
+    this.threat = Math.min(100, Math.floor(this.timeAlive * 0.65 + this.workers*1.4 + this.coopLevel*1.2));
+
+    const spawnChance = Phaser.Math.Clamp(0.18 + this.threat/130, 0.15, 0.92);
+    if(Math.random() > spawnChance) return;
+
+    const side = Math.random() < 0.5 ? -1 : 1;
+    const x = side < 0 ? -30 : 990;
+    const y = Phaser.Math.Between(365, 470);
+    const fox = this.add.rectangle(x,y,30,20,0xd27b39).setStrokeStyle(2,0x6a3112);
+    this.physics.add.existing(fox);
+    fox.body.allowGravity = false;
+    fox.setData('speed', 55 + this.threat*0.75);
+    fox.setData('dir', side<0 ? 1 : -1);
+    fox.setData('damage', Math.max(2, 8 + this.threat*0.06 - this.fenceLevel*1.7));
+    this.foxGroup.add(fox);
+  }
+
+  foxMoveTick(){
+    if(this.dead) return;
+    this.foxGroup.getChildren().forEach((fox)=>{
+      if(!fox.active) return;
+      const dir = fox.getData('dir');
+      const speed = fox.getData('speed');
+      fox.x += dir * speed * 0.05;
+
+      if(Math.abs(fox.x - this.barn.x) < 55){
+        this.farmHP -= fox.getData('damage');
+        fox.destroy();
+      } else if(fox.x < -60 || fox.x > 1020){
+        fox.destroy();
+      }
+    });
+
+    if(this.farmHP <= 0){
+      this.farmHP = 0;
+      this.gameOver();
+    }
+  }
+
+  collectEgg(egg){
+    if(!egg?.active || this.dead) return;
+    egg.destroy();
+    this.eggs += 1;
+  }
+
+  bumpFox(fox){
+    if(!fox?.active || this.dead) return;
+    fox.destroy();
+    this.money += 2;
+    this.earnedMoney += 2;
+  }
+
+  getScore(){
+    return Math.floor(this.earnedMoney + this.totalEggsSold + this.timeAlive * 3 + this.workers*10 + this.coopLevel*20 + this.tractorLevel*24 + this.cornLevel*18 + this.fenceLevel*15);
+  }
+
+  update(){
+    if(this.dead) return;
+    const left = this.inputKeys.left.isDown || this.inputKeys.left2.isDown || this.touch.left;
+    const right = this.inputKeys.right.isDown || this.inputKeys.right2.isDown || this.touch.right;
+    this.moveDir = (left?-1:0) + (right?1:0);
+    this.player.x = Phaser.Math.Clamp(this.player.x + this.moveDir*4.2, 30, 930);
+
+    const {costWorker, costCoop, costTractor, costCorn, costFence} = this.costFns;
+    document.getElementById('workerBtn').disabled = this.money < costWorker();
+    document.getElementById('coopBtn').disabled = this.money < costCoop();
+    document.getElementById('tractorBtn').disabled = this.money < costTractor();
+    document.getElementById('cornBtn').disabled = this.money < costCorn();
+    document.getElementById('fenceBtn').disabled = this.money < costFence();
+
+    this.statsEl.innerHTML = `
+      <b>Eggs:</b> ${Math.floor(this.eggs)} · <b>Money:</b> $${Math.floor(this.money)} · <b>Farm HP:</b> ${Math.floor(this.farmHP)}/${this.maxFarmHP}<br>
+      <b>Workers:</b> ${this.workers} · <b>Coop:</b> Lv${this.coopLevel} · <b>Tractor:</b> Lv${this.tractorLevel} · <b>Corn:</b> Lv${this.cornLevel} · <b>Fence:</b> Lv${this.fenceLevel}<br>
+      <b>Hens:</b> ${this.hens} · <b>Threat:</b> ${this.threat}% · <b>Run Score:</b> ${this.getScore()}<br>
+      Costs — Worker $${this.costFns.costWorker()} · Coop $${this.costFns.costCoop()} · Tractor $${this.costFns.costTractor()} · Corn $${this.costFns.costCorn()} · Fence $${this.costFns.costFence()}
+    `;
+  }
+
+  async gameOver(){
+    this.dead = true;
+    latestScore = this.getScore();
+    document.getElementById('finalText').textContent = `Final Score: ${latestScore} | Eggs Sold: ${this.totalEggsSold} | Money Earned: $${Math.floor(this.earnedMoney)} | Survived: ${Math.floor(this.timeAlive)}s`;
+    document.getElementById('gameOverPanel').style.display = 'flex';
+    await refreshLeaderboard();
+  }
+
+  async refreshLeaderboard(){ await refreshLeaderboard(); }
+}
+
+new Phaser.Game({
+  type: Phaser.AUTO,
+  parent: 'game-root',
+  width: 960,
+  height: 540,
+  backgroundColor: '#98d67c',
+  physics: { default: 'arcade', arcade: { debug: false } },
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: [FarmScene]
+});
+
+function getClientFingerprint() {
+  const key = 'gamehub.client-fingerprint.v1';
+  const existing = localStorage.getItem(key);
+  if (existing) return existing;
+  const created = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  localStorage.setItem(key, created);
+  return created;
+}
+
+async function supabaseRequest(path, { method = 'GET', body, prefer } = {}) {
+  const headers = {
+    apikey: SUPABASE_PUBLISHABLE_KEY,
+    Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+    'Content-Type': 'application/json'
+  };
+  if (prefer) headers.Prefer = prefer;
+
+  const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined
+  });
+
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) throw new Error((data && (data.message || data.error)) || `Supabase ${res.status}`);
+  return data;
+}
+
+async function submitScore(playerName, score) {
+  try {
+    await supabaseRequest('/leaderboard_scores', {
+      method: 'POST',
+      prefer: 'return=minimal',
+      body: {
+        game_slug: GAME_ID,
+        player_name: String(playerName || 'Anonymous').slice(0, 20),
+        score: Math.round(score),
+        client_fingerprint: getClientFingerprint()
+      }
+    });
+
+    const scores = await getLeaderboard(100);
+    const rank = scores.findIndex((row) => row.playerName === String(playerName || 'Anonymous').slice(0, 20) && row.score === Math.round(score)) + 1;
+    return { ok: true, rank: rank > 0 ? rank : null, totalScores: scores.length };
+  } catch (e) {
+    console.warn('Leaderboard unavailable:', e);
+    return null;
+  }
+}
+
+async function getLeaderboard(limit = 10) {
+  try {
+    const rows = await supabaseRequest('/rpc/get_game_leaderboard', {
+      method: 'POST',
+      body: { p_game_slug: GAME_ID, p_limit: Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100) }
+    });
+    return (rows || []).map((row) => ({
+      playerName: row.player_name,
+      score: Number(row.score) || 0,
+      date: row.created_at
+    }));
+  } catch (e) {
+    console.warn('Leaderboard unavailable:', e);
+    return [];
+  }
+}
+
+async function refreshLeaderboard(){
+  const el=document.getElementById('leaderboard');
+  el.innerHTML='<li>Loading...</li>';
+  try{
+    const rows=await getLeaderboard(10);
+    el.innerHTML='';
+    if(!rows?.length){ const li=document.createElement('li'); li.textContent='No scores yet — be first!'; el.appendChild(li); return; }
+    rows.forEach((r,i)=>{ const li=document.createElement('li'); li.textContent=`${r.playerName||'anon'} — ${r.score}`; if(i===0) li.style.color='#ffe58f'; el.appendChild(li); });
+  } catch {
+    el.innerHTML='<li>Leaderboard unavailable.</li>';
+  }
+}
+
+document.getElementById('submitBtn').addEventListener('click', async()=>{
+  const submitStatus=document.getElementById('submitStatus');
+  const name=(document.getElementById('nameInput').value||'Player').trim().slice(0,20)||'Player';
+  submitStatus.textContent='Submitting...';
+  try {
+    await submitScore(name, latestScore);
+    submitStatus.textContent='Submitted!';
+    await refreshLeaderboard();
+  } catch {
+    submitStatus.textContent='Submit failed. You can still restart.';
+  }
+});
+
+document.getElementById('restartBtn').addEventListener('click', ()=>{ window.location.reload(); });
+
+refreshLeaderboard();
+</script>
+</body>
+</html>
