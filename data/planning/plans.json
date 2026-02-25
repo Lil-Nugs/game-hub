@@ -4,7 +4,7 @@
     "title": "Unified Subagent Orchestration Platform Plan (Full Spec v1)",
     "date": "2026-02-24",
     "author": "Codex Gamehub",
-    "summary": "Full-spec architecture and operating model for OpenClaw subagent orchestration: durable run state machine, strict worker contracts, centralized Linear mutation safety, failure recovery for session/pairing disruptions, recurring pipeline jobs, observability, and rollout guardrails.",
+    "summary": "Umbrella architecture and operating model for OpenClaw subagent orchestration. Execution is now sequenced through three deliverable slice plans: orchestrator core lite, linear+scheduler integration, and recurring jobs framework.",
     "tags": [
       "skills",
       "orchestration",
@@ -27,11 +27,11 @@
       },
       {
         "heading": "Scope (In)",
-        "body": "• Subagent lifecycle orchestration\n• Task scheduling + dependency handling\n• Linear update safety model\n• Recurring job pipeline framework\n• Run artifacts, metrics, and operator reporting\n• Failure handling for session/pairing/API disruptions"
+        "body": "\u2022 Subagent lifecycle orchestration\n\u2022 Task scheduling + dependency handling\n\u2022 Linear update safety model\n\u2022 Recurring job pipeline framework\n\u2022 Run artifacts, metrics, and operator reporting\n\u2022 Failure handling for session/pairing/API disruptions"
       },
       {
         "heading": "Scope (Out, v1)",
-        "body": "• Fully autonomous product strategy decisions\n• Cross-org multi-tenant scheduling\n• Complex priority optimization engines\n• Deep anti-cheat/security enforcement beyond current operational needs"
+        "body": "\u2022 Fully autonomous product strategy decisions\n\u2022 Cross-org multi-tenant scheduling\n\u2022 Complex priority optimization engines\n\u2022 Deep anti-cheat/security enforcement beyond current operational needs"
       },
       {
         "heading": "Design Principles",
@@ -43,7 +43,7 @@
       },
       {
         "heading": "State Machine (Run-Level)",
-        "body": "Run states: `queued -> preparing -> running -> blocked -> recovering -> done|failed|canceled`.\nRules:\n• `queued -> preparing`: inputs validated, lock acquired.\n• `preparing -> running`: at least one eligible task dispatched.\n• `running -> blocked`: frontier empty due to blockers/dependency/policy conflict.\n• `blocked -> recovering`: recovery action or retry window starts.\n• `recovering -> running`: recovery clears blocker.\n• Terminal states: `done` (all required tasks complete with evidence), `failed` (unrecoverable policy/runtime error), `canceled` (operator/user stop)."
+        "body": "Run states: `queued -> preparing -> running -> blocked -> recovering -> done|failed|canceled`.\nRules:\n\u2022 `queued -> preparing`: inputs validated, lock acquired.\n\u2022 `preparing -> running`: at least one eligible task dispatched.\n\u2022 `running -> blocked`: frontier empty due to blockers/dependency/policy conflict.\n\u2022 `blocked -> recovering`: recovery action or retry window starts.\n\u2022 `recovering -> running`: recovery clears blocker.\n\u2022 Terminal states: `done` (all required tasks complete with evidence), `failed` (unrecoverable policy/runtime error), `canceled` (operator/user stop)."
       },
       {
         "heading": "State Machine (Task-Level)",
@@ -71,7 +71,7 @@
       },
       {
         "heading": "Execution Modes",
-        "body": "• Sequential: max active workers = 1 (default safety mode).\n• Windowed: max active workers = N (bounded, explicit).\n• Queue Worker: long-running runner polls eligible frontier repeatedly with sleep interval and lock checks.\nAll modes use same contracts/state machine."
+        "body": "\u2022 Sequential: max active workers = 1 (default safety mode).\n\u2022 Windowed: max active workers = N (bounded, explicit).\n\u2022 Queue Worker: long-running runner polls eligible frontier repeatedly with sleep interval and lock checks.\nAll modes use same contracts/state machine."
       },
       {
         "heading": "Failure Taxonomy + Reason Codes",
@@ -79,7 +79,7 @@
       },
       {
         "heading": "Recovery + Retry Policy",
-        "body": "• Retry classes: transient vs persistent.\n• Transient (lookup timeout/API): bounded exponential backoff with jitter.\n• Persistent (policy violation/missing required input): no blind retry, escalate immediately.\n• Per-task retry budget default: 2 attempts after initial run.\n• Per-run circuit-breaker: fail run if failure ratio exceeds threshold or repeated identical failures occur."
+        "body": "\u2022 Retry classes: transient vs persistent.\n\u2022 Transient (lookup timeout/API): bounded exponential backoff with jitter.\n\u2022 Persistent (policy violation/missing required input): no blind retry, escalate immediately.\n\u2022 Per-task retry budget default: 2 attempts after initial run.\n\u2022 Per-run circuit-breaker: fail run if failure ratio exceeds threshold or repeated identical failures occur."
       },
       {
         "heading": "Session/Pairing Disruption Handling",
@@ -99,7 +99,7 @@
       },
       {
         "heading": "Observability + Metrics",
-        "body": "Track at minimum:\n• Run success rate\n• Task success/block/fail counts\n• Mean time to done\n• Retry counts by reason code\n• Linear mutation conflict rate\n• Recurring pipeline completion rate\nPublish concise ops summary each run and maintain machine-readable logs."
+        "body": "Track at minimum:\n\u2022 Run success rate\n\u2022 Task success/block/fail counts\n\u2022 Mean time to done\n\u2022 Retry counts by reason code\n\u2022 Linear mutation conflict rate\n\u2022 Recurring pipeline completion rate\nPublish concise ops summary each run and maintain machine-readable logs."
       },
       {
         "heading": "Operational Reporting Contract",
@@ -107,34 +107,193 @@
       },
       {
         "heading": "Security + Guardrails",
-        "body": "• Restrict worker file write scope to approved repo paths per task.\n• Require explicit approval for destructive operations.\n• Do not auto-close issues without evidence gates.\n• Reject ambiguous policy states; escalate instead.\n• Keep secrets out of worker output artifacts."
+        "body": "\u2022 Restrict worker file write scope to approved repo paths per task.\n\u2022 Require explicit approval for destructive operations.\n\u2022 Do not auto-close issues without evidence gates.\n\u2022 Reject ambiguous policy states; escalate instead.\n\u2022 Keep secrets out of worker output artifacts."
       },
       {
         "heading": "Implementation Plan (Phased)",
-        "body": "Phase 1 — Contracts + state machine + artifact schema\nPhase 2 — Core runtime scripts (`start-run`, `dispatch`, `validate`, `close-run`)\nPhase 3 — Linear mutator integration + dependency scheduler\nPhase 4 — Recurring pipeline toolkit + standup reference implementation\nPhase 5 — Hardening: failure injection tests, alert thresholds, operator runbooks"
+        "body": "Phase 1 \u2014 Contracts + state machine + artifact schema\nPhase 2 \u2014 Core runtime scripts (`start-run`, `dispatch`, `validate`, `close-run`)\nPhase 3 \u2014 Linear mutator integration + dependency scheduler\nPhase 4 \u2014 Recurring pipeline toolkit + standup reference implementation\nPhase 5 \u2014 Hardening: failure injection tests, alert thresholds, operator runbooks"
       },
       {
         "heading": "Acceptance Criteria",
-        "body": "• 100% of done tasks include valid evidence payloads\n• Linear status drift incidents approach zero under orchestrated runs\n• Session/pairing disruptions create recoverable blocked states, not orphaned work\n• Recurring pipelines produce deterministic artifacts and single publish events\n• Operators can reconstruct any run from artifacts without chat history dependence"
+        "body": "\u2022 100% of done tasks include valid evidence payloads\n\u2022 Linear status drift incidents approach zero under orchestrated runs\n\u2022 Session/pairing disruptions create recoverable blocked states, not orphaned work\n\u2022 Recurring pipelines produce deterministic artifacts and single publish events\n\u2022 Operators can reconstruct any run from artifacts without chat history dependence"
       },
       {
         "heading": "Risks + Mitigations",
-        "body": "• Risk: Contract overhead slows small tasks. Mitigation: lightweight sequential mode presets.\n• Risk: Validator false negatives. Mitigation: narrow invariant checks + versioned validator updates.\n• Risk: Reporting noise. Mitigation: concise summaries + channel scoping.\n• Risk: Integration drift with Linear. Mitigation: centralized mutator + freshness checks."
+        "body": "\u2022 Risk: Contract overhead slows small tasks. Mitigation: lightweight sequential mode presets.\n\u2022 Risk: Validator false negatives. Mitigation: narrow invariant checks + versioned validator updates.\n\u2022 Risk: Reporting noise. Mitigation: concise summaries + channel scoping.\n\u2022 Risk: Integration drift with Linear. Mitigation: centralized mutator + freshness checks."
       },
       {
         "heading": "Task Breakdown Guidance (for Linear conversion)",
         "body": "Create one epic plus dependency-linked tasks:\n1) Spec + contracts\n2) Core runtime scripts\n3) Validator + evidence gating\n4) Linear mutator\n5) DAG scheduler\n6) Recurring pipeline primitives\n7) Standup reference pipeline\n8) Observability + alerting\n9) Hardening + docs"
       },
       {
-        "heading": "Disposition of Superseded Plans",
-        "body": "This plan supersedes previous fragmented orchestration plans (`batch-sequencer-skill-v1`, `morning-standup-capture-and-post-v1`, and related runner fragments) for active execution design. Historical plans remain for audit context only."
+        "heading": "Next Step",
+        "body": "Execute implementation via the three slice plans in sequence (A then B then C), while using this umbrella plan for architecture guardrails and contract consistency checks."
       },
       {
-        "heading": "Next Step",
-        "body": "Convert this full spec into Linear epic/tasks with explicit dependencies, then start implementation at Phase 1 with contract tests before enabling new orchestrated production runs."
+        "heading": "Execution Sequencing Update",
+        "body": "This unified plan is retained as an umbrella/reference spec and is superseded for implementation sequencing by:\n1) `subagent-orchestrator-core-lite-v1` (Slice A)\n2) `subagent-linear-scheduler-integration-v1` (Slice B)\n3) `subagent-recurring-jobs-framework-v1` (Slice C)\nDelivery order: Slice A -> Slice B -> Slice C. Cross-slice changes must preserve worker input/output contracts and evidence gating invariants defined here."
       }
     ],
     "implementationStatus": "draft",
+    "taskTrackerStatus": "not-converted"
+  },
+  {
+    "id": "subagent-orchestrator-core-lite-v1",
+    "title": "Slice A \u2014 Orchestrator Core Lite (Deliverable Spec v1)",
+    "date": "2026-02-24",
+    "author": "Codex Gamehub",
+    "summary": "Implement the minimum production-safe orchestrator core: deterministic run/task state machines, worker contracts, artifact persistence, and evidence-gated completion without external mutator integrations.",
+    "tags": [
+      "skills",
+      "orchestration",
+      "subagents",
+      "runtime",
+      "state-machine",
+      "contracts",
+      "artifacts",
+      "spec"
+    ],
+    "sections": [
+      {
+        "heading": "Goal",
+        "body": "Deliver a reliable core orchestration runtime that can execute bounded task runs end-to-end with deterministic state, structured worker I/O contracts, and auditable artifacts."
+      },
+      {
+        "heading": "Scope",
+        "body": "In: run/task state models, dispatch loop (sequential + bounded window), worker contract envelopes, artifact schema, evidence validation gates, lifecycle reporting, recovery for transient runtime failures. Out: Linear writes, advanced dependency graph scheduling beyond simple ready frontier, recurring cron pipelines."
+      },
+      {
+        "heading": "Architecture/Design",
+        "body": "Components: (1) Run Coordinator (lock, initialize, lifecycle transitions), (2) Task Dispatcher (claim/launch/reclaim), (3) Validator (contract + evidence gate checks), (4) Artifact Store writer, (5) Reporter. Canonical states: run `queued->preparing->running->blocked|done|failed|canceled`; task `ready->claimed->executing->validating->done|blocked|failed|canceled`. All transitions are append-only evented with timestamps and actor metadata."
+      },
+      {
+        "heading": "Contracts",
+        "body": "Worker input required fields: `run_id`, `task_id`, `objective`, `acceptance_criteria[]`, `allowed_paths[]`, `disallowed_actions[]`, `reporting_channel`, `timeout_s`, `retry_index`, `dependency_context`, `policy_refs[]`. Worker output required fields: `run_id`, `task_id`, `session_key`, `outcome`, `summary`, `evidence`, `blocker`, `timestamps`. Validation contract: `done` only when required fields are present, acceptance criteria mapping is complete, and required artifacts/check outputs are attached."
+      },
+      {
+        "heading": "Implementation Phases",
+        "body": "Phase A1: Define JSON schemas for run, task, worker-input, worker-output, and validation result artifacts.\nPhase A2: Build `start-run` + dispatch executor for sequential mode with lock handling.\nPhase A3: Add bounded windowed mode and retry policy (transient-only exponential backoff + jitter).\nPhase A4: Implement validator and run finalizer (`close-run`) with evidence-gated task completion.\nPhase A5: Add operator reporting templates and basic failure-injection tests."
+      },
+      {
+        "heading": "Acceptance Criteria",
+        "body": "\u2022 A run with 5 tasks executes deterministically and produces complete per-run artifacts without relying on chat memory.\n\u2022 100% of tasks marked `done` pass schema and evidence gate checks.\n\u2022 Session/pairing lookup interruptions produce explicit `blocked` or retriable failures with reason codes, never silent drops.\n\u2022 Restarting coordinator during `running` recovers from persisted artifacts and does not duplicate completed task closure.\n\u2022 Lifecycle updates post started/completed/blocked/failed summaries to configured channel."
+      },
+      {
+        "heading": "Risks + Mitigations",
+        "body": "Risk: Contract strictness slows early adoption. Mitigation: ship schema examples + helper generators.\nRisk: State corruption from concurrent coordinators. Mitigation: repo/process lock + run ownership token.\nRisk: Validator false failures. Mitigation: versioned checks with explicit invariant list and test fixtures.\nRisk: Operator alert noise. Mitigation: concise aggregation and reason-code bucketing."
+      },
+      {
+        "heading": "Next Step",
+        "body": "Create Linear epic and tasks for A1-A5, then implement Phase A1 and A2 first with contract fixture tests before enabling multi-task runs."
+      }
+    ],
+    "implementationStatus": "not-started",
+    "taskTrackerStatus": "not-converted"
+  },
+  {
+    "id": "subagent-linear-scheduler-integration-v1",
+    "title": "Slice B \u2014 Linear + Scheduler Integration (Deliverable Spec v1)",
+    "date": "2026-02-24",
+    "author": "Codex Gamehub",
+    "summary": "Add centralized Linear mutation safety and dependency-aware scheduling on top of the core orchestrator so external issue state and internal task execution remain consistent under concurrency.",
+    "tags": [
+      "skills",
+      "orchestration",
+      "linear",
+      "scheduler",
+      "dag",
+      "idempotency",
+      "reliability",
+      "spec"
+    ],
+    "sections": [
+      {
+        "heading": "Goal",
+        "body": "Integrate policy-safe Linear updates and DAG frontier scheduling into the orchestrator to eliminate state drift between execution artifacts and issue tracker status."
+      },
+      {
+        "heading": "Scope",
+        "body": "In: centralized mutator, read-fresh-before-write enforcement, transition policy checks, idempotency keys, race detection/reconcile loop, dependency graph frontier scheduler, blocked reason taxonomy alignment. Out: recurring pipeline framework and cron stage orchestration (Slice C)."
+      },
+      {
+        "heading": "Architecture/Design",
+        "body": "Add two subsystems: (1) Linear Mutator Service invoked only by coordinator after task validation; workers submit `linear_proposal` only. (2) Dependency Scheduler maintaining adjacency + in-degree indexes per run and dispatching only eligible frontier nodes. Conflict path: mutator detects stale issue revision -> re-read -> re-evaluate transition -> apply or downgrade to `blocked(policy_violation|race_conflict)`."
+      },
+      {
+        "heading": "Contracts",
+        "body": "Task definition contract extends with `dependencies[]` and optional `linear_issue_id`. Worker output includes `linear_proposal` object (`target_state`, `comment`, `policy_refs`, `idempotency_key`). Mutator response contract: `applied|noop|rejected|conflict` plus evidence payload (pre/post state, timestamps, policy check results). Scheduler contract guarantees only dependency-satisfied tasks are claimable."
+      },
+      {
+        "heading": "Implementation Phases",
+        "body": "Phase B1: Implement dependency parser + DAG frontier calculator with cycle detection.\nPhase B2: Wire scheduler into dispatch loop and unblock dependents on validated completion.\nPhase B3: Implement Linear mutator adapter with freshness checks and allowed transition matrix.\nPhase B4: Add race/conflict reconciliation flow and idempotent retry behavior.\nPhase B5: Add integration tests for drift prevention (simulated concurrent updates) and scheduler correctness."
+      },
+      {
+        "heading": "Acceptance Criteria",
+        "body": "\u2022 Scheduler never dispatches a task whose dependencies are incomplete.\n\u2022 Cyclic dependency plans are rejected at preparation with actionable diagnostics.\n\u2022 Workers cannot directly mutate Linear; all writes route through mutator with audit evidence.\n\u2022 Concurrent Linear changes are detected and reconciled without invalid transitions.\n\u2022 For orchestrated runs, issue-state drift incidents are reduced to near-zero in test and pilot usage."
+      },
+      {
+        "heading": "Risks + Mitigations",
+        "body": "Risk: Transition policy ambiguity. Mitigation: explicit matrix + per-project config and fail-closed defaults.\nRisk: API rate limits. Mitigation: batched reads, bounded retries, and no-op detection via idempotency keys.\nRisk: Complex DAG debug burden. Mitigation: export frontier snapshots and human-readable dependency diagnostics.\nRisk: Mutator single-point failure. Mitigation: retry queue with durable pending intents and operator escalation."
+      },
+      {
+        "heading": "Next Step",
+        "body": "After Slice A is stable, create Linear tasks for B1-B5 and start with B1/B3 in parallel test branches, then integrate through end-to-end drift tests."
+      }
+    ],
+    "implementationStatus": "not-started",
+    "taskTrackerStatus": "not-converted"
+  },
+  {
+    "id": "subagent-recurring-jobs-framework-v1",
+    "title": "Slice C \u2014 Recurring Jobs Framework (Deliverable Spec v1)",
+    "date": "2026-02-24",
+    "author": "Codex Gamehub",
+    "summary": "Build a staged recurring-job framework (capture, merge, publish) that reuses orchestrator contracts/artifacts to run reliable scheduled operational pipelines such as morning standups.",
+    "tags": [
+      "skills",
+      "orchestration",
+      "recurring",
+      "cron",
+      "pipelines",
+      "standup",
+      "operations",
+      "spec"
+    ],
+    "sections": [
+      {
+        "heading": "Goal",
+        "body": "Provide deterministic, observable recurring pipelines that execute on schedule, degrade gracefully on partial source failure, and publish exactly one consolidated result per run."
+      },
+      {
+        "heading": "Scope",
+        "body": "In: recurring run registration, stage model (`capture->merge->publish`), per-stage schema contracts, schedule trigger integration, partial-failure handling, final publish guardrails, runbook/ops metrics. Out: broad multi-tenant scheduler platform and non-operational content workflows."
+      },
+      {
+        "heading": "Architecture/Design",
+        "body": "Recurring framework sits on top of slices A/B. Scheduler trigger creates run envelopes tagged `recurring`. Stages execute as orchestrated tasks with deterministic artifact paths: `captures/*`, `merge/summary.json`, `publish/result.json`. Publish stage is protected by single-fire guard (`run_id + stage_id` idempotency). Missing capture artifacts are represented explicitly in merge output with `unavailable` reason metadata."
+      },
+      {
+        "heading": "Contracts",
+        "body": "Pipeline definition contract: `pipeline_id`, `schedule`, `sources[]`, `merge_strategy`, `publish_target`, `retry_policy`, `timeouts`. Stage output contracts: Capture -> normalized source artifact + freshness metadata; Merge -> combined summary object + source health map; Publish -> delivery receipt (channel/message ids) + rendered payload hash. Framework contract requires one and only one terminal publish attempt outcome (`done|blocked|failed`) per scheduled run."
+      },
+      {
+        "heading": "Implementation Phases",
+        "body": "Phase C1: Define pipeline manifest schema and recurring run bootstrapper.\nPhase C2: Implement capture stage toolkit and source adapters with independent retries.\nPhase C3: Implement merge engine with conflict rules and unavailable-source annotations.\nPhase C4: Implement publish stage with exactly-once idempotency guard and fallback reporting.\nPhase C5: Deliver morning standup reference pipeline + dashboards/runbook for operators."
+      },
+      {
+        "heading": "Acceptance Criteria",
+        "body": "\u2022 Scheduled runs create consistent run artifacts for every stage.\n\u2022 If one or more capture sources fail, merge still produces output with explicit unavailable annotations.\n\u2022 Publish stage emits at most one successful post per run and records receipts/hashes.\n\u2022 Operators can replay/debug any recurring run from artifacts alone.\n\u2022 Morning standup reference pipeline posts reliably during pilot window with actionable partial-failure messaging when needed."
+      },
+      {
+        "heading": "Risks + Mitigations",
+        "body": "Risk: Schedule overlap causing duplicate runs. Mitigation: per-pipeline run lock and overlap policy (`skip|queue`).\nRisk: Source instability. Mitigation: stage-local retries + stale-data fallback with freshness flags.\nRisk: Publish duplication on retries. Mitigation: idempotency key and receipt reconciliation before send.\nRisk: Pipeline sprawl. Mitigation: manifest review checklist and shared stage libraries."
+      },
+      {
+        "heading": "Next Step",
+        "body": "After Slice B validation, create Linear tasks for C1-C5 and implement C1/C2 first, then ship the standup reference pipeline as the pilot recurring workload."
+      }
+    ],
+    "implementationStatus": "not-started",
     "taskTrackerStatus": "not-converted"
   },
   {
@@ -165,24 +324,24 @@
         "body": "1) Experiment traceability is mandatory: every generated game must be attributable to an exact skill prompt version.\n2) Deterministic where fragility is high (deploy, manifest, required wiring).\n3) Flexible where creativity matters (mechanics, art direction, progression flavor).\n4) Validators enforce contracts, not aesthetics.\n5) Deployment success and Pages availability are separate phases."
       },
       {
-        "heading": "Phase 1 — Deterministic Pipeline Foundations",
-        "body": "Implement core scripts:\n• `scripts/preflight-gamehub.mjs`: environment + credential + repo access checks.\n• `scripts/lib/manifest.mjs` + `scripts/validate-manifest.mjs`: canonical games.json schema validation/upsert/formatting.\n• `scripts/publish-game.mjs`: single deploy path (lock, copy, manifest upsert, commit, push retry/rebase).\nAll generation flows must publish through this CLI, not ad-hoc shell snippets."
+        "heading": "Phase 1 \u2014 Deterministic Pipeline Foundations",
+        "body": "Implement core scripts:\n\u2022 `scripts/preflight-gamehub.mjs`: environment + credential + repo access checks.\n\u2022 `scripts/lib/manifest.mjs` + `scripts/validate-manifest.mjs`: canonical games.json schema validation/upsert/formatting.\n\u2022 `scripts/publish-game.mjs`: single deploy path (lock, copy, manifest upsert, commit, push retry/rebase).\nAll generation flows must publish through this CLI, not ad-hoc shell snippets."
       },
       {
-        "heading": "Phase 2 — Hybrid Scaffold (Reliability Rails, Creative Core)",
-        "body": "Introduce `templates/phaser-hybrid-base.html` with strict/open boundaries:\n• Locked: constants, leaderboard helpers, menu wiring, game-over form/submit/replay flow, hub link plumbing.\n• Open: gameplay systems, hazard/pickup behavior, scoring flavor (within required monotonic contract), theme/art/audio implementation.\nUse explicit insertion regions so agents can fully vary game design while reusing stable plumbing."
+        "heading": "Phase 2 \u2014 Hybrid Scaffold (Reliability Rails, Creative Core)",
+        "body": "Introduce `templates/phaser-hybrid-base.html` with strict/open boundaries:\n\u2022 Locked: constants, leaderboard helpers, menu wiring, game-over form/submit/replay flow, hub link plumbing.\n\u2022 Open: gameplay systems, hazard/pickup behavior, scoring flavor (within required monotonic contract), theme/art/audio implementation.\nUse explicit insertion regions so agents can fully vary game design while reusing stable plumbing."
       },
       {
-        "heading": "Phase 3 — Contract Validation (Not Style Policing)",
-        "body": "Add `scripts/validate-game-html.mjs` that checks required invariants only:\n• Hub backlink present\n• No `prompt()` for player-name submission\n• Required leaderboard constants/functions present\n• Keyboard + touch/pointer input hooks present\n• Expected scene lifecycle anchors present (menu/start/game-over/replay path)\nDo not enforce palette, genre, mechanics, or presentation style."
+        "heading": "Phase 3 \u2014 Contract Validation (Not Style Policing)",
+        "body": "Add `scripts/validate-game-html.mjs` that checks required invariants only:\n\u2022 Hub backlink present\n\u2022 No `prompt()` for player-name submission\n\u2022 Required leaderboard constants/functions present\n\u2022 Keyboard + touch/pointer input hooks present\n\u2022 Expected scene lifecycle anchors present (menu/start/game-over/replay path)\nDo not enforce palette, genre, mechanics, or presentation style."
       },
       {
-        "heading": "Phase 4 — Prompt Normalization With Creative Headroom",
+        "heading": "Phase 4 \u2014 Prompt Normalization With Creative Headroom",
         "body": "Add `scripts/compile-game-spec.mjs` to normalize user prompt into a minimal structured spec (controls, loop/death, hazards, pickups, scoring contract, difficulty intent, visual/audio intent). Treat this as invariant guidance and completeness scaffolding, not a strict blueprint."
       },
       {
-        "heading": "Phase 5 — Two-Stage Verification for GitHub Pages Latency",
-        "body": "Use split verification:\n• Immediate blocking checks (must pass before reporting deploy success): preflight, manifest/game validation, git push success.\n• Deferred non-blocking check: `scripts/smoke-pages-url.mjs` starts after a delay (e.g. +2 minutes) and retries with backoff for a bounded window (e.g. up to 15 minutes). Report pass/fail asynchronously after Pages settles."
+        "heading": "Phase 5 \u2014 Two-Stage Verification for GitHub Pages Latency",
+        "body": "Use split verification:\n\u2022 Immediate blocking checks (must pass before reporting deploy success): preflight, manifest/game validation, git push success.\n\u2022 Deferred non-blocking check: `scripts/smoke-pages-url.mjs` starts after a delay (e.g. +2 minutes) and retries with backoff for a bounded window (e.g. up to 15 minutes). Report pass/fail asynchronously after Pages settles."
       },
       {
         "heading": "Operational Reporting Model",
@@ -194,23 +353,23 @@
       },
       {
         "heading": "Acceptance Criteria",
-        "body": "• 100% of newly generated games include required skill prompt provenance fields (`skill_prompt_version`, `skill_prompt_commit`).\n• Historical games are either backfilled with provenance or explicitly marked unknown (no silent nulls).\n• Zero deploys performed via ad-hoc deploy scripts once migration completes.\n• Zero new games missing required hub link or leaderboard plumbing contracts.\n• No immediate false-negative deploy failures caused by GitHub Pages propagation delay.\n• Gameplay/theme variance remains high (validators do not reject on creative differences).\n• Pipeline produces machine-readable artifacts for task tracking and postmortems."
+        "body": "\u2022 100% of newly generated games include required skill prompt provenance fields (`skill_prompt_version`, `skill_prompt_commit`).\n\u2022 Historical games are either backfilled with provenance or explicitly marked unknown (no silent nulls).\n\u2022 Zero deploys performed via ad-hoc deploy scripts once migration completes.\n\u2022 Zero new games missing required hub link or leaderboard plumbing contracts.\n\u2022 No immediate false-negative deploy failures caused by GitHub Pages propagation delay.\n\u2022 Gameplay/theme variance remains high (validators do not reject on creative differences).\n\u2022 Pipeline produces machine-readable artifacts for task tracking and postmortems."
       },
       {
         "heading": "Risks + Mitigations",
-        "body": "• Risk: missing/inaccurate provenance invalidates experiment conclusions. Mitigation: make provenance fields required in publish path and block release when absent.\n• Risk: scaffold over-constrains style. Mitigation: lock only brittle plumbing and keep gameplay/theme blocks fully open.\n• Risk: deferred checks get ignored. Mitigation: make deferred result post mandatory follow-up status.\n• Risk: validator drift with evolving game conventions. Mitigation: keep validator focused on stable interface contracts and version it with template updates."
+        "body": "\u2022 Risk: missing/inaccurate provenance invalidates experiment conclusions. Mitigation: make provenance fields required in publish path and block release when absent.\n\u2022 Risk: scaffold over-constrains style. Mitigation: lock only brittle plumbing and keep gameplay/theme blocks fully open.\n\u2022 Risk: deferred checks get ignored. Mitigation: make deferred result post mandatory follow-up status.\n\u2022 Risk: validator drift with evolving game conventions. Mitigation: keep validator focused on stable interface contracts and version it with template updates."
       },
       {
         "heading": "Next Step",
         "body": "Convert phases into Linear tasks with explicit dependencies and ownership, then implement Phase 1 first as highest reliability ROI."
       },
       {
-        "heading": "Skill Prompt Versioning System (Phase 0 — Required First)",
-        "body": "Implement immutable prompt version tracking for the game generation skill:\n• Add a canonical `skillPromptVersion` identifier (e.g., semver or date+hash) for each meaningful skill/prompt revision.\n• Store version metadata in-repo (changelog + mapping to commit hash).\n• Require each generation run to resolve and emit the active prompt version from source-of-truth files, not manual entry.\n• Treat prompt version changes as first-class experimental events with audit trail."
+        "heading": "Skill Prompt Versioning System (Phase 0 \u2014 Required First)",
+        "body": "Implement immutable prompt version tracking for the game generation skill:\n\u2022 Add a canonical `skillPromptVersion` identifier (e.g., semver or date+hash) for each meaningful skill/prompt revision.\n\u2022 Store version metadata in-repo (changelog + mapping to commit hash).\n\u2022 Require each generation run to resolve and emit the active prompt version from source-of-truth files, not manual entry.\n\u2022 Treat prompt version changes as first-class experimental events with audit trail."
       },
       {
-        "heading": "Per-Game Provenance Stamping (Phase 0 — Required First)",
-        "body": "Extend game metadata contract so every game record includes generation provenance fields:\n• `skill_prompt_version` (required)\n• `skill_prompt_commit` (required, commit hash that contained prompt/skill logic)\n• optional `generation_run_id` / `generator_pipeline_version` for deeper debugging\nUpdate `games.json` validation + upsert scripts to hard-fail if required provenance fields are missing for new games."
+        "heading": "Per-Game Provenance Stamping (Phase 0 \u2014 Required First)",
+        "body": "Extend game metadata contract so every game record includes generation provenance fields:\n\u2022 `skill_prompt_version` (required)\n\u2022 `skill_prompt_commit` (required, commit hash that contained prompt/skill logic)\n\u2022 optional `generation_run_id` / `generator_pipeline_version` for deeper debugging\nUpdate `games.json` validation + upsert scripts to hard-fail if required provenance fields are missing for new games."
       },
       {
         "heading": "Historical Backfill + Unknown Handling",
@@ -260,7 +419,7 @@
       },
       {
         "heading": "Guardrails (Required)",
-        "body": "• Never start a task already in-progress by another worker.\n• In sequential mode, if any batch issue is in-progress, do not start another.\n• Require commit/check evidence before Done.\n• Enforce required label schema before pickup (`source:*`, `lane:*`, `kind:*`, `exec:*`, `agent:*` as applicable).\n• If ambiguous state/conflict, escalate instead of mutating.\n• Scheduler must compute dependency in-degree from Linear relations and only start nodes with in-degree=0."
+        "body": "\u2022 Never start a task already in-progress by another worker.\n\u2022 In sequential mode, if any batch issue is in-progress, do not start another.\n\u2022 Require commit/check evidence before Done.\n\u2022 Enforce required label schema before pickup (`source:*`, `lane:*`, `kind:*`, `exec:*`, `agent:*` as applicable).\n\u2022 If ambiguous state/conflict, escalate instead of mutating.\n\u2022 Scheduler must compute dependency in-degree from Linear relations and only start nodes with in-degree=0."
       },
       {
         "heading": "Retry + Escalation Policy",
@@ -322,7 +481,7 @@
       },
       {
         "heading": "Cadence",
-        "body": "Run janitor cron every 30–60 minutes. Generate one concise drift report artifact each run: no-op (clean) or actionable mismatches grouped by severity."
+        "body": "Run janitor cron every 30\u201360 minutes. Generate one concise drift report artifact each run: no-op (clean) or actionable mismatches grouped by severity."
       },
       {
         "heading": "Observability",
@@ -330,7 +489,7 @@
       },
       {
         "heading": "Acceptance Criteria",
-        "body": "• Zero parent/child mismatch older than 24h\n• Zero completed implementation left in Backlog for >24h\n• Plan status fields never stale beyond one janitor interval\n• 100% of new operational issues contain required labels"
+        "body": "\u2022 Zero parent/child mismatch older than 24h\n\u2022 Zero completed implementation left in Backlog for >24h\n\u2022 Plan status fields never stale beyond one janitor interval\n\u2022 100% of new operational issues contain required labels"
       },
       {
         "heading": "Task Breakdown",
@@ -364,7 +523,7 @@
       },
       {
         "heading": "Requirements (confirmed)",
-        "body": "• Rating scale: integer 1-5\n• Identity model: anonymous client fingerprint, one rating per game per user, latest rating wins\n• Keep GitHub Pages static architecture\n• Use Supabase direct client path (no Worker dependency)\n• Use existing games first (retrofit), then apply to new games by default"
+        "body": "\u2022 Rating scale: integer 1-5\n\u2022 Identity model: anonymous client fingerprint, one rating per game per user, latest rating wins\n\u2022 Keep GitHub Pages static architecture\n\u2022 Use Supabase direct client path (no Worker dependency)\n\u2022 Use existing games first (retrofit), then apply to new games by default"
       },
       {
         "heading": "Architecture Approach",
@@ -372,19 +531,19 @@
       },
       {
         "heading": "Implementation Plan (phased)",
-        "body": "Phase 1 — Shared UI primitives\n1) Add reusable rating widget helper script under `shared/` for stars/buttons, loading state, submit state, and summary rendering.\n2) Define consistent UX copy and edge-case behavior (no rating yet, submit failed, retry).\n\nPhase 2 — Existing game integration\n3) Patch active game pages to include rating widget and call Supabase rating APIs.\n4) Ensure game slug binding is correct per page.\n5) Ensure latest-rating overwrite behavior is reflected in UI (replace previous vote).\n\nPhase 3 — Hub surfacing\n6) Update `index.html` cards to display `avg_rating` and `rating_count`.\n7) Optionally add sortable filter: Top Rated / Most Rated.\n\nPhase 4 — Validation + hardening\n8) Add smoke checklist script: submit rating, change rating, verify aggregate updates.\n9) Verify no secret exposure in client artifacts.\n10) Validate RLS behavior for anonymous writes and reads.\n\nPhase 5 — Operationalization\n11) Add default requirement to generation templates: include rating widget hooks.\n12) Track adoption metric: % active games with working rating UI."
+        "body": "Phase 1 \u2014 Shared UI primitives\n1) Add reusable rating widget helper script under `shared/` for stars/buttons, loading state, submit state, and summary rendering.\n2) Define consistent UX copy and edge-case behavior (no rating yet, submit failed, retry).\n\nPhase 2 \u2014 Existing game integration\n3) Patch active game pages to include rating widget and call Supabase rating APIs.\n4) Ensure game slug binding is correct per page.\n5) Ensure latest-rating overwrite behavior is reflected in UI (replace previous vote).\n\nPhase 3 \u2014 Hub surfacing\n6) Update `index.html` cards to display `avg_rating` and `rating_count`.\n7) Optionally add sortable filter: Top Rated / Most Rated.\n\nPhase 4 \u2014 Validation + hardening\n8) Add smoke checklist script: submit rating, change rating, verify aggregate updates.\n9) Verify no secret exposure in client artifacts.\n10) Validate RLS behavior for anonymous writes and reads.\n\nPhase 5 \u2014 Operationalization\n11) Add default requirement to generation templates: include rating widget hooks.\n12) Track adoption metric: % active games with working rating UI."
       },
       {
         "heading": "QA / Acceptance Criteria",
-        "body": "A rollout is complete when:\n• A user can rate any active game 1-5\n• Re-rating the same game updates (not duplicates) that user’s latest value\n• Aggregate avg/count updates and is visible both in game UI and hub cards\n• Failure states are non-blocking and user-visible\n• No `secretKey` appears in shipped frontend files"
+        "body": "A rollout is complete when:\n\u2022 A user can rate any active game 1-5\n\u2022 Re-rating the same game updates (not duplicates) that user\u2019s latest value\n\u2022 Aggregate avg/count updates and is visible both in game UI and hub cards\n\u2022 Failure states are non-blocking and user-visible\n\u2022 No `secretKey` appears in shipped frontend files"
       },
       {
         "heading": "Risks + Mitigations",
-        "body": "• Legacy/non-shared game pages in active set (e.g., inline Supabase clients) can break one-size-fits-all widget rollout -> add compatibility mode in shared widget + force pilot coverage on at least one legacy page before scale rollout.\n• Ambiguous active scope can cause partial retrofit -> define rollout scope explicitly as games.json entries with `archived !== true`, and require an inventory checklist before GAM-43 completion.\n• Hub aggregate fetch fanout can degrade load UX if done per-card -> require batched summary path (or enforced request budget) in GAM-44 before done.\n• QA evidence drift (manual-only verification) can let regressions slip -> require reproducible smoke command/checklist artifact in GAM-45 completion evidence.\n• Generation template contract can drift from real integration behavior -> gate GAM-46 on GAM-42 pilot evidence so default hooks match validated API."
+        "body": "\u2022 Legacy/non-shared game pages in active set (e.g., inline Supabase clients) can break one-size-fits-all widget rollout -> add compatibility mode in shared widget + force pilot coverage on at least one legacy page before scale rollout.\n\u2022 Ambiguous active scope can cause partial retrofit -> define rollout scope explicitly as games.json entries with `archived !== true`, and require an inventory checklist before GAM-43 completion.\n\u2022 Hub aggregate fetch fanout can degrade load UX if done per-card -> require batched summary path (or enforced request budget) in GAM-44 before done.\n\u2022 QA evidence drift (manual-only verification) can let regressions slip -> require reproducible smoke command/checklist artifact in GAM-45 completion evidence.\n\u2022 Generation template contract can drift from real integration behavior -> gate GAM-46 on GAM-42 pilot evidence so default hooks match validated API."
       },
       {
         "heading": "Execution Mapping (Linear)",
-        "body": "Policy check applied before Linear mutations: GAM-23, GAM-24, GAM-25, GAM-26.\n\nEpic (GameHub Infra):\n• GAM-40 — EPIC: Ratings rollout for existing games + hub surfacing\n\nTask breakout with codex assignment + dependencies (blocker -> blocked):\n• GAM-41 (dep:ready, dep:critical-path) — Shared widget primitives + UX contract [owner: codex via agent:core/exec:hybrid]\n• GAM-41 -> GAM-42 (dep:blocked, dep:critical-path) — Representative-game pilot integration (must include at least one legacy/non-shared page)\n• GAM-42 -> GAM-43 (dep:blocked, dep:critical-path) — Scale retrofit to all active games (`archived !== true`)\n• GAM-41 -> GAM-44 (dep:blocked, dep:critical-path) — Hub aggregate avg/count surfacing with request-budget guardrail\n• GAM-43 -> GAM-45 and GAM-44 -> GAM-45 (dep:blocked, dep:critical-path) — QA harness + security/RLS validation\n• GAM-41 -> GAM-46 and GAM-42 -> GAM-46 (dep:blocked) — Generation template contract update after pilot validation\n\nScheduling semantics:\n• In-degree 0 frontier at creation time: GAM-41 only.\n• All other tasks are Backlog with dep:blocked labels and explicit blocked-by relations until dependencies clear."
+        "body": "Policy check applied before Linear mutations: GAM-23, GAM-24, GAM-25, GAM-26.\n\nEpic (GameHub Infra):\n\u2022 GAM-40 \u2014 EPIC: Ratings rollout for existing games + hub surfacing\n\nTask breakout with codex assignment + dependencies (blocker -> blocked):\n\u2022 GAM-41 (dep:ready, dep:critical-path) \u2014 Shared widget primitives + UX contract [owner: codex via agent:core/exec:hybrid]\n\u2022 GAM-41 -> GAM-42 (dep:blocked, dep:critical-path) \u2014 Representative-game pilot integration (must include at least one legacy/non-shared page)\n\u2022 GAM-42 -> GAM-43 (dep:blocked, dep:critical-path) \u2014 Scale retrofit to all active games (`archived !== true`)\n\u2022 GAM-41 -> GAM-44 (dep:blocked, dep:critical-path) \u2014 Hub aggregate avg/count surfacing with request-budget guardrail\n\u2022 GAM-43 -> GAM-45 and GAM-44 -> GAM-45 (dep:blocked, dep:critical-path) \u2014 QA harness + security/RLS validation\n\u2022 GAM-41 -> GAM-46 and GAM-42 -> GAM-46 (dep:blocked) \u2014 Generation template contract update after pilot validation\n\nScheduling semantics:\n\u2022 In-degree 0 frontier at creation time: GAM-41 only.\n\u2022 All other tasks are Backlog with dep:blocked labels and explicit blocked-by relations until dependencies clear."
       },
       {
         "heading": "Recommended Next Move",
@@ -399,7 +558,7 @@
     "title": "Game Skill Improvement Plan",
     "date": "2026-02-21",
     "author": "Codex Gamehub",
-    "summary": "Quality gates, playtest rubric, skill refactor, and rating system — the full roadmap for making generated games reliably good.",
+    "summary": "Quality gates, playtest rubric, skill refactor, and rating system \u2014 the full roadmap for making generated games reliably good.",
     "tags": [
       "skill",
       "quality-gates",
@@ -408,31 +567,31 @@
     "sections": [
       {
         "heading": "Context",
-        "body": "Codex reviewed the game-generator skill and proposed an improvement plan focused on: deterministic hard gates, a soft playtest rubric, skill structure refactoring, and a rating system. The recommended immediate milestone is shipping validate_game.js + soft rubric + a generator → reviewer → repair loop."
+        "body": "Codex reviewed the game-generator skill and proposed an improvement plan focused on: deterministic hard gates, a soft playtest rubric, skill structure refactoring, and a rating system. The recommended immediate milestone is shipping validate_game.js + soft rubric + a generator \u2192 reviewer \u2192 repair loop."
       },
       {
         "heading": "1. Define Gate Policy",
-        "body": "This unlocks everything else. Two layers:\n\n• Hard fail checks — binary pass/fail. Game must pass all of these or it does not publish.\n• Soft rubric thresholds — subjective quality. Can trigger a repair attempt rather than a hard block.\n\nDo this before writing any code — the policy drives the validator logic."
+        "body": "This unlocks everything else. Two layers:\n\n\u2022 Hard fail checks \u2014 binary pass/fail. Game must pass all of these or it does not publish.\n\u2022 Soft rubric thresholds \u2014 subjective quality. Can trigger a repair attempt rather than a hard block.\n\nDo this before writing any code \u2014 the policy drives the validator logic."
       },
       {
         "heading": "2. Implement validate_game.js (Hard Gate)",
-        "body": "A deterministic Node.js script that checks:\n\n• Required constants, functions, and Phaser scenes are present\n• Score is monotonic (never decreases)\n• Game has an overlay, a submit score flow, and a replay button\n• Slug matches the entry in games.json\n• games.json contract fields are all present and valid\n\nIf any check fails → block publish. No exceptions."
+        "body": "A deterministic Node.js script that checks:\n\n\u2022 Required constants, functions, and Phaser scenes are present\n\u2022 Score is monotonic (never decreases)\n\u2022 Game has an overlay, a submit score flow, and a replay button\n\u2022 Slug matches the entry in games.json\n\u2022 games.json contract fields are all present and valid\n\nIf any check fails \u2192 block publish. No exceptions."
       },
       {
         "heading": "3. Playtest Agent Rubric (Soft Gate)",
-        "body": "A separate agent reviews the generated game on 5 categories, each scored 1–5:\n\n• Visuals — does it look good?\n• Gameplay — is the core loop fun?\n• Clarity — can you tell what to do?\n• Stability — does it run without errors?\n• Originality — is it doing something interesting?\n\nFail conditions: any category < 3, OR average < 3.6, OR stability < 4.\n\nA failed rubric auto-generates a targeted repair prompt for the generator. Max 1 repair loop to keep it fast."
+        "body": "A separate agent reviews the generated game on 5 categories, each scored 1\u20135:\n\n\u2022 Visuals \u2014 does it look good?\n\u2022 Gameplay \u2014 is the core loop fun?\n\u2022 Clarity \u2014 can you tell what to do?\n\u2022 Stability \u2014 does it run without errors?\n\u2022 Originality \u2014 is it doing something interesting?\n\nFail conditions: any category < 3, OR average < 3.6, OR stability < 4.\n\nA failed rubric auto-generates a targeted repair prompt for the generator. Max 1 repair loop to keep it fast."
       },
       {
         "heading": "4. Refactor Skill Structure",
-        "body": "No behavior changes — just organization. Split the monolithic SKILL.md into:\n\n• SKILL.md → slim orchestrator/router instructions only\n• references/ → design philosophy, visual themes, difficulty curve, scoring rules\n• scripts/ → validate_game.js and other tooling\n\nGoal: agents can load only the parts they need. Reduces prompt bloat and makes the skill easier to maintain."
+        "body": "No behavior changes \u2014 just organization. Split the monolithic SKILL.md into:\n\n\u2022 SKILL.md \u2192 slim orchestrator/router instructions only\n\u2022 references/ \u2192 design philosophy, visual themes, difficulty curve, scoring rules\n\u2022 scripts/ \u2192 validate_game.js and other tooling\n\nGoal: agents can load only the parts they need. Reduces prompt bloat and makes the skill easier to maintain."
       },
       {
         "heading": "5. Rating UI + Worker Endpoints",
-        "body": "Let humans rate games after playing:\n\n• Per-category rating (1–5) + optional comment\n• Submit via Cloudflare Worker\n• Display aggregate ratings on game cards and the game hub\n• Anti-spam / rate limiting on the Worker side\n\nThis gives real feedback to complement the agent rubric."
+        "body": "Let humans rate games after playing:\n\n\u2022 Per-category rating (1\u20135) + optional comment\n\u2022 Submit via Cloudflare Worker\n\u2022 Display aggregate ratings on game cards and the game hub\n\u2022 Anti-spam / rate limiting on the Worker side\n\nThis gives real feedback to complement the agent rubric."
       },
       {
         "heading": "6. Rating Export Into Repo",
-        "body": "Persist ratings so they survive Worker deploys:\n\n• Snapshot JSON committed on a daily schedule\n• Dated history files for trend analysis\n• Summary markdown for quick human review\n\nKeeps the data version-controlled and auditable."
+        "body": "Persist ratings so they survive Worker deploys:\n\n\u2022 Snapshot JSON committed on a daily schedule\n\u2022 Dated history files for trend analysis\n\u2022 Summary markdown for quick human review\n\nKeeps the data version-controlled and auditable."
       },
       {
         "heading": "Priority Update (2026-02-22)",
@@ -447,7 +606,7 @@
     "title": "Backend Direction: Move from Worker Persistence to Supabase",
     "date": "2026-02-22",
     "author": "Codex Gamehub",
-    "summary": "Decision: switch to client → Supabase direct for leaderboard/ratings to maximize prototyping speed and simplify growth. No legacy score migration.",
+    "summary": "Decision: switch to client \u2192 Supabase direct for leaderboard/ratings to maximize prototyping speed and simplify growth. No legacy score migration.",
     "tags": [
       "backend",
       "supabase",
@@ -461,11 +620,11 @@
       },
       {
         "heading": "Tradeoffs",
-        "body": "Cloudflare Worker persistence:\n• Pros: already deployed\n• Cons: free-tier write constraints and weaker long-term fit for richer persistence\n\nFirestore:\n• Pros: solid managed platform\n• Cons: less natural for SQL-style leaderboard/rating analytics\n\nSupabase:\n• Pros: rapid prototyping, straightforward relational model, SQL for rankings/aggregates, easy future auth path\n• Cons: requires clean RLS setup"
+        "body": "Cloudflare Worker persistence:\n\u2022 Pros: already deployed\n\u2022 Cons: free-tier write constraints and weaker long-term fit for richer persistence\n\nFirestore:\n\u2022 Pros: solid managed platform\n\u2022 Cons: less natural for SQL-style leaderboard/rating analytics\n\nSupabase:\n\u2022 Pros: rapid prototyping, straightforward relational model, SQL for rankings/aggregates, easy future auth path\n\u2022 Cons: requires clean RLS setup"
       },
       {
         "heading": "Decision",
-        "body": "Choose Supabase now.\n\nArchitecture: start with direct client → Supabase access (with RLS), and add a custom API later only if anti-cheat/business logic needs it.\n\nWe will not migrate old Worker scores; start fresh."
+        "body": "Choose Supabase now.\n\nArchitecture: start with direct client \u2192 Supabase access (with RLS), and add a custom API later only if anti-cheat/business logic needs it.\n\nWe will not migrate old Worker scores; start fresh."
       },
       {
         "heading": "Concise migration plan",
@@ -473,7 +632,7 @@
       },
       {
         "heading": "Next actions",
-        "body": "• Create Supabase project + env config\n• Implement minimal tables + indexes\n• Update game template integration\n• Validate leaderboard/rating flows in production\n• Remove Worker persistence dependency from templates"
+        "body": "\u2022 Create Supabase project + env config\n\u2022 Implement minimal tables + indexes\n\u2022 Update game template integration\n\u2022 Validate leaderboard/rating flows in production\n\u2022 Remove Worker persistence dependency from templates"
       }
     ],
     "implementationStatus": "not-started",
@@ -499,11 +658,11 @@
       },
       {
         "heading": "Captured Decisions",
-        "body": "• Start with one Linear workspace.\n• Start with a single Linear team for now (same two operators + spawned workers).\n• Explicit Discord requests can create tasks immediately (no second approval).\n• If agent wants to create tasks without explicit request, ask first.\n• Routing uses labels + project/epic context (team split deferred).\n• Agents should manage most status movement.\n• No dedicated intake triage at v1."
+        "body": "\u2022 Start with one Linear workspace.\n\u2022 Start with a single Linear team for now (same two operators + spawned workers).\n\u2022 Explicit Discord requests can create tasks immediately (no second approval).\n\u2022 If agent wants to create tasks without explicit request, ask first.\n\u2022 Routing uses labels + project/epic context (team split deferred).\n\u2022 Agents should manage most status movement.\n\u2022 No dedicated intake triage at v1."
       },
       {
         "heading": "Workspace Schema (v1)",
-        "body": "Team: GH (single team for v1).\n\nLabels:\n• source:discord | source:planning | source:automation\n• exec:agent | exec:human | exec:hybrid\n• agent:gamegen | agent:core | agent:ops\n• lane:gamegen | lane:core | lane:ops\n• kind:epic | kind:task | kind:bug | kind:research\n\nStructure:\n• Use Projects/Epics for strategic grouping and architecture tracks.\n• Use labels for routing/ownership lanes.\n• Keep one shared status model across all work.\n\nIssue conventions: owner target, acceptance criteria, priority (P0-P3), automation allowed (yes/no)."
+        "body": "Team: GH (single team for v1).\n\nLabels:\n\u2022 source:discord | source:planning | source:automation\n\u2022 exec:agent | exec:human | exec:hybrid\n\u2022 agent:gamegen | agent:core | agent:ops\n\u2022 lane:gamegen | lane:core | lane:ops\n\u2022 kind:epic | kind:task | kind:bug | kind:research\n\nStructure:\n\u2022 Use Projects/Epics for strategic grouping and architecture tracks.\n\u2022 Use labels for routing/ownership lanes.\n\u2022 Keep one shared status model across all work.\n\nIssue conventions: owner target, acceptance criteria, priority (P0-P3), automation allowed (yes/no)."
       },
       {
         "heading": "Execution Flow",
@@ -558,7 +717,7 @@
       },
       {
         "heading": "Data Sources (fixed)",
-        "body": "• Janitor summary source: Discord channel `1475309759300239380` (latest relevant messages only).\n• Bug scanner source: Discord channel `1475384413801021542` (latest relevant messages only).\n• Work planning source: live Linear state for completed-yesterday + recommended-next + stale/blocked >3d.\n• Locked Discord read bound: each capture reads at most latest `N=20` messages from its channel per attempt."
+        "body": "\u2022 Janitor summary source: Discord channel `1475309759300239380` (latest relevant messages only).\n\u2022 Bug scanner source: Discord channel `1475384413801021542` (latest relevant messages only).\n\u2022 Work planning source: live Linear state for completed-yesterday + recommended-next + stale/blocked >3d.\n\u2022 Locked Discord read bound: each capture reads at most latest `N=20` messages from its channel per attempt."
       },
       {
         "heading": "Execution Model",
@@ -566,11 +725,11 @@
       },
       {
         "heading": "Capture Jobs (6:00 / 6:10 / 6:20)",
-        "body": "Use THREE section-specific capture jobs (not one generic job):\n• janitor-capture job\n• bugscanner-capture job\n• linear-capture job\nEach job runs at 6:00, 6:10, and 6:20 AM PT and must:\n1) Compute PT date key (YYYY-MM-DD).\n2) Check its own section artifact first; if already `success`, exit with NO_REPLY.\n3) Retrieve only its scoped data source.\n4) Write compact JSON artifact with status + payload + attempt metadata.\n5) On retrieval/parsing error, write `failed` with reason code and allow next retry window."
+        "body": "Use THREE section-specific capture jobs (not one generic job):\n\u2022 janitor-capture job\n\u2022 bugscanner-capture job\n\u2022 linear-capture job\nEach job runs at 6:00, 6:10, and 6:20 AM PT and must:\n1) Compute PT date key (YYYY-MM-DD).\n2) Check its own section artifact first; if already `success`, exit with NO_REPLY.\n3) Retrieve only its scoped data source.\n4) Write compact JSON artifact with status + payload + attempt metadata.\n5) On retrieval/parsing error, write `failed` with reason code and allow next retry window."
       },
       {
         "heading": "Retry Strategy (lazy + deterministic)",
-        "body": "• Retry schedule is time-based and deterministic: each of the 3 capture jobs runs at 6:00, 6:10, 6:20.\n• Jobs retry only if their own section is not already `success` for the day.\n• Hard cap: max 3 attempts per section/day.\n• Reason codes (minimal set): `source_read_error`, `parse_error`, `timeout`, `empty_result`.\n• Attempt windows are locked per source:\n  - Janitor/Bug scanner: latest 20 messages each attempt\n  - Linear completed-yesterday: issues transitioned to Done between PT 00:00-23:59 previous day\n  - Linear stale: In Progress/Backlog items with no update >72h"
+        "body": "\u2022 Retry schedule is time-based and deterministic: each of the 3 capture jobs runs at 6:00, 6:10, 6:20.\n\u2022 Jobs retry only if their own section is not already `success` for the day.\n\u2022 Hard cap: max 3 attempts per section/day.\n\u2022 Reason codes (minimal set): `source_read_error`, `parse_error`, `timeout`, `empty_result`.\n\u2022 Attempt windows are locked per source:\n  - Janitor/Bug scanner: latest 20 messages each attempt\n  - Linear completed-yesterday: issues transitioned to Done between PT 00:00-23:59 previous day\n  - Linear stale: In Progress/Backlog items with no update >72h"
       },
       {
         "heading": "Artifact Contract",
@@ -582,15 +741,15 @@
       },
       {
         "heading": "Discord Output Format",
-        "body": "**GameHub Morning Update — YYYY-MM-DD**\n• **Janitor / Criticals:** <1-line summary>\n  - <0-3 bullets>\n• **Bug Scanner:** <1-line summary>\n  - <0-3 bullets>\n• **Yesterday Completed (Linear):** <count + short bullets>\n• **Today Focus:**\n  1) <priority task>\n  2) <priority task>\n  3) <priority task>\n• **Stale/Blocked (>3d):** <short bullets or `none`>"
+        "body": "**GameHub Morning Update \u2014 YYYY-MM-DD**\n\u2022 **Janitor / Criticals:** <1-line summary>\n  - <0-3 bullets>\n\u2022 **Bug Scanner:** <1-line summary>\n  - <0-3 bullets>\n\u2022 **Yesterday Completed (Linear):** <count + short bullets>\n\u2022 **Today Focus:**\n  1) <priority task>\n  2) <priority task>\n  3) <priority task>\n\u2022 **Stale/Blocked (>3d):** <short bullets or `none`>"
       },
       {
         "heading": "Token Minimization Tactics",
-        "body": "• Read bounded message counts from janitor/bug channels (latest N only).\n• Prefer short bullet extraction over narrative generation.\n• Avoid cross-session chatter and polling loops.\n• Skip successful sections in retry windows.\n• Keep messenger formatting logic static with lightweight substitutions."
+        "body": "\u2022 Read bounded message counts from janitor/bug channels (latest N only).\n\u2022 Prefer short bullet extraction over narrative generation.\n\u2022 Avoid cross-session chatter and polling loops.\n\u2022 Skip successful sections in retry windows.\n\u2022 Keep messenger formatting logic static with lightweight substitutions."
       },
       {
         "heading": "Reliability and Determinism Notes",
-        "body": "• Determinism comes from artifact gating + fixed schedule, not agent memory.\n• Publish job is independent from capture execution path and always runs.\n• A missing section cannot block the final morning update."
+        "body": "\u2022 Determinism comes from artifact gating + fixed schedule, not agent memory.\n\u2022 Publish job is independent from capture execution path and always runs.\n\u2022 A missing section cannot block the final morning update."
       },
       {
         "heading": "Rollout Plan (safe)",
